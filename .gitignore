@@ -1,0 +1,50 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.venv/
+venv/
+.venv-*/
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite3
+dist/
+*.egg-info/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+coverage/
+mobile/android/.gradle/
+mobile/android/local.properties
+mobile/ios/Pods/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Secrets
+*.pem
+*.key
