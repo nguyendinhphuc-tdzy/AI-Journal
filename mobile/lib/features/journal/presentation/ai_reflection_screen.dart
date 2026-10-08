@@ -21,12 +21,12 @@ class AiReflectionScreen extends StatelessWidget {
             child: MascotPlaceholder(state: MascotState.happy, size: 110),
           ),
           const SizedBox(height: AppSpacing.xl),
-          _ReflectionCard(
+          const _ReflectionCard(
             title: 'What I noticed',
             body: 'You seem to feel more relaxed after finishing something you had been carrying for a while.',
           ),
           const SizedBox(height: AppSpacing.md),
-          _ReflectionCard(
+          const _ReflectionCard(
             title: 'Something to think about',
             body: 'What helped you move from thinking about it to actually finishing it?',
           ),
