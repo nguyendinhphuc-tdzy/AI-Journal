@@ -8,6 +8,8 @@ from alembic.config import Config
 fd, db_path = tempfile.mkstemp(suffix=".db")
 os.close(fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
+# Ensure tests never migrate the configured shared Supabase database.
+os.environ["MIGRATION_DATABASE_URL"] = f"sqlite:///{db_path}"
 
 backend_dir = Path(__file__).resolve().parents[1]
 config = Config(str(backend_dir / "alembic.ini"))

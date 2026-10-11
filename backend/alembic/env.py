@@ -1,4 +1,4 @@
-"""Alembic migrations, using the same DATABASE_URL as FastAPI."""
+"""Alembic migrations: optional direct URL, otherwise the backend URL."""
 
 from logging.config import fileConfig
 
@@ -16,9 +16,14 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def migration_url() -> str:
+    settings = get_settings()
+    return settings.migration_database_url or settings.database_url
+
+
 def run_migrations_offline() -> None:
     context.configure(
-        url=get_settings().database_url,
+        url=migration_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -29,7 +34,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    engine = create_engine(get_settings().database_url, poolclass=pool.NullPool)
+    engine = create_engine(migration_url(), poolclass=pool.NullPool)
     with engine.connect() as connection:
         context.configure(
             connection=connection,

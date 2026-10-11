@@ -27,4 +27,4 @@ These should be added only when their feature contract is finalized:
 - places / journal-place links
 - persisted AI reflections
 
-The repository defaults to SQLite locally. `DATABASE_URL` is configurable so the same SQLAlchemy models can move to PostgreSQL later.
+The team has chosen **Supabase PostgreSQL** as the shared database. The initial migration creates only `journal_entries`; SQLite is retained for isolated automated tests. All later entities require review of API contracts and Alembic migrations. See `docs/SUPABASE_SETUP.md`.

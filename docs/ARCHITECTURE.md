@@ -9,8 +9,8 @@ Android Emulator (Flutter)
         v
 FastAPI backend on developer PC
         |
-        +---- SQLAlchemy ----> SQLite local default
-        |                       (PostgreSQL-compatible configuration later)
+        +---- SQLAlchemy ----> Supabase PostgreSQL (shared team DB)
+        |                       (SQLite only for isolated automated tests)
         |
         +---- AIService -----> MockAIProvider by default
                                Real provider later
