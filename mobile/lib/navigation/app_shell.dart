@@ -26,7 +26,13 @@ class _AppShellState extends State<AppShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: IndexedStack(index: _index, children: _screens),
+        child: IndexedStack(
+          index: _index,
+          children: [
+            for (var index = 0; index < _screens.length; index++)
+              TickerMode(enabled: index == _index, child: _screens[index]),
+          ],
+        ),
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,

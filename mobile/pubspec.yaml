@@ -24,3 +24,15 @@ flutter:
     - assets/images/
     - assets/icons/
     - assets/mascot/
+    - assets/NudaenggifDe/
+    - assets/Deimage/
+
+  fonts:
+    - family: Nunito
+      fonts:
+        - asset: assets/fonts/Nunito.ttf
+    - family: BeVietnamPro
+      fonts:
+        - asset: assets/fonts/BeVietnamPro-Regular.ttf
+        - asset: assets/fonts/BeVietnamPro-SemiBold.ttf
+          weight: 600
