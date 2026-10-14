@@ -4,20 +4,16 @@ import '../features/album/presentation/album_screen.dart';
 import '../features/explore/presentation/explore_screen.dart';
 import '../features/home/presentation/home_screen.dart';
 import '../features/study/presentation/study_screen.dart';
-import 'custom_bottom_navigation.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, this.initialIndex = 0})
-      : assert(initialIndex >= 0 && initialIndex < 4);
-
-  final int initialIndex;
+  const AppShell({super.key});
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  late int _index = widget.initialIndex;
+  int _index = 0;
 
   static const _screens = [
     HomeScreen(),
@@ -29,10 +25,18 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: _screens),
-      bottomNavigationBar: CustomBottomNavigation(
+      body: SafeArea(
+        child: IndexedStack(index: _index, children: _screens),
+      ),
+      bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.menu_book_outlined), label: 'Home'),
+          NavigationDestination(icon: Icon(Icons.school_outlined), label: 'Study'),
+          NavigationDestination(icon: Icon(Icons.photo_album_outlined), label: 'Album'),
+          NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Explore'),
+        ],
       ),
     );
   }

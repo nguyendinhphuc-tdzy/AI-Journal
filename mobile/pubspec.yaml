@@ -20,39 +20,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  fonts:
-    - family: Nunito
-      fonts:
-        - asset: assets/fonts/Nunito/Nunito-400.ttf
-          weight: 400
-        - asset: assets/fonts/Nunito/Nunito-500.ttf
-          weight: 500
-        - asset: assets/fonts/Nunito/Nunito-600.ttf
-          weight: 600
-        - asset: assets/fonts/Nunito/Nunito-700.ttf
-          weight: 700
-        - asset: assets/fonts/Nunito/Nunito-800.ttf
-          weight: 800
-    - family: Be Vietnam Pro
-      fonts:
-        - asset: assets/fonts/BeVietnamPro/BeVietnamPro-Regular.ttf
-          weight: 400
-        - asset: assets/fonts/BeVietnamPro/BeVietnamPro-Medium.ttf
-          weight: 500
-        - asset: assets/fonts/BeVietnamPro/BeVietnamPro-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/BeVietnamPro/BeVietnamPro-Bold.ttf
-          weight: 700
-        - asset: assets/fonts/BeVietnamPro/BeVietnamPro-Italic.ttf
-          weight: 400
-          style: italic
-
   assets:
-    - assets/images/background_homescreen.png
-    - assets/images/background_journal.png
-    - assets/images/docsach.gif
-    - assets/images/laixe.gif
-    - assets/images/like.gif
-    - assets/images/loading.gif
+    - assets/images/
     - assets/icons/
     - assets/mascot/
