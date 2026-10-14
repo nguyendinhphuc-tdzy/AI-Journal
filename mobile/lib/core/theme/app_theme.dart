@@ -7,7 +7,7 @@ class AppTheme {
   AppTheme._();
 
   static ThemeData get light {
-    final base = ThemeData(useMaterial3: true, fontFamily: 'Be Vietnam Pro');
+    final base = ThemeData(useMaterial3: true, fontFamily: 'BeVietnamPro');
     final textTheme = base.textTheme.apply(
       bodyColor: AppColors.textPrimary,
       displayColor: AppColors.textPrimary,

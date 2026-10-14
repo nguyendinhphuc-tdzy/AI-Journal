@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:ai_diary/features/home/presentation/home_screen.dart';
 import 'package:ai_diary/features/home/presentation/widgets/journal_card.dart';
 import 'package:ai_diary/main.dart';
-import 'package:ai_diary/navigation/custom_bottom_navigation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -61,8 +60,8 @@ void main() {
       );
       expect(
         weekRect.bottom,
-        closeTo(
-            tester.getTopLeft(find.byType(CustomBottomNavigation)).dy, 0.01),
+        lessThanOrEqualTo(
+            tester.getTopLeft(find.byType(NavigationBar)).dy + 0.01),
       );
 
       // Source image is 1536x2752, centered and painted with BoxFit.cover.

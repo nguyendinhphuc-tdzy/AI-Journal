@@ -16,11 +16,13 @@ Reason: three contributors + Codex agents can work in different feature director
 
 **Status:** retained from the team's technical direction.
 
-## ADR-004 — SQLite as local default only
+## ADR-004 — Supabase PostgreSQL is the team database
 
-**Status:** provisional.
+**Status:** accepted (2026-10-11, confirmed by Phúc).
 
-The product document still mentions PostgreSQL/Supabase without a final choice. SQLite is used only to make local emulator development immediately runnable. `DATABASE_URL` remains configurable.
+Use hosted PostgreSQL from Supabase for the shared development/demo environment. Flutter continues calling FastAPI; FastAPI accesses Postgres using SQLAlchemy. Use Session pooler for IPv4 development and an optional Direct migration connection where IPv6 is available. Automated tests remain isolated on SQLite. Database credentials are only in untracked `backend/.env`. See `docs/SUPABASE_SETUP.md`.
+
+Supabase Auth and Storage are not automatically included in this decision.
 
 ## ADR-005 — Mock AI provider first
 

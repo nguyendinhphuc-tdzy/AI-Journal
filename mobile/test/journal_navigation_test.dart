@@ -45,10 +45,10 @@ void main() {
       await tester.tap(find.text(tab));
       await tester.pumpAndSettle();
       expect(find.byType(WriteJournalScreen), findsNothing);
-      expect(find.byType(CustomBottomNavigation), findsOneWidget);
+      expect(find.byType(NavigationBar), findsOneWidget);
       expect(
         tester
-            .widget<CustomBottomNavigation>(find.byType(CustomBottomNavigation))
+            .widget<NavigationBar>(find.byType(NavigationBar))
             .selectedIndex,
         ['Home', 'Study', 'Album', 'Explore'].indexOf(tab),
       );

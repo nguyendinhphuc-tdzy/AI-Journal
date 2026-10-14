@@ -41,9 +41,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(AIReflectionScreen), findsNothing);
     expect(
-        tester
-            .widget<CustomBottomNavigation>(find.byType(CustomBottomNavigation))
-            .selectedIndex,
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
         1);
     await tester.pump(const Duration(seconds: 3));
     expect(tester.takeException(), isNull);

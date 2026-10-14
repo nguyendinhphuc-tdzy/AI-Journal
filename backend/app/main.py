@@ -1,12 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.database import Base, engine
 from app.modules.ai.router import router as ai_router
 from app.modules.journal.router import router as journal_router
 from app.modules.prompts.router import router as prompts_router
 
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI Diary Backend", version="0.1.0")
 
