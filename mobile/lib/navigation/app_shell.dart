@@ -6,14 +6,17 @@ import '../features/home/presentation/home_screen.dart';
 import '../features/study/presentation/study_screen.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, this.initialIndex = 0})
+      : assert(initialIndex >= 0 && initialIndex < 4);
+
+  final int initialIndex;
 
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
-  int _index = 0;
+  late int _index = widget.initialIndex;
 
   static const _screens = [
     HomeScreen(),

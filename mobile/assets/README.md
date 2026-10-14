@@ -1,25 +1,10 @@
-# Assets Directory
+# Mobile assets — integration notes
 
-Thư mục chứa các tài nguyên tĩnh (hình ảnh, icon, mascot, ...) cho ứng dụng Mobile.
+- `assets/images/`: Home and Journal backgrounds plus Nudaeng GIFs from Trâm.
+- `assets/Deimage/` and `assets/NudaenggifDe/`: Study artwork and GIFs from Vy.
+- `assets/icons/` and `assets/mascot/`: reserved/shared graphic folders.
+- `assets/fonts/Nunito.ttf` and `assets/fonts/BeVietnamPro-*.ttf`: fonts from Study PR #2.
 
-## Cấu trúc thư mục
-
-- `images/`: Hình ảnh chung của ứng dụng (background, banner, onboarding illustration, ...).
-- `icons/`: Các icon đồ họa tuỳ chỉnh (SVG/PNG).
-- `mascot/`: Hình ảnh trạng thái của Mascot (idle, thinking, writing, happy, sleeping, walking, study, album, map).
-
-## Cách sử dụng trong Flutter
-
-Sau khi copy hình ảnh vào thư mục tương ứng, bạn có thể gọi trong widget:
-
-```dart
-Image.asset('assets/images/your_image.png')
-```
-
-Hoặc sử dụng với `AssetImage`:
-
-```dart
-CircleAvatar(
-  backgroundImage: AssetImage('assets/mascot/idle.png'),
-)
-```
+The source of truth for registered assets and fonts is `mobile/pubspec.yaml`.
+The Flutter font family identifiers are `Nunito` and `BeVietnamPro`.
+After changing asset registrations, run `flutter pub get` and restart the app.
