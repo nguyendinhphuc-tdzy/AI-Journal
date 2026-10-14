@@ -52,4 +52,6 @@ jobs:
       # Gradle. The repository currently lacks android/gradlew and wrapper JAR;
       # see docs/CI_SETUP.md before enabling a real Android APK build.
       - name: Compile Flutter asset bundle
+        # Still check compilation if unit tests fail; keep the job red overall.
+        if: ${{ !cancelled() }}
         run: flutter build bundle --no-pub
