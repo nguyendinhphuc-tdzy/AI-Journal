@@ -21,11 +21,11 @@ The UI identity is quiet, natural, cozy, slightly nostalgic, with a Nudaeng-insp
 
 - **Mobile:** Flutter, Android emulator target.
 - **Backend:** FastAPI.
-- **Database:** SQLAlchemy with SQLite as the local default. `DATABASE_URL` is configurable so PostgreSQL/Supabase can be adopted later without restructuring the app.
+- **Database:** Supabase hosted PostgreSQL for the shared demo, accessed only through FastAPI/SQLAlchemy; SQLite is reserved for isolated tests.
 - **AI:** provider abstraction with a deterministic mock provider by default. A real provider can be plugged in after the team decides which service to use.
 - **Deployment:** not required for the current demo scope.
 
-> The source document did not finalize PostgreSQL vs Supabase or a production AI provider. This repository therefore keeps both choices replaceable rather than hard-coding an assumption.
+> The team has now chosen **Supabase PostgreSQL**. See `docs/SUPABASE_SETUP.md` before running the backend. The production AI provider is still undecided.
 
 ## Repository layout
 
@@ -46,6 +46,8 @@ AI-Diary-Repo-v1/
 ```
 
 ## First-time setup
+
+Set up your shared Supabase project following `docs/SUPABASE_SETUP.md`. The backend requires an explicit `DATABASE_URL` in `.env`.
 
 ### 1. Backend
 
