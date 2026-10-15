@@ -16,10 +16,84 @@ class WriteJournalScreen extends StatefulWidget {
 
 class _WriteJournalScreenState extends State<WriteJournalScreen> {
   final _controller = TextEditingController();
+  final _followUpController = TextEditingController();
+  final _followUpFocus = FocusNode();
+  final _scrollController = ScrollController();
+  bool _hasFollowUp = false;
+  bool _isPaperBackground = true;
+
+  void _goDeeper() {
+    if (_hasFollowUp || _controller.text.trim().isEmpty) return;
+    setState(() => _hasFollowUp = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _followUpFocus.requestFocus();
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  Future<void> _finishEntry() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Finished?',
+                textAlign: TextAlign.center,
+                style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 24),
+              Row(children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(sheetContext, false),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.black,
+                      side: const BorderSide(color: Colors.black),
+                    ),
+                    child: const Text('Back'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.pop(sheetContext, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Confirm'),
+                  ),
+                ),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    _openReflection();
+  }
 
   @override
   void dispose() {
     _controller.dispose();
+    _followUpController.dispose();
+    _followUpFocus.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -29,7 +103,10 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => AiReflectionScreen(
-          journalContent: _controller.text.trim(),
+          journalContent: [
+            _controller.text.trim(),
+            if (_hasFollowUp) _followUpController.text.trim(),
+          ].where((answer) => answer.isNotEmpty).join('\n\n'),
         ),
       ),
     );
@@ -68,7 +145,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
               margin: const EdgeInsets.all(16),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color:
+                    _isPaperBackground ? Colors.transparent : AppColors.surface,
                 borderRadius: BorderRadius.circular(20),
               ),
               child: LayoutBuilder(builder: (context, cardConstraints) {
@@ -95,45 +173,16 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 48),
+                      IconButton(
+                        tooltip: 'Toggle journal background',
+                        icon: const Icon(Icons.palette_outlined),
+                        color: AppColors.textPrimary,
+                        onPressed: () => setState(() {
+                          _isPaperBackground = !_isPaperBackground;
+                        }),
+                      ),
                     ]),
                     SizedBox(height: compact ? 4 : 12),
-                    ConstrainedBox(
-                      constraints:
-                          BoxConstraints(maxHeight: compact ? 44 : 100),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: SizedBox(
-                          width: cardConstraints.maxWidth,
-                          child: IntrinsicHeight(
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Container(
-                                  width: 4,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primaryDark,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Text(
-                                    'What do you notice about your mood today?',
-                                    style: textTheme.titleMedium?.copyWith(
-                                      color: AppColors.textPrimary,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: compact ? 4 : 8),
                     Expanded(
                       flex: 3,
                       child: LayoutBuilder(builder: (context, constraints) {
@@ -145,41 +194,66 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                         return Stack(
                           children: [
                             Positioned.fill(
-                              child: Column(children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: _controller,
-                                    expands: true,
-                                    minLines: null,
-                                    maxLines: null,
-                                    keyboardType: TextInputType.multiline,
-                                    textCapitalization:
-                                        TextCapitalization.sentences,
-                                    textAlignVertical: TextAlignVertical.top,
-                                    cursorColor: AppColors.primaryDark,
-                                    style: textTheme.bodyLarge?.copyWith(
-                                      color: AppColors.textPrimary,
-                                      height: 1.5,
+                              child: SingleChildScrollView(
+                                controller: _scrollController,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    _buildPrompt(
+                                        'What do you notice about your mood today?'),
+                                    const SizedBox(height: 12),
+                                    if (_hasFollowUp) ...[
+                                      Text(
+                                        _controller.text,
+                                        style: textTheme.bodyLarge?.copyWith(
+                                          color: Colors.grey.shade700,
+                                          height: 1.5,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 24),
+                                      _buildPrompt(
+                                          'What about school is weighing on you right now?'),
+                                      const SizedBox(height: 12),
+                                    ],
+                                    TextField(
+                                      key: ValueKey(_hasFollowUp),
+                                      controller: _hasFollowUp
+                                          ? _followUpController
+                                          : _controller,
+                                      focusNode:
+                                          _hasFollowUp ? _followUpFocus : null,
+                                      minLines: 3,
+                                      maxLines: null,
+                                      keyboardType: TextInputType.multiline,
+                                      textCapitalization:
+                                          TextCapitalization.sentences,
+                                      cursorColor: AppColors.primaryDark,
+                                      style: textTheme.bodyLarge?.copyWith(
+                                        color: AppColors.textPrimary,
+                                        height: 1.5,
+                                      ),
+                                      onTapOutside: (_) => FocusManager
+                                          .instance.primaryFocus
+                                          ?.unfocus(),
+                                      decoration: InputDecoration(
+                                        isCollapsed: true,
+                                        hintText: _hasFollowUp
+                                            ? 'Write here...'
+                                            : 'Start writing...',
+                                        hintStyle: const TextStyle(
+                                            color: AppColors.textSecondary),
+                                        filled: false,
+                                        border: InputBorder.none,
+                                        enabledBorder: InputBorder.none,
+                                        focusedBorder: InputBorder.none,
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
                                     ),
-                                    onTapOutside: (_) => FocusManager
-                                        .instance.primaryFocus
-                                        ?.unfocus(),
-                                    decoration: const InputDecoration(
-                                      isCollapsed: true,
-                                      hintText: 'Start writing...',
-                                      hintStyle: TextStyle(
-                                          color: AppColors.textSecondary),
-                                      filled: false,
-                                      fillColor: Colors.transparent,
-                                      border: InputBorder.none,
-                                      enabledBorder: InputBorder.none,
-                                      focusedBorder: InputBorder.none,
-                                      contentPadding: EdgeInsets.zero,
-                                    ),
-                                  ),
+                                    SizedBox(height: mascotSize),
+                                  ],
                                 ),
-                                SizedBox(height: mascotSize),
-                              ]),
+                              ),
                             ),
                             Positioned(
                               right: 0,
@@ -229,6 +303,22 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     );
   }
 
+  Widget _buildPrompt(String prompt) {
+    return Container(
+      padding: const EdgeInsets.only(left: 12),
+      decoration: const BoxDecoration(
+        border: Border(left: BorderSide(color: AppColors.primary, width: 4)),
+      ),
+      child: Text(
+        prompt,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: AppColors.textPrimary,
+              height: 1.4,
+            ),
+      ),
+    );
+  }
+
   Widget _buildToolbar() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -236,10 +326,10 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
         // Attachment flows are not implemented in this UI prototype.
         const Row(mainAxisSize: MainAxisSize.min, children: [
           IconButton(
-            tooltip: 'Attach file (coming soon)',
+            tooltip: 'Voice input (coming soon)',
             onPressed: null,
             disabledColor: AppColors.textSecondary,
-            icon: Icon(Icons.attach_file),
+            icon: Icon(Icons.mic_none_outlined),
           ),
           IconButton(
             tooltip: 'Add image (coming soon)',
@@ -253,18 +343,18 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
             fit: BoxFit.scaleDown,
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               OutlinedButton(
-                onPressed: _openReflection,
+                onPressed: _finishEntry,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.primaryDark,
                   side: const BorderSide(color: AppColors.primaryDark),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: const Size(0, 48),
                 ),
-                child: const Text('Finish'),
+                child: const Text('Finish entry'),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
-                onPressed: _openReflection,
+                onPressed: _hasFollowUp ? null : _goDeeper,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
                   foregroundColor: AppColors.surface,
