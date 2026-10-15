@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/data/app_data.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
 import 'widgets/journal_card.dart';
 import 'widgets/primary_button.dart';
@@ -24,103 +25,166 @@ class _HomeScreenState extends State<HomeScreen> {
     'What would help you feel more at ease right now?',
   ];
 
-  // Mock data; update inside setState when the weekly AI API is connected.
-  String weeklyAiInsight =
-      'Tuần này bạn có vẻ tìm thấy nhiều niềm vui từ những khởi đầu mới. '
-      'Hãy tiếp tục giữ năng lượng tích cực này nhé!';
-
   int _promptIndex = 0;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // The baked-in mascot starts at ~76% of the source image height.
-        // Covering the bottom 32% leaves a margin above its head when the
-        // centered background is cropped with BoxFit.cover.
-        final weekHeight = constraints.maxHeight * 0.32;
-        final topInset = MediaQuery.paddingOf(context).top;
-        final upperHeight = constraints.maxHeight - weekHeight - topInset - 8;
-        final cardGap = upperHeight < 180 ? 4.0 : 20.0;
-        // Keep a 200px GIF on regular screens; shrink on short viewports
-        // so the card and mascot never overlap or require scrolling.
-        final mascotSize =
-            math.min(200.0, math.max(0.0, (upperHeight - 68 - cardGap) * 0.5));
-
-        return Scaffold(
-          backgroundColor: AppColors.background,
-          body: Stack(
-            fit: StackFit.expand,
-            children: [
-              const Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    image: DecorationImage(
-                      image:
-                          AssetImage('assets/images/background_homescreen.png'),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 20,
-                right: 20,
-                bottom: weekHeight + 8 + mascotSize,
-                child: SafeArea(
-                  bottom: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.max,
-                    children: [
-                      const SizedBox(height: 20),
-                      _buildTopBar(context),
-                      SizedBox(height: cardGap),
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, cardConstraints) => FittedBox(
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              'assets/images/background_homescreen.png',
+              fit: BoxFit.cover,
+            ),
+          ),
+          LayoutBuilder(builder: (context, constraints) {
+            return SingleChildScrollView(
+              key: const PageStorageKey('home-scroll'),
+              controller: _scrollController,
+              physics: const ClampingScrollPhysics(),
+              child: Column(
+                children: [
+                  SizedBox(height: 100 + MediaQuery.paddingOf(context).top),
+                  AnimatedBuilder(
+                    animation: _scrollController,
+                    builder: (context, child) {
+                      final offset = _scrollController.hasClients
+                          ? _scrollController.offset
+                          : 0.0;
+                      final opacity = (1 - offset / 150).clamp(0.0, 1.0);
+                      return IgnorePointer(
+                        ignoring: opacity == 0,
+                        child: Opacity(
+                          key: const ValueKey('home-header-fade'),
+                          opacity: opacity,
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: Column(children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: SizedBox(
+                          height: math.max(130.0, constraints.maxHeight * 0.35),
+                          child: FittedBox(
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.topCenter,
                             child: SizedBox(
-                              width: cardConstraints.maxWidth,
+                              width: constraints.maxWidth - 40,
                               child: _buildDailyReflection(context),
                             ),
                           ),
                         ),
                       ),
-                    ],
+                      _buildMascot(),
+                    ]),
                   ),
-                ),
-              ),
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: weekHeight,
-                child: _buildThisWeek(context),
-              ),
-              Positioned(
-                // Lower the mascot by 20px, slightly overlapping the panel rim.
-                bottom: weekHeight - 12,
-                left: 0,
-                right: 0,
-                height: mascotSize,
-                child: Align(
-                  alignment: Alignment.center,
-                  child: SizedBox(
-                    width: mascotSize,
-                    height: mascotSize,
-                    child: FittedBox(
-                      fit: BoxFit.contain,
-                      child: _buildMascot(),
+                  Container(
+                    key: const ValueKey('this-week-panel'),
+                    width: double.infinity,
+                    constraints:
+                        BoxConstraints(minHeight: constraints.maxHeight),
+                    clipBehavior: Clip.antiAlias,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFE8F3F1),
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(30)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text('This Week',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 22,
+                                  )),
+                        ),
+                        _buildWeeklyInsight(context),
+                        ValueListenableBuilder<List<Map<String, dynamic>>>(
+                          valueListenable: savedThisWeekItems,
+                          builder: (context, items, _) => Column(
+                            key: const ValueKey('this-week-list'),
+                            children: [
+                              for (final item in items)
+                                _buildWeekItem(context, item),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                     ),
                   ),
-                ),
+                ],
               ),
-            ],
+            );
+          }),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Container(
+                key: const ValueKey('home-sticky-top-bar'),
+                color: Colors.transparent,
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                child: _buildTopBar(context),
+              ),
+            ),
           ),
-        );
-      },
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeeklyInsight(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.primaryLight,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.auto_awesome,
+                size: 18, color: AppColors.primaryDark),
+            const SizedBox(width: 8),
+            Text('AI Insight',
+                style: textTheme.titleSmall?.copyWith(
+                  color: AppColors.primaryDark,
+                  fontWeight: FontWeight.w600,
+                )),
+          ]),
+          const SizedBox(height: 12),
+          Text(
+            'Tuần này bạn có vẻ tìm thấy nhiều niềm vui từ những khởi đầu mới. '
+            'Hãy tiếp tục giữ năng lượng tích cực này nhé!',
+            style: textTheme.bodyLarge?.copyWith(
+              color: AppColors.textPrimary,
+              height: 1.5,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -219,10 +283,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Semantics(
       label: 'Nudaeng, idle',
       excludeSemantics: true,
-      child: Container(
+      child: SizedBox(
         width: 200,
         height: 200,
-        color: Colors.transparent,
         child: ColorFiltered(
           // Preserve the existing white-to-alpha filter. It also removes
           // white details inside the mascot, not just its background.
@@ -245,66 +308,64 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildThisWeek(BuildContext context) {
+  Widget _buildWeekItem(BuildContext context, Map<String, dynamic> item) {
     final textTheme = Theme.of(context).textTheme;
+    final quote = item['type'] == 'quote';
     return Container(
-      decoration: const BoxDecoration(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: BorderRadius.circular(20),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        child: LayoutBuilder(
-          builder: (context, constraints) => FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.topLeft,
-            child: SizedBox(
-              width: constraints.maxWidth,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('This Week', style: textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 24,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryLight,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          const Icon(Icons.auto_awesome,
-                              size: 16, color: AppColors.primaryDark),
-                          const SizedBox(width: 6),
-                          Text('AI Insight',
-                              style: textTheme.labelSmall?.copyWith(
-                                color: AppColors.primaryDark,
-                                fontWeight: FontWeight.bold,
-                              )),
-                        ]),
-                        const SizedBox(height: 12),
-                        Text(weeklyAiInsight,
-                            style: textTheme.bodyLarge?.copyWith(
-                              color: AppColors.textPrimary,
-                              fontSize: 18,
-                              height: 1.5,
-                            )),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Text(item['date'] as String? ?? 'Today',
+                style: textTheme.labelLarge?.copyWith(color: Colors.black)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(item['timestamp'] as String? ?? '',
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: AppColors.textSecondary)),
             ),
-          ),
-        ),
+            const Tooltip(
+              message: 'More options (coming soon)',
+              child: Icon(Icons.more_horiz, size: 22),
+            ),
+          ]),
+          const SizedBox(height: 16),
+          Text(quote ? 'Quote' : 'Daily Reflection',
+              style: textTheme.bodySmall
+                  ?.copyWith(color: AppColors.textSecondary)),
+          const SizedBox(height: 10),
+          if (!quote) ...[
+            Text(item['title'] as String? ?? 'AI Insight',
+                style: textTheme.headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+          ],
+          Text(item['content'] as String? ?? '',
+              style: textTheme.bodyLarge?.copyWith(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                height: 1.5,
+              )),
+          const SizedBox(height: 20),
+          if (quote)
+            Row(children: [
+              Expanded(
+                  child: Text('-${item['author'] ?? ''}',
+                      style: textTheme.bodyMedium)),
+              const Icon(Icons.bookmark,
+                  size: 20, color: AppColors.textPrimary),
+            ])
+          else if (item['mood'] != null)
+            Text('${item['moodIcon'] ?? '😕'}  ${item['mood']}',
+                style:
+                    textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }
