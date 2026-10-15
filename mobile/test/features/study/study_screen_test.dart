@@ -292,7 +292,7 @@ void main() {
       if (task == 6) {
         expect(find.text('Bạn đã hoàn thành challenge'), findsOneWidget);
         final mascot = tester.widget<NudaengView>(find.byType(NudaengView));
-        expect(mascot.artwork, NudaengArtwork.challengeCompletion);
+        expect(mascot.artwork, NudaengArtwork.challengeCelebration);
         expect(mascot.animate, isTrue);
       } else {
         await tester.drag(find.byType(ListView).first, const Offset(0, 1000));
@@ -315,8 +315,9 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     await tapText(tester, 'Xem kết quả');
-    expect(
-        tester.widget<NudaengView>(find.byType(NudaengView)).animate, isFalse);
+    final revisit = tester.widget<NudaengView>(find.byType(NudaengView));
+    expect(revisit.animate, isFalse);
+    expect(revisit.artwork, NudaengArtwork.challengeCompletion);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     final banner = find.byKey(const ValueKey('challenge-banner'));

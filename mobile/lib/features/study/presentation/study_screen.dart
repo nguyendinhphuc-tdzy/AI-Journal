@@ -1526,7 +1526,11 @@ class _ChallengeCompletion extends StatelessWidget {
                     size: 144,
                     label: 'Nudaeng chúc mừng',
                     animate: animate,
-                    artwork: NudaengArtwork.challengeCompletion)),
+                    // First completion: tail wag only. The completion drawing
+                    // waits until S06 is reopened after leaving it.
+                    artwork: animate
+                        ? NudaengArtwork.challengeCelebration
+                        : NudaengArtwork.challengeCompletion)),
             const SizedBox(height: AppSpacing.lg),
             Text('Bạn đã hoàn thành challenge',
                 textAlign: TextAlign.center,
