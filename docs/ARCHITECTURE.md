@@ -74,3 +74,24 @@ Flutter -> FastAPI -> AIService -> provider
 ```
 
 `AIService` starts with a deterministic mock implementation so the app remains demoable even without network/provider access.
+
+## MVP v1 integration architecture (design, not deployed)
+
+```text
+Flutter
+  |-- Supabase Auth SDK -> Supabase Auth (email/password, session/JWT)
+  |-- MapLibre native map renderer -> OpenFreeMap style/tiles
+  +-- Bearer JWT / JSON -> FastAPI
+          |-- verify Supabase JWT; obtain owner UUID
+          |-- /me + /journals + /activity/open + /streak
+          |-- /geo/search -> Geoapify (backend key, optional)
+          +-- /places + /notes + /journal-place links
+                |
+                +-- SQLAlchemy / Alembic -> Supabase PostgreSQL
+```
+
+**Trust boundary:** Supabase Auth is identity provider, while FastAPI alone authorizes access to private journal/place/streak data. Using MapLibre to render tiles does not make place notes public. No GPS permission is needed to tap/drop a pin manually; location permission is a separate future decision. Backend verifies ownership even when RLS is enabled; a privileged backend role may bypass RLS.
+
+**Deployment/security gate:** Existing unauthenticated journal CRUD is prototype-only. Do not expose it publicly or persist private customer data until B02/B04 authorization, RLS/grants and A/B isolation tests pass. Current Supabase public tables `journal_entries` and `alembic_version` were observed with RLS disabled. B01 only documents the changes; migrations and policy/grant changes require follow-up PRs.
+
+**Interface contracts:** `docs/API_CONTRACT.md` for Flutter↔FastAPI; `docs/DATABASE_SCHEMA.md` for schema and migration order; `docs/MVP_BACKLOG.md` for ownership and dependency gates; `docs/MAPLIBRE_SETUP.md` for Flutter mapping.
