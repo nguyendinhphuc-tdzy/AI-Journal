@@ -118,8 +118,7 @@ def test_me_creates_and_updates_owned_profiles():
         invalid_owner = client.patch(
             "/api/v1/me", json={"user_id": str(second.user_id)}
         )
-        assert invalid_owner.status_code == 200
-        assert invalid_owner.json()["user_id"] == str(first.user_id)
+        assert invalid_owner.status_code == 422
     finally:
         app.dependency_overrides.clear()
 
