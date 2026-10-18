@@ -86,12 +86,19 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                       ),
-                      _buildMascot(),
+                      // Reserve 170px for the 200px GIF so the opaque panel
+                      // below covers its lower 30px and the baked-in artwork.
+                      Align(
+                        alignment: Alignment.topCenter,
+                        heightFactor: 0.85,
+                        child: _buildMascot(),
+                      ),
                     ]),
                   ),
                   Container(
                     key: const ValueKey('this-week-panel'),
                     width: double.infinity,
+                    padding: const EdgeInsets.only(top: 20),
                     constraints:
                         BoxConstraints(minHeight: constraints.maxHeight),
                     clipBehavior: Clip.antiAlias,
@@ -358,8 +365,20 @@ class _HomeScreenState extends State<HomeScreen> {
               Expanded(
                   child: Text('-${item['author'] ?? ''}',
                       style: textTheme.bodyMedium)),
-              const Icon(Icons.bookmark,
-                  size: 20, color: AppColors.textPrimary),
+              IconButton(
+                tooltip: 'Unsave quote',
+                icon: const Icon(Icons.bookmark,
+                    size: 20, color: AppColors.primaryDark),
+                onPressed: () {
+                  savedThisWeekItems.value =
+                      List<Map<String, dynamic>>.from(savedThisWeekItems.value)
+                        ..remove(item);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Quote removed from This Week')),
+                  );
+                },
+              ),
             ])
           else if (item['mood'] != null)
             Text('${item['moodIcon'] ?? '😕'}  ${item['mood']}',

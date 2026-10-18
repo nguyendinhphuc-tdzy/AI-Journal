@@ -18,12 +18,19 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late int _index = widget.initialIndex;
 
-  static const _screens = [
-    HomeScreen(),
-    StudyScreen(),
-    AlbumScreen(),
-    ExploreScreen(),
+  late final _screens = [
+    const HomeScreen(),
+    const StudyScreen(),
+    AlbumScreen(onShare: _shareToExplore),
+    const ExploreScreen(),
   ];
+
+  void _shareToExplore() {
+    setState(() => _index = 3);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) showShareDialog(context);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,10 +48,14 @@ class _AppShellState extends State<AppShell> {
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.menu_book_outlined), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.school_outlined), label: 'Study'),
-          NavigationDestination(icon: Icon(Icons.photo_album_outlined), label: 'Album'),
-          NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Explore'),
+          NavigationDestination(
+              icon: Icon(Icons.menu_book_outlined), label: 'Home'),
+          NavigationDestination(
+              icon: Icon(Icons.school_outlined), label: 'Study'),
+          NavigationDestination(
+              icon: Icon(Icons.photo_album_outlined), label: 'Album'),
+          NavigationDestination(
+              icon: Icon(Icons.map_outlined), label: 'Explore'),
         ],
       ),
     );

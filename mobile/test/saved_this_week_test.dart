@@ -78,6 +78,16 @@ void main() {
             find.descendant(of: list, matching: find.byType(Scrollable)),
       );
       expect(find.text('An existing insight.'), findsOneWidget);
+      final unsave = find.byTooltip('Unsave quote');
+      await Scrollable.ensureVisible(tester.element(unsave), alignment: 0.5);
+      await tester.pumpAndSettle();
+      await tester.tap(unsave);
+      await tester.pumpAndSettle();
+      expect(savedThisWeekItems.value.length, 1);
+      expect(savedThisWeekItems.value.single['type'], 'insight');
+      expect(find.text('Do what you can, with what you have, where you are.'),
+          findsNothing);
+      expect(find.text('Quote removed from This Week'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(seconds: 7));
     });
