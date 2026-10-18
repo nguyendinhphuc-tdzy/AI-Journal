@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
 from app.core.database import Base
-from app.models import JournalEntry, UserProfile, JournalActionDay, SavedPlace  # noqa: F401 - register metadata
+from app.models import JournalEntry, UserProfile, JournalActionDay, SavedPlace, PlaceNote, JournalPlace  # noqa: F401 - register metadata
 
 config = context.config
 if config.config_file_name is not None:
