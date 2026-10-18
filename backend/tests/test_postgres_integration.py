@@ -82,6 +82,14 @@ def postgres_engine():
     assert migrated.returncode == 0, (
         f"Postgres Alembic migration FAILED:\n{migrated.stdout}\n{migrated.stderr}"
     )
+    checked = subprocess.run(
+        [sys.executable, "-m", "alembic", "check"],
+        cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
+    )
+    assert checked.returncode == 0, (
+        f"Postgres Alembic autogenerate drift detected:\n"
+        f"{checked.stdout}\n{checked.stderr}"
+    )
     yield engine
     engine.dispose()
 
