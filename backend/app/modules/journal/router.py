@@ -163,7 +163,7 @@ def update_journal(
     # Editing a title, mood or prompt alone is not a writing completion.
     # Resubmitting unchanged content must not manufacture a streak event.
     wrote_new_content = (
-        "content" in changes and changes["content"] != journal.content
+        "content" in changes and changes["content"].strip() != journal.content.strip()
     )
     for field, value in changes.items():
         setattr(journal, field, value)
