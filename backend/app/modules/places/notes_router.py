@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
 from app.models.place_note import PlaceNote
-from app.modules.places.router import _as_utc, _decode_cursor, _encode_cursor, _owned_or_404
+from app.modules.places.router import _decode_cursor, _encode_cursor, _owned_or_404
 from app.schemas.place_note import NoteContent, NotePage, NoteRead
 
 
