@@ -100,7 +100,7 @@ Sound + animation + haptic + transitions.
 ## Confirmed MVP backend decisions (2026-10-18)
 
 - Supabase PostgreSQL (FastAPI-only data gateway) and Supabase Auth email/password.
-- Streak is based on authenticated **app-open days**, independent of journal completion.
+- Streak is based on a **successfully saved, nonblank journal-writing action**, not on opening the app; one completed day per user-local date.
 - Flutter Explore renders with **MapLibre + OpenFreeMap**, with manual pin drop. Search/address lookup is a distinct provider integration (proposed: Geoapify through FastAPI).
 - A saved place supports multiple private notes and many-to-many links with journals.
 - Consult `docs/DECISIONS.md`, `docs/DATABASE_SCHEMA.md` and `docs/API_CONTRACT.md` for implementation rules. These features remain planned until the corresponding PRs merge.

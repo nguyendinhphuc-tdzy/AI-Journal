@@ -16,8 +16,8 @@
 | **B03** | Flutter assignee coordinated by Phúc | B02 | email/password UI and session integration | login/restore/logout/token attachment on emulator |
 | **B04** | Phúc | B02 | safe journal user_id migration + ownership-filtered archive API | A cannot read/write B; legacy records handled safely; PostgreSQL tests |
 | **B05** | Flutter assignee coordinated by Phúc | B03+B04+PR #6 | Journal API integration and archive UI | save/restart/load/edit/delete; errors preserve draft |
-| **B06** | Phúc | B02 | app_open_days table, idempotent open endpoint, calculated streak API | same-day repeated open once; timezone/day transitions tested |
-| **B07** | Flutter assignee coordinated by Phúc | B03+B06 | app lifecycle reporter + streak UI API integration | opening, not finishing journal, drives streak |
+| **B06** | Phúc | B02+B04 | journal_action_days table, journal-save action hook, read-only streak API | no credit for opens; per-day once; timezone and rollback tests |
+| **B07** | Flutter assignee coordinated by Phúc | B03+B06 | read-only streak UI after completed Journal save | writing counts, opening app does not |
 | **B08** | Trâm | B01; PR #6 coordinated | MapLibre/OpenFreeMap on Explore, pan/zoom/drop pin | emulator map renders without Google key; no new secrets |
 | **B09** | Phúc | B02+B01 | saved_places API, provider-neutral data; Geoapify search | manual pin and provider search; user A/B isolation |
 | **B10** | Phúc | B04+B09 | multiple notes & journal-place link tables/APIs | FK owner check; many notes, many-to-many, safe deletes |
@@ -31,7 +31,7 @@
 |---|---|
 | B02 | `backend/app/core/auth.py`, `backend/app/models/user_profile.py`, `backend/app/modules/profile/router.py`, `backend/app/core/config.py`, `backend/app/main.py`, `backend/alembic/versions/*`, `backend/tests/test_auth.py` |
 | B04 | `backend/app/models/journal.py`, `backend/app/modules/journal/router.py`, `backend/app/schemas/journal.py`, `backend/alembic/versions/*`, `backend/tests/test_journal_authorization.py` |
-| B06 | `backend/app/models/app_open_day.py`, `backend/app/modules/streak/router.py`, `backend/app/modules/streak/service.py`, `backend/alembic/versions/*`, `backend/tests/test_streak.py` |
+| B06 | `backend/app/models/journal_action_day.py`, `backend/app/modules/streak/router.py`, `backend/app/modules/streak/service.py`, `backend/alembic/versions/*`, `backend/tests/test_streak.py` |
 | B09 | `backend/app/models/saved_place.py`, `backend/app/modules/places/router.py`, `backend/app/modules/geo/router.py`, `backend/alembic/versions/*`, `backend/tests/test_saved_places.py` |
 | B10 | `backend/app/models/place_note.py`, `backend/app/models/journal_place.py`, `backend/app/modules/places/router.py`, `backend/alembic/versions/*`, `backend/tests/test_place_notes.py` |
 | B13 | `backend/tests/*`, `.github/workflows/*`, `docs/MVP_TEST_PLAN.md` |
@@ -40,7 +40,7 @@
 
 1. Add/alter models and migrations only in the owning PR; Alembic upgrade/current/check on a disposable PostgreSQL development environment. Verify downgrade/recovery plan before changing shared schema.
 2. Use synthetic users A/B and JWT unit tests: missing/expired/forged token -> 401; foreign-owned IDs -> 404 across all resource types; requests never accept a client-supplied owner.
-3. Concurrent calls to `POST /activity/open` cannot double-count a date; app time is not trusted.
+3. Concurrent successful Journal writes cannot double-count a date; app time is not trusted and no `/activity/open` endpoint exists.
 4. Notes and links use database-level composite owner FKs, not only Python checks.
 5. Keep Supabase privileged credentials and Geoapify API key on backend only; never check in `.env`. Follow backend-only data access and applicable RLS/grant review.
 6. Leave PRs unmerged for Phúc's review; never silently bypass failing CI or force-push teammates' branches.

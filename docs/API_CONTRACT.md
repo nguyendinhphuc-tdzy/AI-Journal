@@ -5,7 +5,7 @@
 ## Implementation status and backward compatibility
 
 - **LIVE in base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`; unauthenticated mock `POST /api/v1/ai/go-deeper` and `POST /api/v1/ai/reflection`; unauthenticated `GET/POST/GET-by-id/PUT/DELETE /api/v1/journals` (old `GET` returns a **bare array**).
-- **PLANNED for MVP v1 (B02/B04/B06/B09/B10):** Supabase JWT authentication, owner-scoped Journal APIs, profile, app-open streak, search and saved places, multiple notes, journal-place linking.
+- **PLANNED for MVP v1 (B02/B04/B06/B09/B10):** Supabase JWT authentication, owner-scoped Journal APIs, profile, completed-action streak, search and saved places, multiple notes, journal-place linking.
 - B04 changes `GET /journals` from a bare list to a paginated object `{items,next_cursor}`. Trâm must switch at the same integration milestone; **do not silently deploy a breaking change to active Flutter clients**. Preserve existing integer Journal IDs and basic input fields.
 - There is **no** production AI integration in MVP v1; mock responses remain in the separate AI module.
 
@@ -91,32 +91,30 @@ Keep current partial-update semantics for the existing fields; omitted fields un
 ### `DELETE /api/v1/journals/{journal_id}` → 204 / 404
 Removes entry and its `journal_places` join rows only; does not delete saved places or their notes.
 
-## B06 — App-open streak (NOT journal completion)
+## B06 — Streak on a completed journal-writing action
 
-### `POST /api/v1/activity/open` → 200
-Request body: `{}` (no client-defined date, user ID or streak count). Call on initial authenticated open or foreground resume. Server uses time + user's configured IANA timezone to determine date and atomically record at most one row/day.
+**Revised by Phúc on 2026-10-18. Supersedes the old app-open rule.**
+
+Opening/foregrounding the app **does not count**. There is **no** `POST /api/v1/activity/open` endpoint. The server records one `journal_action_days` row **in the same database transaction** whenever a verified user successfully:
+
+- Creates a journal with non-blank `content` via `POST /api/v1/journals` (one written line is enough); or
+- Updates the `content` of an owned journal to a **different**, non-blank value via `PUT /api/v1/journals/{journal_id}`.
+
+Updating only mood/title/prompt, submitting unchanged content, merely viewing or deleting a journal, logging in, or resuming the app never earns credit. Duplicate completions within one user-local calendar date count once. Deleting a journal later does not erase past achievement history. No offline backdating in v1. The client must not submit a completion date/counter.
+
+### `GET /api/v1/streak?days=30` → 200 (authenticated)
 
 ```json
 {
-  "activity_date":"2026-10-18",
-  "recorded":true,
-  "streak":{"current_streak":3,"longest_streak":7,"today_opened":true,"timezone":"Asia/Ho_Chi_Minh"}
+  "current_streak": 3,
+  "longest_streak": 7,
+  "today_completed": true,
+  "timezone": "Asia/Ho_Chi_Minh",
+  "activity_dates": ["2026-10-16", "2026-10-17", "2026-10-18"]
 }
 ```
-`recorded` is `false` for a repeated request in the same user-local day. Idempotent with concurrent requests. No historical backdating when offline in MVP v1.
 
-### `GET /api/v1/streak?days=30` → 200
-```json
-{
-  "current_streak":3,
-  "longest_streak":7,
-  "today_opened":true,
-  "timezone":"Asia/Ho_Chi_Minh",
-  "activity_dates":["2026-10-16","2026-10-17","2026-10-18"]
-}
-```
-`days` range 1–365; `activity_dates` only returns dates inside requested history. Current streak ends today or yesterday when today is still unopened; if neither day was opened, current streak is zero. `longest_streak` is computed from complete persisted history, not only the `days` range.
-
+`days` ranges 1–365; dates are ascending and limited to the requested history window. The server computes dates from its own UTC clock and the user's IANA timezone. The current streak ends today if completed, otherwise yesterday if the user completed yesterday; it is 0 when neither day was completed. Longest streak uses the user's full recorded history. Changing timezone does not rewrite historical dates. The only streak-changing operations are successful journal-content writes.
 ## B09 — MapLibre places (backend search provider: Geoapify)
 
 MapLibre/OpenFreeMap renders maps in Flutter **without** a Google Maps API key. Backend Geoapify key lives only in `backend/.env`; never expose it to Flutter or a Git commit. Begin Map UI with mock search if the provider is not configured.
@@ -197,7 +195,7 @@ Returns paginated owned journals linked to one place. Database compound ownershi
 ## Acceptance scenarios and rollout gates
 
 1. User A and B have separate JWTs; A cannot fetch, mutate or link B's journals, places, or notes (including guessed IDs).
-2. Opening the app many times today produces **one** `app_open_days` row; writing a diary never adds streak activity by itself.
+2. Opening the app never counts; a successful journal-content write records at most **one** `journal_action_days` date per user-local day.
 3. Journal and notes survive Android app restart and re-login; manual MapLibre dropped pins use coordinates without a search-provider ID.
 4. Privacy-critical routes are inaccessible before auth is integrated. B04 must coordinate response change with Trâm, not break an active Flutter consumer unexpectedly.
 5. All schema changes use reviewed Alembic migrations, real PostgreSQL staging tests and explicit RLS/grants checks. **B01 changes documents only**.

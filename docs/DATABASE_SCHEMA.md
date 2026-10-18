@@ -14,7 +14,7 @@
 auth.users (Supabase Auth, UUID id)
   |-- 1:1 user_profiles (user_id)
   |-- 1:N journal_entries (user_id)
-  |-- 1:N app_open_days (user_id, activity_date)
+  |-- 1:N journal_action_days (user_id, activity_date)
   +-- 1:N saved_places (user_id)
                   |-- 1:N place_notes (place_id, user_id)
                   +-- M:N journal_entries via journal_places
@@ -44,23 +44,25 @@ Indexes: `(user_id, created_at DESC, id DESC)`; `(user_id, mood)` if filtering w
 
 **Migration rule for existing data:** add `user_id` nullable, inspect rows, then assign ownership only with an explicit, verified migration mapping. **Never** assign all old diaries to the first account, fabricate ownership, or delete records automatically. Abort the NOT NULL/owner migration if unmapped entries remain. The currently inspected development database had zero journal entries, but migrations must not assume every environment is empty.
 
-### 3. `app_open_days` — B06
+### 3. `journal_action_days` — B06 (supersedes `app_open_days`)
 
 | Column | Type | Constraint / semantics |
 |---|---|---|
-| `user_id` | UUID | FK `auth.users(id) ON DELETE CASCADE` |
-| `activity_date` | date | Local date determined **on the server** using profile timezone |
-| `first_opened_at` | timestamptz | First accepted authenticated foreground/open event, UTC |
+| `user_id` | UUID | PK part; FK `auth.users(id) ON DELETE CASCADE` |
+| `activity_date` | date | PK part; server-derived user-local date of successful journal writing |
+| `first_completed_at` | timestamptz | UTC timestamp of the first successful writing action |
+| `action_type` | varchar(32) | NOT NULL; `journal_written` in MVP v1 |
 
-Primary key `(user_id, activity_date)`; index `(user_id, activity_date DESC)` for recent activity. Use an atomic `INSERT ... ON CONFLICT DO NOTHING`, not a client-controlled counter.
+Primary key `(user_id, activity_date)` is the uniqueness guarantee. Use atomic `INSERT ... ON CONFLICT DO NOTHING` within the **same transaction** as the successful owned Journal write. The row records achievement history independent of the source journal, so deleting a journal later does not remove credit.
 
-**Streak product semantics (user-approved):**
-- An authenticated **app open or return to foreground** counts, even without writing a journal.
-- Repeated requests on the same user-local calendar day count once; logout does not count.
-- `current_streak` is the consecutive sequence ending today, or ending yesterday when today has no event yet; if neither day has an event it is 0.
-- `longest_streak` is the longest uninterrupted sequence of recorded local dates.
-- On profile timezone changes, previously recorded `activity_date` values are not rewritten. Offline events cannot be retroactively backdated in MVP v1. Backend time is authoritative.
-
+**Updated streak product semantics (approved 2026-10-18):**
+- An authenticated user completes a day only by **creating a nonblank journal** or **changing the nonblank `content` of an owned journal** and successfully saving it; even one written line counts.
+- App open, foreground resume, login, viewing/deleting journals, metadata-only edits, unchanged-content resubmission and failed saves do **not** count.
+- Repeated or concurrent valid saves for the same user-local date count once; DB uniqueness handles races.
+- `current_streak` counts consecutive days ending today, or ending yesterday when today has not yet been completed; otherwise it is zero.
+- `longest_streak` counts the longest uninterrupted historical sequence, even if the current streak is zero.
+- The server clock and verified profile timezone determine dates; no client-supplied date or offline backdating.
+- Timezone changes do not rewrite previously recorded dates.
 ### 4. `saved_places` — B09
 
 | Column | Type | Constraint / semantics |
@@ -118,7 +120,7 @@ Before any multi-user/private data:
 
 - **B02:** `user_profiles`; JWT auth and `/me`; consider baseline RLS/grants for deployed journal/alembic tables before exposure.
 - **B04:** safely backfill/protect `journal_entries.user_id`; ownership indexes and authorization.
-- **B06:** `app_open_days` + idempotent streak logic.
+- **B06:** `journal_action_days` + completed-writing streak logic.
 - **B09:** `saved_places`, coordinate validation, search-provider integration.
 - **B10:** `place_notes`, `journal_places`, composite owner FKs, delete behavior.
 - **B13:** PostgreSQL staging migration, RLS grants and A/B cross-user authorization tests.
