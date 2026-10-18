@@ -87,6 +87,8 @@ def test_journal_crud_is_owner_scoped():
         assert "user_id" not in a.json()
         assert client.get(f"/api/v1/journals/{aid}").status_code == 200
         assert client.put(f"/api/v1/journals/{aid}", json={"content": "Updated A"}).status_code == 200
+        assert client.put(f"/api/v1/journals/{aid}", json={"content": None}).status_code == 422
+        assert client.put(f"/api/v1/journals/{aid}", json={"title": None}).status_code == 422
 
         # An input user_id must never be permitted to override the verified JWT.
         assert client.post("/api/v1/journals", json={
