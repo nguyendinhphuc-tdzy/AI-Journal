@@ -1,0 +1,82 @@
+name: Backend security and migration tests
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-security.yml"
+  push:
+    branches:
+      - "test/backend-b13-integration-security"
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-sqlite:
+    name: Isolated SQLite and JWT tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: sqlite:///./b13_unit_only.db
+      MIGRATION_DATABASE_URL: sqlite:///./b13_unit_only.db
+      APP_ENV: test
+      AI_PROVIDER: mock
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Unit API, JWT, SQLite migrations, owner isolation and cascade
+        run: python -m pytest -q tests
+      - name: Confirm one Alembic head
+        run: python -m alembic heads
+
+  backend-postgres:
+    name: Disposable PostgreSQL 17 migrations and security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: ai_journal_b13_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_journal_b13_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 6
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: sqlite:///./b13_unit_only.db
+      APP_ENV: test
+      AI_PROVIDER: mock
+      B13_POSTGRES_TEST_URL: postgresql+psycopg://postgres:ci_only_password@127.0.0.1:5432/ai_journal_b13_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Apply all Alembic migrations to disposable DB and verify PostgreSQL FKs/RLS/ownership
+        run: python -m pytest -q tests/test_postgres_integration.py
