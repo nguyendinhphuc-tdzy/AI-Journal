@@ -282,6 +282,10 @@ def test_completed_journal_action_not_app_open_triggers_streak(monkeypatch):
         assert client.put(
             f"/api/v1/journals/{entry_id}", json={"content": "B"}
         ).status_code == 200
+        # Edge whitespace differences are not a meaningful writing action.
+        assert client.put(
+            f"/api/v1/journals/{entry_id}", json={"content": "B   "}
+        ).status_code == 200
         assert client.get("/api/v1/streak").json()["today_completed"] is False
 
         # Writing a changed line, successfully saving, counts on new day.
