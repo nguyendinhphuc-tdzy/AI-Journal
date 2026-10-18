@@ -1,6 +1,7 @@
 """Multiple owner-only notes on each saved place."""
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import AuthenticatedUser, get_current_user
@@ -44,7 +45,14 @@ def create_note(
         content=payload.content,
     )
     db.add(note)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # Place could have been removed between the ownership check and commit.
+        db.rollback()
+        raise HTTPException(
+            status_code=404, detail="Saved place not found"
+        ) from exc
     db.refresh(note)
     return note
 
