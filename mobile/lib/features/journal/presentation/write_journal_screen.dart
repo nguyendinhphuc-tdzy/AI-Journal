@@ -29,6 +29,17 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   bool _hasFollowUp = false;
   bool _isPaperBackground = true;
 
+  String get _entryText => [
+        _controller.text.trim(),
+        if (_hasFollowUp) _followUpController.text.trim(),
+      ].where((answer) => answer.isNotEmpty).join('\n\n');
+
+  void _showEmptyEntryMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Vui lòng viết ít nhất một dòng nhật ký trước khi hoàn thành.'),
+    ));
+  }
+
   void _goDeeper() {
     if (_hasFollowUp || _controller.text.trim().isEmpty) return;
     setState(() => _hasFollowUp = true);
@@ -48,6 +59,10 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   Future<void> _finishEntry() async {
     if (_saving) return;
     FocusManager.instance.primaryFocus?.unfocus();
+    if (_entryText.isEmpty) {
+      _showEmptyEntryMessage();
+      return;
+    }
     final confirmed = await showModalBottomSheet<bool>(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -93,37 +108,37 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       ),
     );
     if (!mounted || confirmed != true) return;
-    final text = [
-      _controller.text.trim(),
-      if (_hasFollowUp) _followUpController.text.trim()
-    ].where((answer) => answer.isNotEmpty).join('\n\n');
+    // Recheck after the modal: content could have changed while it was open.
+    final text = _entryText;
     if (_saving) return;
-    if (text.isNotEmpty) {
-      setState(() => _saving = true);
-      final saved = _saved;
-      // A guided entry keeps its structured values only while its text is
-      // unchanged; edited here it becomes free text.
-      final content = JournalContent(
-        body: text,
-        mood: saved?.content.mood,
-        guided:
-            saved != null && saved.body == text ? saved.content.guided : null,
-      );
-      try {
-        final journals = JournalScope.of(context);
-        _saved = saved == null
-            ? await journals.create(content)
-            : await journals.update(saved.id, content);
-      } catch (_) {
-        if (!mounted) return;
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Chưa lưu được nhật ký. Nội dung vẫn còn ở đây.')));
-        return;
-      }
+    if (text.isEmpty) {
+      _showEmptyEntryMessage();
+      return;
+    }
+
+    setState(() => _saving = true);
+    final saved = _saved;
+    // Preserve guided metadata only while the journal body is unchanged.
+    final content = JournalContent(
+      body: text,
+      mood: saved?.content.mood,
+      guided:
+          saved != null && saved.body == text ? saved.content.guided : null,
+    );
+    try {
+      final journals = JournalScope.of(context);
+      _saved = saved == null
+          ? await journals.create(content)
+          : await journals.update(saved.id, content);
+    } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Chưa lưu được nhật ký. Nội dung vẫn còn ở đây.')));
+      return;
     }
+    if (!mounted) return;
+    setState(() => _saving = false);
     _openReflection();
   }
 
@@ -142,10 +157,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => AiReflectionScreen(
-          journalContent: [
-            _controller.text.trim(),
-            if (_hasFollowUp) _followUpController.text.trim(),
-          ].where((answer) => answer.isNotEmpty).join('\n\n'),
+          journalContent: _entryText,
         ),
       ),
     );
