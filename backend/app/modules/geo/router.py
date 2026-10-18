@@ -29,14 +29,14 @@ def enforce_geo_rate_limit(
 ) -> None:
     now = time.monotonic()
     with _rate_lock:
-        recent = _recent_requests.setdefault(user.user_id, deque())
-        while recent and recent[0] <= now - RATE_WINDOW_SECONDS:
-            recent.popleft()
-        # Avoid unbounded retention of long-inactive users.
+        # Prune expired buckets BEFORE inserting the current user's bucket.
         if len(_recent_requests) > 2000:
             for key, value in list(_recent_requests.items()):
                 if not value or value[-1] <= now - RATE_WINDOW_SECONDS:
                     del _recent_requests[key]
+        recent = _recent_requests.setdefault(user.user_id, deque())
+        while recent and recent[0] <= now - RATE_WINDOW_SECONDS:
+            recent.popleft()
         if len(recent) >= RATE_LIMIT:
             raise HTTPException(
                 status_code=429,
