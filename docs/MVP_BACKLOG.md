@@ -20,7 +20,7 @@
 | **B07** | Flutter assignee coordinated by Phúc | B03+B06 | read-only streak UI after completed Journal save | writing counts, opening app does not |
 | **B08** | Trâm | B01; PR #6 coordinated | MapLibre/OpenFreeMap on Explore, pan/zoom/drop pin | emulator map renders without Google key; no new secrets |
 | **B09** | Phúc | B02+B01 | saved_places CRUD + optional Geoapify address autocomplete | manual pins without a key, provider results, JWT A/B isolation and quotas |
-| **B10** | Phúc | B04+B09 | multiple notes & journal-place link tables/APIs | FK owner check; many notes, many-to-many, safe deletes |
+| **B10** | Phúc | B04+B09 | multiple notes & journal-place link tables/APIs (staged PR) | composite owner FK on both sides, many notes, many-to-many, safe deletes |
 | **B11** | Trâm | B03+B08+B09+B10 | MapLibre saved markers, location search, note editor | persist across re-login, no cross-user data |
 | **B12** | Flutter assignee coordinated by Phúc | B05+B10+B11 | Journal↔Place linking UI | navigate both directions, unlink nondestructively |
 | **B13** | Phúc, team assists | all implemented | integration/privacy/staging database tests + CI | PostgreSQL migration, RLS/grants, JWT and A/B tests green |
