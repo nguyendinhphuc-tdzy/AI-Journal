@@ -872,3 +872,37 @@ def test_journal_place_links_owner_isolation_and_safe_deletes():
             assert db.get(JournalEntry, j2) is not None
     finally:
         app.dependency_overrides.clear()
+
+
+def test_notes_and_journal_place_links_do_not_complete_streak(monkeypatch):
+    from datetime import datetime, timezone
+    from app.modules.streak import service
+
+    clock = [datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)]
+    monkeypatch.setattr(service, "utc_now", lambda: clock[0])
+    identity = AuthenticatedUser(user_id=uuid4(), email="map-streak@example.com")
+    app.dependency_overrides[get_current_user] = lambda: identity
+    try:
+        journal = client.post("/api/v1/journals", json={"content": "A valid line"})
+        assert journal.status_code == 201, journal.text
+        jid = journal.json()["id"]
+        pin = client.post("/api/v1/places", json={
+            "label": "A reading bench", "latitude": 10, "longitude": 106
+        })
+        assert pin.status_code == 201, pin.text
+        pid = pin.json()["id"]
+
+        clock[0] = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+        assert client.get("/api/v1/streak").json()["today_completed"] is False
+        assert client.post(f"/api/v1/places/{pid}/notes", json={
+            "content": "Today I sat here"
+        }).status_code == 201
+        assert client.put(f"/api/v1/journals/{jid}/places/{pid}").status_code == 204
+        assert client.get(f"/api/v1/journals/{jid}/places").status_code == 200
+        assert client.delete(f"/api/v1/journals/{jid}/places/{pid}").status_code == 204
+        after = client.get("/api/v1/streak").json()
+        assert after["today_completed"] is False
+        assert after["current_streak"] == 1
+        assert after["activity_dates"] == ["2026-10-18"]
+    finally:
+        app.dependency_overrides.clear()
