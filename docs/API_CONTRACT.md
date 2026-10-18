@@ -115,12 +115,12 @@ Updating only mood/title/prompt, submitting unchanged content, merely viewing or
 ```
 
 `days` ranges 1–365; dates are ascending and limited to the requested history window. The server computes dates from its own UTC clock and the user's IANA timezone. The current streak ends today if completed, otherwise yesterday if the user completed yesterday; it is 0 when neither day was completed. Longest streak uses the user's full recorded history. Changing timezone does not rewrite historical dates. The only streak-changing operations are successful journal-content writes.
-## B09 — MapLibre places (backend search provider: Geoapify)
+## B09 — MapLibre saved places (FastAPI private CRUD; Geoapify optional)
 
-MapLibre/OpenFreeMap renders maps in Flutter **without** a Google Maps API key. Backend Geoapify key lives only in `backend/.env`; never expose it to Flutter or a Git commit. Begin Map UI with mock search if the provider is not configured.
+MapLibre/OpenFreeMap renders maps in Flutter **without** a Google Maps API key. Backend Geoapify key lives only in `backend/.env`; never expose it to Flutter or a Git commit. Begin Map UI with mock search if the provider is not configured; **manual dropped pins still persist without a key**. B09 code is staged on an unmerged PR, not yet deployed.
 
-### `GET /api/v1/geo/search?q=coffee&lat=10.8231&lon=106.6297&limit=5` → 200
-`q` required (2–120 characters), `lat`/`lon` optional bias, `limit` 1–10. Debounce requests in Flutter; server enforces per-user limits and maps provider errors to 502/503.
+### `GET /api/v1/geo/search?q=Hanoi&lat=10.8231&lon=106.6297&limit=5` → 200
+`q` required (2–120 characters), `lat`/`lon` optional **together** as a ranking bias, `limit` 1–10. Backend implements Geoapify **address autocomplete**, which is not a substitute for comprehensive category/POI name search. Debounce requests in Flutter; local per-process 30/minute/user throttle returns 429; scale with a distributed limiter before public deployment. Missing API key returns 503; upstream errors map to 502/503.
 
 ```json
 {
@@ -128,15 +128,15 @@ MapLibre/OpenFreeMap renders maps in Flutter **without** a Google Maps API key. 
     {
       "provider":"geoapify",
       "external_place_id":"example-provider-id",
-      "label":"Example Café",
-      "formatted_address":"Example address",
+      "label":"Example address",
+      "formatted_address":"Example address in Vietnam",
       "latitude":10.8231,
       "longitude":106.6297
     }
   ]
 }
 ```
-Example only; provider data not promised identical to Google Places. Follow the upstream provider's terms regarding storage and attribution.
+Example only; returned provider data is for suggestion display, not automatic persistence. Follow Geoapify's storage/attribution terms and avoid auto-filling persisted `address_text` with third-party text.
 
 ### `POST /api/v1/places` → 201
 User-assigned label and coordinates are required. Provider-specific ID optional:
@@ -150,7 +150,7 @@ User-assigned label and coordinates are required. Provider-specific ID optional:
   "external_place_id":null
 }
 ```
-`provider` accepts `manual` or `geoapify`; `external_place_id` required for a provider-backed result and forbidden for `manual`. `address_text` is user-entered text, not an automatically persisted copy of provider results. Returns owned saved-place object with `id`, editable fields, `created_at`, `updated_at`.
+`provider` accepts `manual` or `geoapify`; `external_place_id` required for a provider-backed result and forbidden for `manual`. `address_text` is user-entered text, not an automatically persisted copy of provider results. Returns owned saved-place object with `id`, editable fields, `created_at`, `updated_at`. Provider-backed `external_place_id` must be nonempty; manual pins must omit it. Duplicate `(user, provider, external_place_id)` returns HTTP 409.
 
 ### `GET /api/v1/places?limit=20&cursor=...` → 200
 `{"items":[{"id":9,"label":"My reading spot","latitude":10.8231,"longitude":106.6297,"provider":"manual","external_place_id":null,"address_text":"My own description","created_at":"2026-10-18T04:00:00Z","updated_at":"2026-10-18T04:00:00Z"}],"next_cursor":null}`.

@@ -77,7 +77,7 @@ Primary key `(user_id, activity_date)` is the uniqueness guarantee. Use atomic `
 | `external_place_id` | text | Nullable for manually dropped pins |
 | `created_at`, `updated_at` | timestamptz | UTC, NOT NULL |
 
-Indexes: `(user_id, created_at DESC, id DESC)`; optional partial unique `(user_id, provider, external_place_id)` where `external_place_id IS NOT NULL` to prevent duplicate provider-defined places. Add `UNIQUE (id, user_id)` for composite ownership foreign keys.
+Indexes: `(user_id, created_at DESC, id DESC)`; B09 implements a partial unique `(user_id, provider, external_place_id)` where `external_place_id IS NOT NULL` to prevent duplicate provider-defined places. Coordinates are checked in Pydantic **and** by PostgreSQL CHECK constraints. Add `UNIQUE (id, user_id)` for composite ownership foreign keys.
 
 **Provider-neutral schema:** use `provider` and `external_place_id`, never a `google_place_id` dependency. MapLibre/OpenFreeMap is for rendering, **not** for place searches. Geoapify can be used for search later; never persist a whole third-party API response unless its retention terms permit it. Attribution and service terms must be respected.
 
@@ -121,7 +121,7 @@ Before any multi-user/private data:
 - **B02:** `user_profiles`; JWT auth and `/me`; consider baseline RLS/grants for deployed journal/alembic tables before exposure.
 - **B04:** safely backfill/protect `journal_entries.user_id`; ownership indexes and authorization.
 - **B06:** `journal_action_days` + completed-writing streak logic.
-- **B09:** `saved_places`, coordinate validation, search-provider integration.
+- **B09:** `saved_places` migration `20261018_05`, coordinate/ownership CHECK and indexes, private API, optional Geoapify autocomplete (backend key only).
 - **B10:** `place_notes`, `journal_places`, composite owner FKs, delete behavior.
 - **B13:** PostgreSQL staging migration, RLS grants and A/B cross-user authorization tests.
 

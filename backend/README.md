@@ -79,3 +79,16 @@ B02 introduces `GET/PATCH /api/v1/me`, `user_profiles`, JWT verification and a P
 **Deliberate staged safety block:** B02 returns 401 on unauthenticated Journal requests and **503 even on authenticated Journal CRUD**. This is expected, because the existing `journal_entries` table has no owner information. The API is reopened only by B04, which migrates `journal_entries.user_id` and enforces ownership in every query. The other existing mock AI/prompt routes remain for local UI prototyping.
 
 Only use fictional Journal demo content until B04 and independent A/B authorization tests are complete. Enabling RLS on public data tables without direct client policies is intentional for FastAPI-only database access; PostgreSQL role privileges/ownership must still be reviewed.
+
+## B09 staged Saved Places + Geoapify (not deployed yet)
+
+B09 adds private persisted map pins via `/api/v1/places` and optional text/address autocomplete via `/api/v1/geo/search`. Manual dropped pins require **no external search provider key**. Search uses Geoapify from FastAPI only; the **secret key stays in untracked `backend/.env`**, never in Flutter:
+
+```dotenv
+# Optional; only if Geoapify address autocomplete is enabled:
+GEOAPIFY_API_KEY=YOUR_PRIVATE_KEY
+```
+
+The search backend handles provider failures and returns 503 when not configured. Use Geoapify API key with suitable restrictions, review [Geoapify autocomplete docs](https://apidocs.geoapify.com/docs/geocoding/address-autocomplete/) and current service terms, and show any required map/search attribution in Flutter. Local in-memory 30/minute/user search throttle is not a global/multi-worker guarantee; replace with distributed quota before a publicly accessible deployment. Do not persist provider-supplied formatted addresses by default: `address_text` accepts only deliberately user-entered content.
+
+The `saved_places` table is created by **review-only** migration `20261018_05`; this PR is stacked on unmerged B06/B04/B02/B01 changes. Do not run `alembic upgrade head` on shared Supabase until Phúc explicitly approves and the entire migration chain has been verified on disposable PostgreSQL.
