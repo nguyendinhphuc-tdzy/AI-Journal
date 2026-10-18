@@ -28,7 +28,7 @@ class UserProfile(Base):
 
     user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("auth.users.id", ondelete="CASCADE"),
+        ForeignKey("auth.users.id", name="fk_user_profiles_auth_users", ondelete="CASCADE"),
         primary_key=True,
     )
     display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
