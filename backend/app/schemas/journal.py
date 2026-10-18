@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class JournalCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(default="Untitled", max_length=160)
+    title: str = Field(default="Untitled", min_length=1, max_length=160)
     content: str = Field(min_length=1)
     prompt: str | None = Field(default=None, max_length=500)
     mood: str | None = Field(default=None, max_length=64)
@@ -28,11 +28,18 @@ class JournalUpdate(BaseModel):
     prompt: str | None = Field(default=None, max_length=500)
     mood: str | None = Field(default=None, max_length=64)
 
+    @field_validator("title")
+    @classmethod
+    def title_cannot_be_null_or_blank(cls, value: str | None) -> str:
+        if value is None or not value.strip():
+            raise ValueError("Journal title cannot be null or blank")
+        return value
+
     @field_validator("content")
     @classmethod
-    def content_cannot_be_blank(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("Journal content cannot be blank")
+    def content_cannot_be_blank(cls, value: str | None) -> str:
+        if value is None or not value.strip():
+            raise ValueError("Journal content cannot be null or blank")
         return value
 
 
