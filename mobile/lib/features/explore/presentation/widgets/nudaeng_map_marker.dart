@@ -1,10 +1,9 @@
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 /// A single static GIF frame above a pink heart pin. Native markers are bitmaps.
-Future<BitmapDescriptor> createNudaengMarker() async {
+Future<Uint8List> createNudaengMarker() async {
   final data = await rootBundle.load('assets/images/docsach.gif');
   final codec = await ui.instantiateImageCodec(
       data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
@@ -72,8 +71,7 @@ Future<BitmapDescriptor> createNudaengMarker() async {
         try {
           final png = await image.toByteData(format: ui.ImageByteFormat.png);
           if (png == null) throw StateError('Cannot encode marker');
-          return BitmapDescriptor.bytes(png.buffer.asUint8List(),
-              width: 84, height: 118);
+          return png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes);
         } finally {
           image.dispose();
         }

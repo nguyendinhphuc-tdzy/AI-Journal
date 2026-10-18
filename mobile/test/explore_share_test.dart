@@ -1,7 +1,8 @@
 import 'package:ai_diary/main.dart';
 import 'package:ai_diary/features/explore/presentation/explore_screen.dart';
 import 'package:ai_diary/features/explore/presentation/widgets/share_dialog.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'dart:math' as math;
+import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:ai_diary/features/explore/presentation/widgets/nudaeng_map_marker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,8 +11,8 @@ void main() {
   testWidgets('Nudaeng GIF can be rasterized into a native map marker',
       (tester) async {
     final icon = await tester.runAsync(createNudaengMarker);
-    expect(icon, isA<BytesMapBitmap>());
-    expect((icon! as BytesMapBitmap).byteData, isNotEmpty);
+    expect(icon, isNotNull);
+    expect(icon, isNotEmpty);
   });
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
     testWidgets('Album Share opens Explore and dismisses mock dialog at $size',
@@ -53,29 +54,44 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ShareDialog), findsNothing);
       expect(find.byType(ExploreScreen), findsOneWidget);
-      expect(
-          tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.length, 3);
+      expect(find.byType(MapLibreMap), findsOneWidget);
       await tester.tap(find.byTooltip('Filter places'));
       await tester.pumpAndSettle();
       await tester.tap(find.byWidgetPredicate((widget) =>
           widget is CheckedPopupMenuItem<String> && widget.value == 'Food'));
       await tester.pumpAndSettle();
-      expect(
-          tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.length, 1);
+      expect(find.byType(ListTile), findsOneWidget);
       await tester.tap(find.byTooltip('Filter places'));
       await tester.pumpAndSettle();
       await tester.tap(find.byWidgetPredicate((widget) =>
           widget is CheckedPopupMenuItem<String> && widget.value == 'Food'));
       await tester.pumpAndSettle();
-      expect(
-          tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.length, 3);
+      expect(find.byType(MapLibreMap), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'Quiet');
+      await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      expect(
-          tester.widget<GoogleMap>(find.byType(GoogleMap)).markers.length, 1);
+      expect(find.byType(ListTile), findsOneWidget);
+      expect(find.text('Quiet corner'), findsOneWidget);
+      await tester.tap(find.text('Quiet corner'));
+      await tester.pumpAndSettle();
+      expect(find.text('Study Cafe · Demo only'), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
+          isEmpty);
+      await tester.tap(find.byTooltip('Close place details'));
+      await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'no matching place');
+      await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       expect(find.text('No places found'), findsOneWidget);
+      await tester.enterText(find.byType(TextField), '');
+      await tester.pump(const Duration(milliseconds: 400));
+      tester.widget<MapLibreMap>(find.byType(MapLibreMap)).onMapLongClick!(
+          const math.Point(10, 10), const LatLng(10.8, 106.6));
+      await tester.pumpAndSettle();
+      expect(find.text('Temporary pin'), findsOneWidget);
+      await tester.tap(find.byTooltip('Remove temporary pin'));
+      await tester.pumpAndSettle();
+      expect(find.text('Temporary pin'), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

@@ -60,3 +60,47 @@ If you have an old `ai_diary.db`, do not delete it unless you explicitly want to
 - Design account authorization before exposing private journals to multiple real users; the current demo CRUD has **no user isolation**.
 - Align persistent reflection, Save to Album and Streak data models with the final UI contract.
 - Keep AI provider credentials solely in backend env vars.
+
+## B02 staged Supabase Auth backend (not deployed until reviewed)
+
+B02 introduces `GET/PATCH /api/v1/me`, `user_profiles`, JWT verification and a PostgreSQL migration which enables RLS/revokes direct `anon`/`authenticated` table access on `public.journal_entries` and `public.alembic_version`. It must be reviewed before applying any migration to shared Supabase.
+
+1. Add your project's **public** URL in untracked `backend/.env`, e.g.
+   `SUPABASE_URL=https://PROJECT_REF.supabase.co`. Keep `DATABASE_URL` private as before.
+2. In Supabase Dashboard -> Authentication -> Signing Keys, ensure the project issues **ES256 or RS256 JWT access tokens** with `kid`. B02 deliberately rejects legacy HS256 rather than shipping a JWT secret. Configure asymmetric keys before manual login testing.
+3. Supabase Auth SDK handles sign-up/sign-in/email verification on Flutter in B03. Send JWT from that SDK in `Authorization: Bearer <access_token>` to FastAPI. No application-managed passwords, service-role secrets, or JWT signing secrets in Flutter.
+4. Run locally (after installing the new requirements):
+   ```powershell
+   python -m pip install -r requirements.txt
+   python -m pytest -q
+   ```
+5. **Do not run `alembic upgrade head` on shared AI-Journal-Dev** until Phúc reviews the B02 migration, confirms its effects on RLS and verifies the target project. `python -m alembic heads` does not modify the database.
+
+**Deliberate staged safety block:** B02 returns 401 on unauthenticated Journal requests and **503 even on authenticated Journal CRUD**. This is expected, because the existing `journal_entries` table has no owner information. The API is reopened only by B04, which migrates `journal_entries.user_id` and enforces ownership in every query. The other existing mock AI/prompt routes remain for local UI prototyping.
+
+Only use fictional Journal demo content until B04 and independent A/B authorization tests are complete. Enabling RLS on public data tables without direct client policies is intentional for FastAPI-only database access; PostgreSQL role privileges/ownership must still be reviewed.
+
+## B09 staged Saved Places + Geoapify (not deployed yet)
+
+B09 adds private persisted map pins via `/api/v1/places` and optional text/address autocomplete via `/api/v1/geo/search`. Manual dropped pins require **no external search provider key**. Search uses Geoapify from FastAPI only; the **secret key stays in untracked `backend/.env`**, never in Flutter:
+
+```dotenv
+# Optional; only if Geoapify address autocomplete is enabled:
+GEOAPIFY_API_KEY=YOUR_PRIVATE_KEY
+```
+
+The search backend handles provider failures and returns 503 when not configured. Use Geoapify API key with suitable restrictions, review [Geoapify autocomplete docs](https://apidocs.geoapify.com/docs/geocoding/address-autocomplete/) and current service terms, and show any required map/search attribution in Flutter. Local in-memory 30/minute/user search throttle is not a global/multi-worker guarantee; replace with distributed quota before a publicly accessible deployment. Do not persist provider-supplied formatted addresses by default: `address_text` accepts only deliberately user-entered content.
+
+The `saved_places` table is created by **review-only** migration `20261018_05`; this PR is stacked on unmerged B06/B04/B02/B01 changes. Do not run `alembic upgrade head` on shared Supabase until Phúc explicitly approves and the entire migration chain has been verified on disposable PostgreSQL.
+
+## B10 staged Place Notes & Journal–Place Links (not deployed)
+
+Multiple notes per saved place and many-to-many private Journal–Place linking are included on `feat/backend-place-notes-links`, stacked on unmerged B09 and previous PRs.
+
+- `POST/GET /api/v1/places/{place_id}/notes` and `PATCH/DELETE /api/v1/places/{place_id}/notes/{note_id}` require verified user JWT. Notes are 1–10,000 characters and may be edited/deleted independently.
+- `PUT/DELETE /api/v1/journals/{journal_id}/places/{place_id}` link/unlink **owned** resources idempotently; `GET /api/v1/journals/{journal_id}/places` and `GET /api/v1/places/{place_id}/journals` list private links.
+- No link or note write counts for the B06 streak: only successful journal-content writing counts.
+- Alembic `20261018_06` adds tables with **composite owner FKs and ON DELETE CASCADE**. Deleting a Journal does not delete places or notes, deleting a place does not delete the Journal, and unlink does not delete either parent.
+- B10 tests are in `backend/tests/test_api.py` and use temporary SQLite with foreign keys explicitly turned ON. Full test suite + staging PostgreSQL checks are required before any deployment. **Do not execute `alembic upgrade head` against live AI-Journal-Dev before authorized rollout.**
+
+See `docs/PLACE_NOTES_LINKS_B10_ROLLOUT.md`.

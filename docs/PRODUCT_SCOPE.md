@@ -97,14 +97,19 @@ AI Reflection + Go Deeper.
 
 Sound + animation + haptic + transitions.
 
-## Explicitly unresolved technical/product decisions
+## Confirmed MVP backend decisions (2026-10-18)
 
-The current product document does not finalize:
+- Supabase PostgreSQL (FastAPI-only data gateway) and Supabase Auth email/password.
+- Streak is based on a **successfully saved, nonblank journal-writing action**, not on opening the app; one completed day per user-local date.
+- Flutter Explore renders with **MapLibre + OpenFreeMap**, with manual pin drop. Search/address lookup is a distinct provider integration (proposed: Geoapify through FastAPI).
+- A saved place supports multiple private notes and many-to-many links with journals.
+- Consult `docs/DECISIONS.md`, `docs/DATABASE_SCHEMA.md` and `docs/API_CONTRACT.md` for implementation rules. These features remain planned until the corresponding PRs merge.
 
-- PostgreSQL vs Supabase for the shared database;
-- the production AI provider/model;
-- the exact implementation depth of voice input;
-- the exact backend behavior of Study/Album/Explore;
-- rights/licensing for the referenced mascot assets.
+## Still unresolved / deferred
 
-The codebase keeps these replaceable and does not treat them as finalized decisions.
+- Production AI provider/model.
+- Voice-input depth, image storage and sharing.
+- Study/Album deeper backend behavior and persistence.
+- Rights/licensing for referenced mascot assets.
+
+The product principle remains **Journal first, AI second**.

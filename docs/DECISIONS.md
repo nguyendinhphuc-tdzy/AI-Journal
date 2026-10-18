@@ -29,3 +29,32 @@ Supabase Auth and Storage are not automatically included in this decision.
 **Status:** provisional.
 
 No production AI provider is finalized. A deterministic mock protects UI/backend development from provider availability and secret management while preserving the integration boundary.
+
+## ADR-006 — Supabase Auth email/password; FastAPI verifies access tokens
+
+**Status:** accepted by Phúc for MVP v1 (2026-10-18); implementation pending B02/B03.
+
+Supabase Auth manages passwords, sign-up/sign-in, email verification and session refresh. Flutter calls Auth through the supported Supabase SDK and supplies access tokens to FastAPI. FastAPI validates the JWT signature, issuer, audience, expiry and subject before looking up user-owned records. The server obtains `user_id` only from verified token claims, never from client payloads. Default profile timezone is `Asia/Ho_Chi_Minh`.
+
+## ADR-007 — Daily streak requires a completed writing action
+
+**Status:** changed and approved by Phúc on 2026-10-18; supersedes the earlier app-open rule.
+
+A day counts only when a verified account **successfully saves a new journal with non-blank content** or **meaningfully edits its saved journal content**. One written line is sufficient. Merely opening/foregrounding the app, logging in, reading/deleting, editing metadata only, or resubmitting unchanged content cannot earn a streak. The server records a unique `(user_id, activity_date)` in `journal_action_days` in the same transaction as the journal write. Dates use the server time and the profile's IANA timezone. Multiple completions in one day count once; timezone changes never backdate historical entries; offline v1 does not backfill. The read-only `GET /streak` endpoint replaces any earlier `/activity/open` proposal.
+## ADR-008 — MapLibre + OpenFreeMap; provider-neutral saved places
+
+**Status:** accepted by Phúc for MVP v1; implementation pending B08/B09/B11.
+
+Flutter renders maps via MapLibre with OpenFreeMap styles (without Google Maps billing or Google Maps SDK keys). User can drop a pin at arbitrary coordinates. Address/POI search is a **separate** service; proposed MVP provider is Geoapify through FastAPI, with its key server-side and service terms/quotas reviewed before integration. Persist `provider` + `external_place_id`, coordinates and user-created labels/notes; do not hardcode `google_place_id` or store an unrestricted copy of provider data.
+
+## ADR-009 — Multiple private notes and journal-place linking
+
+**Status:** accepted by Phúc; implementation pending B10/B11/B12.
+
+A saved place may have many notes and may link to many journals; a journal may link to many places. All three entities are private and owned by a verified account; composite foreign keys enforce same-owner links. Deleting a place removes its notes and association rows, but **never** deletes journal content. Unlinking is nondestructive.
+
+## ADR-010 — Secure data-access boundary and migration rules
+
+**Status:** accepted target architecture; not yet enforced.
+
+Flutter uses Supabase Auth for login and FastAPI for personal data. No database connection string or elevated Supabase key goes into Flutter. PostgreSQL models/migrations are owned by FastAPI + Alembic. Enable appropriate RLS/grant restrictions on public data tables and block direct client access until audited, while still enforcing owner filters within FastAPI. Existing `journal_entries` has no `user_id`: preserve old rows, require explicit owner mapping before enforcing `NOT NULL`, and never delete or claim legacy entries automatically. No direct SQL schema changes in B01.

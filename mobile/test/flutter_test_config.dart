@@ -1,22 +1,23 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:google_maps_flutter_platform_interface/google_maps_flutter_platform_interface.dart';
+import 'package:maplibre_gl/maplibre_gl.dart';
 
-// Widget tests exercise Flutter controls and marker data without a native map/API key.
+// Only substitute the native map view. Live tiles/gestures require device tests.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
-  GoogleMapsFlutterPlatform.instance = _TestMapsPlatform();
+  MapLibrePlatform.createInstance = () => _TestMapsPlatform();
   await testMain();
 }
 
-class _TestMapsPlatform extends GoogleMapsFlutterPlatform {
+class _TestMapsPlatform extends MapLibrePlatform {
   @override
-  Widget buildViewWithConfiguration(
-    int creationId,
-    PlatformViewCreatedCallback onPlatformViewCreated, {
-    required MapWidgetConfiguration widgetConfiguration,
-    MapConfiguration mapConfiguration = const MapConfiguration(),
-    MapObjects mapObjects = const MapObjects(),
-  }) =>
+  Widget buildView(
+          Map<String, dynamic> creationParams,
+          OnPlatformViewCreatedCallback onPlatformViewCreated,
+          Set<Factory<OneSequenceGestureRecognizer>>? gestureRecognizers) =>
       const SizedBox.expand();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

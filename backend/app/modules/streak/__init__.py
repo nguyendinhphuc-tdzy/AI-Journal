@@ -1,0 +1,1 @@
+"""Journal-action streak module."""

@@ -1,4 +1,4 @@
-"""Alembic migrations: optional direct URL, otherwise the backend URL."""
+"""Alembic migrations: optional direct URL, otherwise backend URL."""
 
 from logging.config import fileConfig
 
@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
 from app.core.database import Base
-from app.models import JournalEntry  # noqa: F401 - register model metadata
+from app.models import JournalEntry, UserProfile, JournalActionDay, SavedPlace, PlaceNote, JournalPlace  # noqa: F401 - register metadata
 
 config = context.config
 if config.config_file_name is not None:
@@ -21,6 +21,16 @@ def migration_url() -> str:
     return settings.migration_database_url or settings.database_url
 
 
+def _include_object(obj, name, type_, reflected, compare_to):
+    # Supabase's auth.users belongs to Supabase, never to application Alembic.
+    if type_ == "table" and getattr(obj, "info", {}).get("externally_managed"):
+        return False
+    # SQLite cannot enforce FKs to Supabase's separate 'auth' schema.
+    if type_ == "foreign_key_constraint" and context.get_context().dialect.name == "sqlite":
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=migration_url(),
@@ -28,6 +38,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=_include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -40,6 +51,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            include_object=_include_object,
         )
         with context.begin_transaction():
             context.run_migrations()
