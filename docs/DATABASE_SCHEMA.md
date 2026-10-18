@@ -1,30 +1,126 @@
-# Database Schema — v0.1
+# Database Schema — MVP v1 (design contract, NOT deployed)
 
-The current functional slice needs one persistent entity first: `journal_entries`.
+**Status:** Approved product scope; proposed database design (B01). This document does **not** mean tables, API endpoints, auth, or security policies have been implemented.
 
-## journal_entries
+**Database:** Supabase PostgreSQL 17; schema `public`; migrations owned by FastAPI/SQLAlchemy/Alembic. Supabase Auth owns `auth.users` and passwords. User-owned application rows are accessed through authenticated FastAPI endpoints, **not** through direct client Postgres connections. SQLite remains for isolated backend tests.
 
-| Field | Type | Notes |
+## Already deployed (migration `20261011_01`)
+
+`public.journal_entries`: `id integer PK`, `title varchar(160) NOT NULL`, `content text NOT NULL`, `prompt varchar(500) NULL`, `mood varchar(64) NULL`, `created_at timestamptz NOT NULL`, `updated_at timestamptz NOT NULL`. No `user_id` yet. `alembic_version` tracks Alembic revisions. Do **not** assume this table already protects private journals.
+
+## Proposed entity relations
+
+```text
+auth.users (Supabase Auth, UUID id)
+  |-- 1:1 user_profiles (user_id)
+  |-- 1:N journal_entries (user_id)
+  |-- 1:N app_open_days (user_id, activity_date)
+  +-- 1:N saved_places (user_id)
+                  |-- 1:N place_notes (place_id, user_id)
+                  +-- M:N journal_entries via journal_places
+```
+
+### 1. `user_profiles` — B02
+
+| Column | Type | Constraint / semantics |
 |---|---|---|
-| id | integer | primary key |
-| title | string | optional/short title |
-| content | text | journal body |
-| prompt | string | prompt used to start writing, optional |
-| mood | string | optional lightweight metadata |
-| created_at | datetime | UTC timestamp |
-| updated_at | datetime | UTC timestamp |
+| `user_id` | UUID | Primary key; FK `auth.users(id) ON DELETE CASCADE` |
+| `display_name` | varchar(100) | Nullable |
+| `timezone` | varchar(64) | NOT NULL; default `Asia/Ho_Chi_Minh`, validated against IANA timezone database in backend |
+| `created_at` | timestamptz | NOT NULL; UTC |
+| `updated_at` | timestamptz | NOT NULL; UTC |
 
-## Later candidates — not committed yet
+Never store passwords, refresh tokens, provider secrets, or plaintext credentials in this table. A user profile is inserted idempotently on first authenticated use (and can later be updated by its owner). User identity is exclusively the verified token subject (`sub`), not a client-supplied `user_id`.
 
-These should be added only when their feature contract is finalized:
+### 2. `journal_entries` — B04 (extends deployed table)
 
-- users / auth
-- journal_images
-- reminders
-- streak/activity history
-- framework/challenge progress
-- album collections
-- places / journal-place links
-- persisted AI reflections
+**Keep** existing integer `id`, `title`, `content`, `prompt`, `mood`, `created_at`, `updated_at` and API-visible field names. Add:
 
-The team has chosen **Supabase PostgreSQL** as the shared database. The initial migration creates only `journal_entries`; SQLite is retained for isolated automated tests. All later entities require review of API contracts and Alembic migrations. See `docs/SUPABASE_SETUP.md`.
+| Column | Type | Constraint / semantics |
+|---|---|---|
+| `user_id` | UUID | NOT NULL after safe backfill; FK `auth.users(id) ON DELETE CASCADE` |
+
+Indexes: `(user_id, created_at DESC, id DESC)`; `(user_id, mood)` if filtering warrants it. Add `UNIQUE (id, user_id)` to support same-owner composite foreign keys from `journal_places`. Search on title/content may initially be `ILIKE` with user filter; add efficient full-text indexing only after measuring.
+
+**Migration rule for existing data:** add `user_id` nullable, inspect rows, then assign ownership only with an explicit, verified migration mapping. **Never** assign all old diaries to the first account, fabricate ownership, or delete records automatically. Abort the NOT NULL/owner migration if unmapped entries remain. The currently inspected development database had zero journal entries, but migrations must not assume every environment is empty.
+
+### 3. `app_open_days` — B06
+
+| Column | Type | Constraint / semantics |
+|---|---|---|
+| `user_id` | UUID | FK `auth.users(id) ON DELETE CASCADE` |
+| `activity_date` | date | Local date determined **on the server** using profile timezone |
+| `first_opened_at` | timestamptz | First accepted authenticated foreground/open event, UTC |
+
+Primary key `(user_id, activity_date)`; index `(user_id, activity_date DESC)` for recent activity. Use an atomic `INSERT ... ON CONFLICT DO NOTHING`, not a client-controlled counter.
+
+**Streak product semantics (user-approved):**
+- An authenticated **app open or return to foreground** counts, even without writing a journal.
+- Repeated requests on the same user-local calendar day count once; logout does not count.
+- `current_streak` is the consecutive sequence ending today, or ending yesterday when today has no event yet; if neither day has an event it is 0.
+- `longest_streak` is the longest uninterrupted sequence of recorded local dates.
+- On profile timezone changes, previously recorded `activity_date` values are not rewritten. Offline events cannot be retroactively backdated in MVP v1. Backend time is authoritative.
+
+### 4. `saved_places` — B09
+
+| Column | Type | Constraint / semantics |
+|---|---|---|
+| `id` | integer | Primary key |
+| `user_id` | UUID | NOT NULL; FK `auth.users(id) ON DELETE CASCADE` |
+| `label` | varchar(160) | NOT NULL; user-defined name |
+| `latitude` | numeric(9,6) | NOT NULL; CHECK from -90 to 90 |
+| `longitude` | numeric(9,6) | NOT NULL; CHECK from -180 to 180 |
+| `address_text` | text | Nullable; **user-entered** address/description |
+| `provider` | varchar(32) | NOT NULL: `manual` or `geoapify` initially |
+| `external_place_id` | text | Nullable for manually dropped pins |
+| `created_at`, `updated_at` | timestamptz | UTC, NOT NULL |
+
+Indexes: `(user_id, created_at DESC, id DESC)`; optional partial unique `(user_id, provider, external_place_id)` where `external_place_id IS NOT NULL` to prevent duplicate provider-defined places. Add `UNIQUE (id, user_id)` for composite ownership foreign keys.
+
+**Provider-neutral schema:** use `provider` and `external_place_id`, never a `google_place_id` dependency. MapLibre/OpenFreeMap is for rendering, **not** for place searches. Geoapify can be used for search later; never persist a whole third-party API response unless its retention terms permit it. Attribution and service terms must be respected.
+
+### 5. `place_notes` — B10
+
+| Column | Type | Constraint / semantics |
+|---|---|---|
+| `id` | integer | Primary key |
+| `place_id` | integer | NOT NULL |
+| `user_id` | UUID | NOT NULL |
+| `content` | text | NOT NULL; non-blank validated by API |
+| `created_at`, `updated_at` | timestamptz | UTC, NOT NULL |
+
+Composite FK `(place_id, user_id) -> saved_places(id, user_id) ON DELETE CASCADE`. Index `(user_id, place_id, created_at DESC, id DESC)`. Multiple notes per place; deleting a saved place deletes its notes, **not** its journals. Derive `user_id` from verified auth context.
+
+### 6. `journal_places` — B10
+
+| Column | Type | Constraint / semantics |
+|---|---|---|
+| `user_id` | UUID | NOT NULL; verified owner |
+| `journal_id` | integer | NOT NULL |
+| `place_id` | integer | NOT NULL |
+| `created_at` | timestamptz | UTC, NOT NULL |
+
+Primary key `(user_id, journal_id, place_id)`; FK `(journal_id, user_id) -> journal_entries(id, user_id) ON DELETE CASCADE`; FK `(place_id, user_id) -> saved_places(id, user_id) ON DELETE CASCADE`. Add index `(user_id, place_id)` for retrieving journals from a marker. Database constraints and FastAPI both reject cross-user links. Unlinking does **not** delete the journal or saved place.
+
+## Security / RLS acceptance gate
+
+**Known present-day risk:** Supabase's public schema inspection reports Row Level Security (RLS) **disabled** on both `journal_entries` and `alembic_version`. Existing FastAPI journal routes also have **no user ownership filter**. The current demo must not accept real sensitive entries or run publicly.
+
+Before any multi-user/private data:
+1. Implement Supabase JWT verification (signature, issuer, audience, expiry, subject) in FastAPI and enforce `user_id` on **every** personal-data query and write.
+2. Enable RLS for user-owned `public` tables (defense in depth) and explicitly choose **deny direct anon/authenticated access** when FastAPI is the only data gateway; alternatively, if direct Supabase client data access is later approved, define tested owner-only RLS policies using `auth.uid()`.
+3. Review access grants / RLS for `alembic_version`, which should not be client-accessible. Applying RLS without policies can break direct client queries, so coordinate it with the auth release.
+4. Validate real PostgreSQL authorization and foreign keys, not just SQLite mocks; production database roles may bypass RLS, so RLS is **not a replacement** for FastAPI ownership filtering.
+
+**Do not apply RLS or migrations as part of B01**; changes must be reviewed and delivered as Alembic migrations in later PRs.
+
+## Migration order (not executed in B01)
+
+- **B02:** `user_profiles`; JWT auth and `/me`; consider baseline RLS/grants for deployed journal/alembic tables before exposure.
+- **B04:** safely backfill/protect `journal_entries.user_id`; ownership indexes and authorization.
+- **B06:** `app_open_days` + idempotent streak logic.
+- **B09:** `saved_places`, coordinate validation, search-provider integration.
+- **B10:** `place_notes`, `journal_places`, composite owner FKs, delete behavior.
+- **B13:** PostgreSQL staging migration, RLS grants and A/B cross-user authorization tests.
+
+Excluded from MVP v1 schema: images, voice transcription, saved AI reflection, reminders, Study progress, public map sharing, background GPS tracking, offline backfill.
