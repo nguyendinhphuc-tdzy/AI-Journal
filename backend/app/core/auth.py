@@ -6,6 +6,8 @@ before enabling this FastAPI JWT verifier; do not put JWT secrets in Flutter.
 """
 from dataclasses import dataclass
 from functools import lru_cache
+import re
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import jwt
@@ -47,7 +49,18 @@ def verify_supabase_token(
     """Verify signature, issuer, audience, lifetime and authenticated role."""
     settings = settings or get_settings()
     base = (settings.supabase_url or "").rstrip("/")
-    if not base.startswith("https://") or not base.endswith(".supabase.co"):
+    url = urlsplit(base)
+    if (
+        url.scheme != "https"
+        or not url.hostname
+        or not re.fullmatch(r"[a-z0-9-]+\\.supabase\\.co", url.hostname)
+        or url.port not in (None, 443)
+        or url.username is not None
+        or url.password is not None
+        or url.path not in ("", "/")
+        or url.query
+        or url.fragment
+    ):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Supabase Auth URL is not configured",
@@ -73,6 +86,8 @@ def verify_supabase_token(
         )
         if claims.get("role") != "authenticated":
             raise InvalidTokenError("Token is not an authenticated user")
+        if not isinstance(claims["sub"], str):
+            raise InvalidTokenError("Invalid subject claim")
         user_id = UUID(claims["sub"])
         if user_id.int == 0:
             raise InvalidTokenError("Empty user identity")
