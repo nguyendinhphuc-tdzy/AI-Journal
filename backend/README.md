@@ -60,3 +60,22 @@ If you have an old `ai_diary.db`, do not delete it unless you explicitly want to
 - Design account authorization before exposing private journals to multiple real users; the current demo CRUD has **no user isolation**.
 - Align persistent reflection, Save to Album and Streak data models with the final UI contract.
 - Keep AI provider credentials solely in backend env vars.
+
+## B02 staged Supabase Auth backend (not deployed until reviewed)
+
+B02 introduces `GET/PATCH /api/v1/me`, `user_profiles`, JWT verification and a PostgreSQL migration which enables RLS/revokes direct `anon`/`authenticated` table access on `public.journal_entries` and `public.alembic_version`. It must be reviewed before applying any migration to shared Supabase.
+
+1. Add your project's **public** URL in untracked `backend/.env`, e.g.
+   `SUPABASE_URL=https://PROJECT_REF.supabase.co`. Keep `DATABASE_URL` private as before.
+2. In Supabase Dashboard -> Authentication -> Signing Keys, ensure the project issues **ES256 or RS256 JWT access tokens** with `kid`. B02 deliberately rejects legacy HS256 rather than shipping a JWT secret. Configure asymmetric keys before manual login testing.
+3. Supabase Auth SDK handles sign-up/sign-in/email verification on Flutter in B03. Send JWT from that SDK in `Authorization: Bearer <access_token>` to FastAPI. No application-managed passwords, service-role secrets, or JWT signing secrets in Flutter.
+4. Run locally (after installing the new requirements):
+   ```powershell
+   python -m pip install -r requirements.txt
+   python -m pytest -q
+   ```
+5. **Do not run `alembic upgrade head` on shared AI-Journal-Dev** until Phúc reviews the B02 migration, confirms its effects on RLS and verifies the target project. `python -m alembic heads` does not modify the database.
+
+**Deliberate staged safety block:** B02 returns 401 on unauthenticated Journal requests and **503 even on authenticated Journal CRUD**. This is expected, because the existing `journal_entries` table has no owner information. The API is reopened only by B04, which migrates `journal_entries.user_id` and enforces ownership in every query. The other existing mock AI/prompt routes remain for local UI prototyping.
+
+Only use fictional Journal demo content until B04 and independent A/B authorization tests are complete. Enabling RLS on public data tables without direct client policies is intentional for FastAPI-only database access; PostgreSQL role privileges/ownership must still be reviewed.
