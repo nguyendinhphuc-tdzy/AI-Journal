@@ -41,7 +41,7 @@ class StudyTheme extends StatelessWidget {
       minimumSize: const Size(0, 56),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       textStyle: text.labelLarge,
-      side: const BorderSide(color: AppColors.primary),
+      side: const BorderSide(color: AppColors.primaryAction),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
     );
     return Theme(

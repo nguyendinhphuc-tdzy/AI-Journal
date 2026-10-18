@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
+import '../../journal/data/journal_entry.dart';
+import '../../journal/journal_scope.dart';
 import 'widgets/journal_card.dart';
 import 'widgets/primary_button.dart';
 import '../../streak/streak_state.dart';
@@ -210,6 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (_) => const WriteJournalScreen(),
                 )),
           ),
+          const _LatestEntry(),
         ],
       ),
     );
@@ -305,6 +308,79 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The newest saved entry, if any, to open again in the editor. Hidden until
+/// there is one, so Home looks as before for a new user.
+class _LatestEntry extends StatelessWidget {
+  const _LatestEntry();
+
+  @override
+  Widget build(BuildContext context) {
+    final journals = JournalScope.of(context);
+    return ListenableBuilder(
+      listenable: journals,
+      builder: (context, _) => FutureBuilder<List<JournalEntry>>(
+        future: journals.entries(),
+        builder: (context, snapshot) {
+          final entries = snapshot.data;
+          if (entries == null || entries.isEmpty) {
+            return const SizedBox.shrink();
+          }
+          final latest = entries.first;
+          final textTheme = Theme.of(context).textTheme;
+          return Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Material(
+              color: AppColors.primaryLight,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => WriteJournalScreen(entry: latest)),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 56),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(children: [
+                      const Icon(Icons.history_edu_outlined,
+                          color: AppColors.primaryAction),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text('Nhật ký gần nhất',
+                                style: textTheme.labelMedium?.copyWith(
+                                    color: AppColors.textPrimary,
+                                    fontWeight: FontWeight.w600)),
+                            Text(
+                              latest.body.split('\n').first,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: textTheme.bodyMedium
+                                  ?.copyWith(color: AppColors.textPrimary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded,
+                          color: AppColors.textPrimary),
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

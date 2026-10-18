@@ -5,17 +5,58 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../navigation/app_shell.dart';
 import '../../../navigation/custom_bottom_navigation.dart';
+import '../data/journal_entry.dart';
+import '../journal_scope.dart';
 import 'ai_reflection_screen.dart';
 
 class WriteJournalScreen extends StatefulWidget {
-  const WriteJournalScreen({super.key});
+  const WriteJournalScreen({super.key, this.entry});
+
+  /// An entry to keep writing (e.g. from Home); saving updates the same id.
+  final JournalEntry? entry;
 
   @override
   State<WriteJournalScreen> createState() => _WriteJournalScreenState();
 }
 
 class _WriteJournalScreenState extends State<WriteJournalScreen> {
-  final _controller = TextEditingController();
+  late final _controller = TextEditingController(text: widget.entry?.body);
+  late JournalEntry? _saved = widget.entry;
+  var _saving = false;
+
+  /// "Finish": saves the entry (new, or the same id when editing), then the
+  /// reflection flow as before. A failed save stays here with the text.
+  Future<void> _finish() async {
+    final text = _controller.text.trim();
+    if (_saving) return;
+    if (text.isNotEmpty) {
+      setState(() => _saving = true);
+      final saved = _saved;
+      // A guided entry keeps its structured values only while its text is
+      // unchanged; edited here it becomes free text.
+      final content = JournalContent(
+        body: text,
+        mood: saved?.content.mood,
+        guided:
+            saved != null && saved.body == text ? saved.content.guided : null,
+      );
+      try {
+        final journals = JournalScope.of(context);
+        _saved = saved == null
+            ? await journals.create(content)
+            : await journals.update(saved.id, content);
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Chưa lưu được nhật ký. Nội dung vẫn còn ở đây.')));
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _saving = false);
+    }
+    _openReflection();
+  }
 
   @override
   void dispose() {
@@ -253,7 +294,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
             fit: BoxFit.scaleDown,
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               OutlinedButton(
-                onPressed: _openReflection,
+                onPressed: _saving ? null : _finish,
                 style: OutlinedButton.styleFrom(
                   foregroundColor: AppColors.primaryDark,
                   side: const BorderSide(color: AppColors.primaryDark),
@@ -266,7 +307,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
               ElevatedButton(
                 onPressed: _openReflection,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: AppColors.primaryAction,
                   foregroundColor: AppColors.surface,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: const Size(0, 48),

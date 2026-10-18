@@ -1873,8 +1873,8 @@ class _PrimaryButton extends StatelessWidget {
 
   Widget _buttonFor(BuildContext context) => FilledButton(
       style: FilledButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.textPrimary,
+          backgroundColor: AppColors.primaryAction,
+          foregroundColor: AppColors.surface,
           minimumSize: Size(0, height),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),

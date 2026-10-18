@@ -8,6 +8,7 @@ Current visual direction:
 |---|---|---|
 | Primary | `#5C9697` | CTA, selected tab, active state |
 | Primary Dark | `#3F8996` | pressed/highlight |
+| Primary Action | `#2E6E78` | fill of primary buttons with a light label (5.1:1 on Surface, WCAG AA); Primary/Primary Dark are below 4.5:1 with white text |
 | Primary Light | `#DCEBE7` | selected chip/card background |
 | Background | `#EEF4F1` | app background |
 | Surface | `#FAFBF8` | cards, editor, modal |

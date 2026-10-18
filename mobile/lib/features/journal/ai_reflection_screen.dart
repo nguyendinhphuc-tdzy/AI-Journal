@@ -161,7 +161,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                         const SizedBox(width: 12),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
+                              backgroundColor: AppColors.primaryAction,
                               foregroundColor: AppColors.surface),
                           onPressed: () =>
                               Navigator.push(context, StreakScreen.route()),
