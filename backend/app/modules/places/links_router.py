@@ -5,9 +5,10 @@ FKs guarantee the restriction even against accidental future unscoped writes.
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import and_, delete, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -61,8 +62,15 @@ def attach_place(
         )
     else:
         raise RuntimeError("Unsupported linking database")
-    db.execute(stmt)
-    db.commit()
+    try:
+        db.execute(stmt)
+        db.commit()
+    except IntegrityError as exc:
+        # Another request may delete one of the two parent resources.
+        db.rollback()
+        raise HTTPException(
+            status_code=404, detail="Journal or saved place not found"
+        ) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
