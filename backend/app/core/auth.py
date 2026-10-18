@@ -53,7 +53,7 @@ def verify_supabase_token(
     if (
         url.scheme != "https"
         or not url.hostname
-        or not re.fullmatch(r"[a-z0-9-]+\\.supabase\\.co", url.hostname)
+        or not re.fullmatch(r"[a-z0-9-]+\.supabase\.co", url.hostname)
         or url.port not in (None, 443)
         or url.username is not None
         or url.password is not None
