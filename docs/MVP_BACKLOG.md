@@ -16,7 +16,7 @@
 | **B03** | Flutter assignee coordinated by Phúc | B02 | email/password UI and session integration | login/restore/logout/token attachment on emulator |
 | **B04** | Phúc | B02 | safe journal user_id migration + ownership-filtered archive API | A cannot read/write B; legacy records handled safely; PostgreSQL tests |
 | **B05** | Flutter assignee coordinated by Phúc | B03+B04+PR #6 | Journal API integration and archive UI | save/restart/load/edit/delete; errors preserve draft |
-| **B06** | Phúc | B02 | journal_action_days table, journal-save action hook, read-only streak API | no credit for opens; per-day once; timezone and rollback tests |
+| **B06** | Phúc | B02+B04 | journal_action_days table, journal-save action hook, read-only streak API | no credit for opens; per-day once; timezone and rollback tests |
 | **B07** | Flutter assignee coordinated by Phúc | B03+B06 | read-only streak UI after completed Journal save | writing counts, opening app does not |
 | **B08** | Trâm | B01; PR #6 coordinated | MapLibre/OpenFreeMap on Explore, pan/zoom/drop pin | emulator map renders without Google key; no new secrets |
 | **B09** | Phúc | B02+B01 | saved_places API, provider-neutral data; Geoapify search | manual pin and provider search; user A/B isolation |
