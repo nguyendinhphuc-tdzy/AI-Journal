@@ -23,8 +23,7 @@ void main() {
     });
   }
 
-  testWidgets('Go Deeper opens reflection with keyboard visible',
-      (tester) async {
+  testWidgets('Go Deeper expands editor with keyboard visible', (tester) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(320, 568);
     tester.view.viewInsets = const FakeViewPadding(bottom: 280);
@@ -39,7 +38,11 @@ void main() {
     await tester.tap(find.text('✨ Go Deeper'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 3));
-    expect(find.text("✨ Nudaeng's thought..."), findsOneWidget);
+    expect(find.byType(WriteJournalScreen), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(
+        tester.widget<TextField>(find.byType(TextField)).decoration!.hintText,
+        'Write here...');
     expect(tester.takeException(), isNull);
   });
 }

@@ -1,6 +1,6 @@
 # MapLibre + OpenFreeMap setup — Flutter / AI-Journal
 
-**Status:** installation guide; **not installed by B01**. **Flutter Explore/Map owner:** Trâm. **Backend owner:** Phúc.
+**Status:** Phase A implemented in PR #13 with `maplibre_gl 0.27.1`; live backend integration remains deferred. **Flutter Explore/Map owner:** Trâm. **Backend owner:** Phúc.
 
 ## What does and does not require a key
 
@@ -11,7 +11,7 @@
 
 ## Repository/toolchain verification first
 
-Default/base is `setup/initial-import`. Trâm's currently known existing feature branch is `feat/journal-inline-follow-up`, whose PR #6 may still be open. **Do not** mix unrelated MapLibre changes into active PR #6 without Phúc's approval. Only Phúc merges PRs. Never create extra branches without assignment, reset working changes, or force-push.
+Default/base is `setup/initial-import`. The approved existing branch for this task is `feat/explore-map-share`, updating PR #13. Only Phúc reviews and merges PRs; do not create another branch or PR.
 
 Run in Windows PowerShell from repository root:
 
@@ -84,3 +84,24 @@ Official references:
 - https://pub.dev/packages/maplibre_gl
 - https://maplibre.org/maplibre-native/docs/book/flutter/
 - https://openfreemap.org/
+
+## Phase A implementation (PR #13)
+
+- Existing branch: `feat/explore-map-share`. No Google Maps SDK/key integration remains. The old Google Maps setup document has been removed. An old key in ignored local.properties is unused; this task does not read or modify local secrets.
+- Explore uses the Liberty OpenFreeMap style, native pan/zoom, tap/long-press temporary pins, Nudaeng PNG annotations and dismissible place details. Pins are temporary, not persisted.
+- `ExplorePlacesRepository` is the replacement boundary for a future authenticated FastAPI adapter. The current implementation searches three fixed demo places with a 350 ms debounce; selecting a result moves the camera. Category filters operate only on demo data. No user data or backend requests are involved.
+- Album Share still opens its existing mock dialog. It does not publish or save anything.
+- A 20-second initial style/marker timeout offers Retry map without deleting a temporary pin. There is no offline tile package, and this plugin exposes no per-tile error callback in the widget API; a failed tile request after style load may still leave gaps until connectivity returns/retry.
+- Native map attribution remains enabled and visible at the bottom right.
+- Installed environment: Flutter 3.47.2 / Dart 3.13.2, AGP 9.1.0, Gradle 9.3.1, Android Studio JDK 25. App Java target remains 17; MapLibre compiles its plugin at Java 21. No toolchain upgrade was made.
+- Phase B is not implemented: production JWT/Auth, server persistence, notes/links, provider search and its 429/503 handling. Backend source being merged does not imply Supabase migrations are deployed. Do not run migrations as part of this Flutter work.
+- Widget tests replace only the native platform view. They cannot prove tile loading or native gestures; validate those on Android as well.
+- Android uses `MapLibreMap.useHybridComposition = true` (TextureView in this package) so Flutter overlays and tab clipping compose with the native map.
+
+### Validation on 2026-10-18
+
+- `flutter pub get` and `flutter analyze`: passed.
+- Focused Explore and Journal tests: 8 passed. Full `flutter test`: 267 passed, 11 failed; the same pre-existing Study artwork/motion/screen asset failures reproduced on the baseline. No Study tests or implementation were changed to hide failures.
+- `flutter build apk --debug --no-pub` and `flutter run -d emulator-5554 --no-pub --no-resident`: passed on Android 17/API 37. Native checks confirmed map tiles, panning, Nudaeng markers, temporary pin selection, Home/Study/Album/Explore navigation and Album Share dialog.
+- Offline recovery, pinch zoom and iOS rendering were not manually verified. Initial map loading has a timeout/retry UI, not guaranteed offline map support.
+- Backend, onboarding, Study, Streak and main.dart match the integrated base commit `975380c`. Journal conflict resolution preserves entry IDs and saves follow-up text only after Finish entry confirmation.

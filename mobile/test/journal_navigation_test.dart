@@ -1,4 +1,3 @@
-import 'package:ai_diary/core/theme/app_colors.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
 import 'package:ai_diary/main.dart';
 import 'package:ai_diary/navigation/custom_bottom_navigation.dart';
@@ -24,13 +23,13 @@ void main() {
         matching: find.byWidgetPredicate((widget) =>
             widget is DecoratedBox &&
             widget.decoration is BoxDecoration &&
-            (widget.decoration as BoxDecoration).color == AppColors.surface),
+            (widget.decoration as BoxDecoration).color == Colors.transparent),
       );
       final cardRect = tester.getRect(card);
       for (final child in [
         find.text('Daily Reflection'),
         find.byType(TextField),
-        find.text('Finish'),
+        find.text('Finish entry'),
         find.text('✨ Go Deeper'),
       ]) {
         final rect = tester.getRect(child);
@@ -39,17 +38,15 @@ void main() {
       }
       expect(cardRect.bottom,
           lessThan(tester.getTopLeft(find.byType(CustomBottomNavigation)).dy));
-      expect(find.byIcon(Icons.attach_file), findsOneWidget);
+      expect(find.byIcon(Icons.attach_file), findsNothing);
       expect(find.byIcon(Icons.image_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.mic_none_outlined), findsNothing);
+      expect(find.byIcon(Icons.mic_none_outlined), findsOneWidget);
       await tester.tap(find.text(tab));
       await tester.pumpAndSettle();
       expect(find.byType(WriteJournalScreen), findsNothing);
       expect(find.byType(NavigationBar), findsOneWidget);
       expect(
-        tester
-            .widget<NavigationBar>(find.byType(NavigationBar))
-            .selectedIndex,
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
         ['Home', 'Study', 'Album', 'Explore'].indexOf(tab),
       );
       expect(tester.takeException(), isNull);

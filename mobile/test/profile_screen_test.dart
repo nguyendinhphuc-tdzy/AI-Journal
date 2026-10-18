@@ -10,7 +10,7 @@ void main() {
     const Size(320, 640),
     const Size(640, 320),
   ]) {
-    testWidgets('Profile opens, toggles preferences, and returns Home at $size',
+    testWidgets('Profile opens, previews settings, and returns Home at $size',
         (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = size;
@@ -22,29 +22,47 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Profile avatar'));
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
-      expect(find.text('Settings'), findsOneWidget);
-      expect(find.text('Nudaeng Lover'), findsOneWidget);
+      expect(find.text('GENERAL'), findsOneWidget);
+      expect(find.text('who says plus'), findsOneWidget);
+      expect(tester.widget<Text>(find.text('who says plus')).textAlign,
+          TextAlign.center);
       expect(tester.takeException(), isNull);
-
-      for (final title in ['Daily Reminder', 'Sound Effects']) {
-        final tile = find.widgetWithText(SwitchListTile, title);
-        await tester.ensureVisible(tile);
-        await tester.pumpAndSettle();
-        final oldValue = tester.widget<SwitchListTile>(tile).value;
-        await tester.tap(tile);
-        await tester.pumpAndSettle();
-        expect(tester.widget<SwitchListTile>(tile).value, !oldValue);
-      }
-      await tester.scrollUntilVisible(find.text('v1.0.0'), 100,
-          scrollable: find.descendant(
-            of: find.byType(ProfileScreen),
-            matching: find.byType(Scrollable),
-          ));
+      final scrollable = find.descendant(
+          of: find.byType(ProfileScreen), matching: find.byType(Scrollable));
+      await tester.scrollUntilVisible(find.text('lock with passcode'), 150,
+          scrollable: scrollable);
+      expect(
+          tester
+              .widget<Text>(find.text('lock with passcode'))
+              .style!
+              .decoration,
+          TextDecoration.lineThrough);
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('app-icon-1')), 150,
+          scrollable: scrollable);
       await tester.pumpAndSettle();
-      expect(tester.getRect(find.text('v1.0.0')).bottom,
-          lessThanOrEqualTo(size.height));
+      await tester.ensureVisible(find.byKey(const ValueKey('app-icon-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('app-icon-1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selected-icon-dot')), findsOneWidget);
+      expect(
+          tester.getCenter(find.byKey(const ValueKey('selected-icon-dot'))).dx,
+          tester.getCenter(find.byKey(const ValueKey('app-icon-1'))).dx);
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('app-icon-4')), 100,
+          scrollable: scrollable);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(const ValueKey('app-icon-4')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('app-icon-4')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selected-icon-dot')), findsOneWidget);
+      expect(
+          tester.getCenter(find.byKey(const ValueKey('selected-icon-dot'))).dx,
+          tester.getCenter(find.byKey(const ValueKey('app-icon-4'))).dx);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.byTooltip('Back to Home'));
+      await tester.tap(find.byTooltip('close'));
       await tester.pumpAndSettle();
       expect(tester.element(find.byType(HomeScreen)), same(originalHome));
       expect(find.byType(ProfileScreen), findsNothing);

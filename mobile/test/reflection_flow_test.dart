@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
-    for (final action in ['Finish', '✨ Go Deeper']) {
+    for (final action in ['Finish entry', '✨ Go Deeper']) {
       testWidgets('$action follows full reflection flow at $size',
           (tester) async {
         tester.view.devicePixelRatio = 1;
@@ -24,23 +24,48 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byType(WriteJournalScreen), findsOneWidget);
         await tester.enterText(find.byType(TextField), 'A quiet moment today.');
-        await tester.tap(find.text(action));
+        if (action != 'Finish entry') {
+          await tester.tap(find.text(action));
+          await tester.pumpAndSettle();
+          expect(find.byType(AiReflectionScreen), findsNothing);
+          expect(find.text('A quiet moment today.'), findsOneWidget);
+          expect(find.byType(TextField), findsOneWidget);
+          await tester.enterText(
+              find.byType(TextField), 'School feels overwhelming.');
+        }
+        await tester.tap(find.text('Finish entry'));
+        await tester.pumpAndSettle();
+        expect(find.text('Finished?'), findsOneWidget);
+        expect(find.byType(AiReflectionScreen), findsNothing);
+        await tester.tap(find.text('Back'));
+        await tester.pumpAndSettle();
+        expect(find.text('Finished?'), findsNothing);
+        await tester.tap(find.text('Finish entry'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirm'));
         await tester.pumpAndSettle();
         expect(
             tester
                 .widget<AiReflectionScreen>(find.byType(AiReflectionScreen))
                 .journalContent,
-            'A quiet moment today.');
+            action == 'Finish entry'
+                ? 'A quiet moment today.'
+                : 'A quiet moment today.\n\nSchool feels overwhelming.');
 
         // Pushing reflection preserves the editor and its draft on Back.
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
         expect(
             tester.widget<TextField>(find.byType(TextField)).controller!.text,
-            'A quiet moment today.');
-        await tester.tap(find.text(action));
+            action == 'Finish entry'
+                ? 'A quiet moment today.'
+                : 'School feels overwhelming.');
+        await tester.tap(find.text('Finish entry'));
         await tester.pumpAndSettle();
-        await tester.pump(const Duration(seconds: 3));
+        await tester.tap(find.text('Confirm'));
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(seconds: 7));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
         expect(find.byType(StreakScreen), findsOneWidget);
