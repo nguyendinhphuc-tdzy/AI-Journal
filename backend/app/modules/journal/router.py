@@ -13,6 +13,7 @@ from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
 from app.models.journal import JournalEntry
 from app.models.user_profile import UserProfile
+from app.modules.streak.service import record_journal_completion
 from app.schemas.journal import JournalCreate, JournalPage, JournalRead, JournalUpdate
 
 
@@ -121,6 +122,9 @@ def create_journal(
 ):
     journal = JournalEntry(**payload.model_dump(), user_id=user.user_id)
     db.add(journal)
+    # Completion is recorded only when a valid journal is successfully saved.
+    # One DB transaction covers BOTH journal and daily streak entry.
+    record_journal_completion(db, user.user_id)
     db.commit()
     db.refresh(journal)
     return journal
@@ -155,8 +159,16 @@ def update_journal(
     db: Session = Depends(get_db),
 ):
     journal = _owned_or_404(journal_id, user.user_id, db)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    # Editing a title, mood or prompt alone is not a writing completion.
+    # Resubmitting unchanged content must not manufacture a streak event.
+    wrote_new_content = (
+        "content" in changes and changes["content"] != journal.content
+    )
+    for field, value in changes.items():
         setattr(journal, field, value)
+    if wrote_new_content:
+        record_journal_completion(db, user.user_id)
     db.commit()
     db.refresh(journal)
     return journal
