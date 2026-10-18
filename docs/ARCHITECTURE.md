@@ -83,7 +83,7 @@ Flutter
   |-- MapLibre native map renderer -> OpenFreeMap style/tiles
   +-- Bearer JWT / JSON -> FastAPI
           |-- verify Supabase JWT; obtain owner UUID
-          |-- /me + /journals + /activity/open + /streak
+          |-- /me + /journals (action completion) + /streak (read-only)
           |-- /geo/search -> Geoapify (backend key, optional)
           +-- /places + /notes + /journal-place links
                 |
