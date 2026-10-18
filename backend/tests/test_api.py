@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261018_02"
+    assert revision == "20261018_03"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
 
@@ -66,7 +66,7 @@ def test_public_mock_ai_preserved():
     assert reflection.json()["emotion"] == "relieved"
 
 
-def test_journal_crud_is_closed_until_owner_migration():
+def test_journal_crud_requires_authentication():
     app.dependency_overrides.clear()
     assert client.get("/api/v1/journals").status_code == 401
     assert client.post("/api/v1/journals", json={"content": "private"}).status_code == 401
@@ -74,14 +74,110 @@ def test_journal_crud_is_closed_until_owner_migration():
     assert client.put("/api/v1/journals/1", json={"content": "private"}).status_code == 401
     assert client.delete("/api/v1/journals/1").status_code == 401
 
-    user = AuthenticatedUser(user_id=uuid4(), email="user@example.com")
+
+def test_journal_crud_is_owner_scoped():
+    user_a = AuthenticatedUser(user_id=uuid4(), email="a@example.com")
+    user_b = AuthenticatedUser(user_id=uuid4(), email="b@example.com")
+
+    app.dependency_overrides[get_current_user] = lambda: user_a
+    try:
+        a = client.post("/api/v1/journals", json={"title": "Owner A", "content": "A's diary", "mood": "calm"})
+        assert a.status_code == 201, a.text
+        aid = a.json()["id"]
+        assert "user_id" not in a.json()
+        assert client.get(f"/api/v1/journals/{aid}").status_code == 200
+        assert client.put(f"/api/v1/journals/{aid}", json={"content": "Updated A"}).status_code == 200
+        assert client.put(f"/api/v1/journals/{aid}", json={"content": None}).status_code == 422
+        assert client.put(f"/api/v1/journals/{aid}", json={"title": None}).status_code == 422
+
+        # An input user_id must never be permitted to override the verified JWT.
+        assert client.post("/api/v1/journals", json={
+            "content": "Injected", "user_id": str(user_b.user_id)
+        }).status_code == 422
+        assert client.put(f"/api/v1/journals/{aid}", json={
+            "user_id": str(user_b.user_id)
+        }).status_code == 422
+
+        assert client.post("/api/v1/journals", json={"content": "   "}).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: user_b
+    try:
+        assert client.get(f"/api/v1/journals/{aid}").status_code == 404
+        assert client.put(f"/api/v1/journals/{aid}", json={"content": "steal"}).status_code == 404
+        assert client.delete(f"/api/v1/journals/{aid}").status_code == 404
+        page = client.get("/api/v1/journals")
+        assert page.status_code == 200
+        assert page.json() == {"items": [], "next_cursor": None}
+        b = client.post("/api/v1/journals", json={"content": "Owner B diary"})
+        assert b.status_code == 201
+        bid = b.json()["id"]
+        assert bid != aid
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: user_a
+    try:
+        page = client.get("/api/v1/journals")
+        assert page.status_code == 200
+        assert all(entry["id"] != bid for entry in page.json()["items"])
+        assert any(entry["id"] == aid for entry in page.json()["items"])
+        assert client.delete(f"/api/v1/journals/{aid}").status_code == 204
+        assert client.get(f"/api/v1/journals/{aid}").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_journal_archive_pagination_and_filters():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    user = AuthenticatedUser(user_id=uuid4(), email="search@example.com")
     app.dependency_overrides[get_current_user] = lambda: user
     try:
-        assert client.get("/api/v1/journals").status_code == 503
-        assert client.post("/api/v1/journals", json={"content": "private"}).status_code == 503
-        assert client.get("/api/v1/journals/1").status_code == 503
-        assert client.put("/api/v1/journals/1", json={"content": "private"}).status_code == 503
-        assert client.delete("/api/v1/journals/1").status_code == 503
+        for title, content, mood in [
+            ("Reading cafe", "quiet coffee", "calm"),
+            ("Busy meeting", "challenging call", "tense"),
+            ("Book cafe", "coffee and books", "calm"),
+        ]:
+            response = client.post("/api/v1/journals", json={
+                "title": title, "content": content, "mood": mood
+            })
+            assert response.status_code == 201, response.text
+
+        first = client.get("/api/v1/journals", params={"limit": 2})
+        assert first.status_code == 200
+        body = first.json()
+        assert len(body["items"]) == 2
+        assert body["next_cursor"]
+        second = client.get("/api/v1/journals", params={
+            "limit": 2, "cursor": body["next_cursor"]
+        })
+        assert second.status_code == 200
+        assert len(second.json()["items"]) == 1
+        assert second.json()["next_cursor"] is None
+        ids = [x["id"] for x in body["items"] + second.json()["items"]]
+        assert len(ids) == len(set(ids)) == 3
+
+        calm = client.get("/api/v1/journals", params={"mood": "calm"})
+        assert len(calm.json()["items"]) == 2
+        coffee = client.get("/api/v1/journals", params={"q": "coffee"})
+        assert len(coffee.json()["items"]) == 2
+
+        stamp = datetime.fromisoformat(body["items"][0]["created_at"].replace("Z", "+00:00"))
+        local_date = stamp.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date().isoformat()
+        dates = client.get("/api/v1/journals", params={
+            "from": local_date, "to": local_date
+        })
+        assert dates.status_code == 200
+        assert len(dates.json()["items"]) == 3
+
+        assert client.get("/api/v1/journals", params={"cursor": "bad"}).status_code == 400
+        assert client.get("/api/v1/journals", params={"limit": 101}).status_code == 422
+        assert client.get("/api/v1/journals", params={
+            "from": "2026-10-20", "to": "2026-10-01"
+        }).status_code == 422
     finally:
         app.dependency_overrides.clear()
 
