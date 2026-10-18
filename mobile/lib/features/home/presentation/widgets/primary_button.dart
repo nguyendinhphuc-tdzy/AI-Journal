@@ -13,7 +13,7 @@ class PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return FilledButton(
       style: FilledButton.styleFrom(
-        backgroundColor: AppColors.primaryDark,
+        backgroundColor: AppColors.primaryAction,
         foregroundColor: AppColors.surface,
         minimumSize: const Size.fromHeight(54),
       ),

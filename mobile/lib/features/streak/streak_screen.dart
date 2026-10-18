@@ -167,7 +167,7 @@ class _StreakScreenState extends State<StreakScreen> {
               child: ElevatedButton(
                 onPressed: _continue,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: AppColors.primaryAction,
                   foregroundColor: AppColors.surface,
                   minimumSize: const Size.fromHeight(54),
                 ),
