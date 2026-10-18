@@ -45,11 +45,13 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261018_05"
+    assert revision == "20261018_06"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
     assert "saved_places" in tables
+    assert "place_notes" in tables
+    assert "journal_places" in tables
 
 
 def test_public_mock_ai_preserved():
@@ -623,3 +625,284 @@ def test_geo_search_limits_requests_per_user(monkeypatch):
         geo_router.enforce_geo_rate_limit(user)
     finally:
         geo_router._recent_requests.clear()
+
+
+
+def test_multiple_private_place_notes_paging_and_delete_cascade():
+    from sqlalchemy import func, select
+
+    from app.core.database import SessionLocal
+    from app.models.place_note import PlaceNote
+
+    a = AuthenticatedUser(user_id=uuid4(), email="notes-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="notes-b@example.com")
+    app.dependency_overrides.clear()
+    assert client.get("/api/v1/places/1/notes").status_code == 401
+    assert client.post("/api/v1/places/1/notes", json={"content": "secret"}).status_code == 401
+
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        new_place = client.post("/api/v1/places", json={
+            "label": "Quiet park", "latitude": 10.82, "longitude": 106.62
+        })
+        assert new_place.status_code == 201, new_place.text
+        pid = new_place.json()["id"]
+        assert client.post(f"/api/v1/places/{pid}/notes", json={
+            "content": "    "
+        }).status_code == 422
+        assert client.post(f"/api/v1/places/{pid}/notes", json={
+            "content": "spoof", "user_id": str(b.user_id)
+        }).status_code == 422
+        ids = []
+        for content in ["Morning walk", "Afternoon walk", "Evening walk"]:
+            response = client.post(f"/api/v1/places/{pid}/notes", json={
+                "content": content
+            })
+            assert response.status_code == 201, response.text
+            note = response.json()
+            assert note["place_id"] == pid
+            assert "user_id" not in note
+            ids.append(note["id"])
+
+        page1 = client.get(f"/api/v1/places/{pid}/notes", params={"limit": 2})
+        assert page1.status_code == 200
+        assert len(page1.json()["items"]) == 2
+        cursor = page1.json()["next_cursor"]
+        assert cursor is not None
+        page2 = client.get(f"/api/v1/places/{pid}/notes", params={
+            "limit": 2, "cursor": cursor
+        })
+        assert page2.status_code == 200
+        assert len(page2.json()["items"]) == 1
+        assert page2.json()["next_cursor"] is None
+        assert len({item["id"] for item in page1.json()["items"] + page2.json()["items"]}) == 3
+        assert client.get(f"/api/v1/places/{pid}/notes", params={
+            "cursor": "!bad!"
+        }).status_code == 400
+        assert client.get(f"/api/v1/places/{pid}/notes", params={"limit": 0}).status_code == 422
+
+        edit = client.patch(f"/api/v1/places/{pid}/notes/{ids[0]}", json={
+            "content": "Morning walk updated"
+        })
+        assert edit.status_code == 200
+        assert edit.json()["content"] == "Morning walk updated"
+        assert client.patch(f"/api/v1/places/{pid}/notes/{ids[0]}", json={
+            "content": None
+        }).status_code == 422
+        assert client.patch(f"/api/v1/places/{pid}/notes/{ids[0]}", json={
+            "content": "new", "place_id": -1
+        }).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: b
+    try:
+        assert client.get(f"/api/v1/places/{pid}/notes").status_code == 404
+        assert client.post(f"/api/v1/places/{pid}/notes", json={
+            "content": "steal"
+        }).status_code == 404
+        assert client.patch(f"/api/v1/places/{pid}/notes/{ids[0]}", json={
+            "content": "steal"
+        }).status_code == 404
+        assert client.delete(f"/api/v1/places/{pid}/notes/{ids[0]}").status_code == 404
+        own_place = client.post("/api/v1/places", json={
+            "label": "Other user", "latitude": 10, "longitude": 106
+        })
+        assert own_place.status_code == 201
+        other_pid = own_place.json()["id"]
+        assert client.get(f"/api/v1/places/{other_pid}/notes").json()["items"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.delete(f"/api/v1/places/{pid}/notes/{ids[0]}").status_code == 204
+        assert client.delete(f"/api/v1/places/{pid}/notes/{ids[0]}").status_code == 404
+        assert client.delete(f"/api/v1/places/{pid}").status_code == 204
+        with SessionLocal() as db:
+            remaining = db.scalar(
+                select(func.count(PlaceNote.id)).where(PlaceNote.place_id == pid)
+            )
+            assert remaining == 0
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: b
+    try:
+        assert client.get(f"/api/v1/places/{other_pid}").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_journal_place_links_owner_isolation_and_safe_deletes():
+    import pytest
+    from sqlalchemy import func, select, text
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.database import SessionLocal
+    from app.models.journal import JournalEntry
+    from app.models.journal_place import JournalPlace
+    from app.models.place_note import PlaceNote
+    from app.models.saved_place import SavedPlace
+
+    with SessionLocal() as db:
+        assert db.execute(text("PRAGMA foreign_keys")).scalar_one() == 1
+
+    a = AuthenticatedUser(user_id=uuid4(), email="links-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="links-b@example.com")
+
+    app.dependency_overrides.clear()
+    assert client.get("/api/v1/journals/1/places").status_code == 401
+    assert client.get("/api/v1/places/1/journals").status_code == 401
+    assert client.put("/api/v1/journals/1/places/1").status_code == 401
+
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        journal_ids = []
+        for phrase in ["A day by the lake", "A walk in town"]:
+            r = client.post("/api/v1/journals", json={"content": phrase})
+            assert r.status_code == 201, r.text
+            journal_ids.append(r.json()["id"])
+        place_ids = []
+        for label in ["Lake", "Town"]:
+            r = client.post("/api/v1/places", json={
+                "label": label, "latitude": 10.0, "longitude": 106.0
+            })
+            assert r.status_code == 201, r.text
+            place_ids.append(r.json()["id"])
+
+        j1, j2 = journal_ids
+        p1, p2 = place_ids
+        for jid, pid in [(j1, p1), (j1, p2), (j2, p1), (j1, p1)]:
+            assert client.put(f"/api/v1/journals/{jid}/places/{pid}").status_code == 204
+        with SessionLocal() as db:
+            count = db.scalar(select(func.count()).select_from(JournalPlace).where(
+                JournalPlace.user_id == a.user_id
+            ))
+            assert count == 3
+
+        linked_places = client.get(f"/api/v1/journals/{j1}/places")
+        assert linked_places.status_code == 200
+        assert {p["id"] for p in linked_places.json()["items"]} == {p1, p2}
+
+        journals_page1 = client.get(f"/api/v1/places/{p1}/journals", params={"limit": 1})
+        assert journals_page1.status_code == 200
+        assert len(journals_page1.json()["items"]) == 1
+        assert journals_page1.json()["next_cursor"]
+        journals_page2 = client.get(f"/api/v1/places/{p1}/journals", params={
+            "limit": 1, "cursor": journals_page1.json()["next_cursor"]
+        })
+        assert journals_page2.status_code == 200
+        assert len(journals_page2.json()["items"]) == 1
+        assert journals_page2.json()["next_cursor"] is None
+        assert {j["id"] for j in journals_page1.json()["items"] + journals_page2.json()["items"]} == {j1, j2}
+        assert client.get(f"/api/v1/places/{p1}/journals", params={
+            "cursor": "!bad!"
+        }).status_code == 400
+
+        # Idempotent unlink must not erase either resource.
+        assert client.delete(f"/api/v1/journals/{j1}/places/{p2}").status_code == 204
+        assert client.delete(f"/api/v1/journals/{j1}/places/{p2}").status_code == 204
+        assert client.get(f"/api/v1/journals/{j1}").status_code == 200
+        assert client.get(f"/api/v1/places/{p2}").status_code == 200
+        note = client.post(f"/api/v1/places/{p1}/notes", json={
+            "content": "One of many notes"
+        })
+        assert note.status_code == 201
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: b
+    try:
+        foreign_place = client.post("/api/v1/places", json={
+            "label": "Private B place", "latitude": 11.0, "longitude": 107.0
+        })
+        assert foreign_place.status_code == 201
+        bpid = foreign_place.json()["id"]
+        foreign_journal = client.post("/api/v1/journals", json={
+            "content": "B private journal"
+        })
+        assert foreign_journal.status_code == 201
+        bjid = foreign_journal.json()["id"]
+
+        assert client.put(f"/api/v1/journals/{j1}/places/{bpid}").status_code == 404
+        assert client.put(f"/api/v1/journals/{bjid}/places/{p1}").status_code == 404
+        assert client.delete(f"/api/v1/journals/{j1}/places/{p1}").status_code == 404
+        assert client.get(f"/api/v1/journals/{j1}/places").status_code == 404
+        assert client.get(f"/api/v1/places/{p1}/journals").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+    # Database composite foreign keys reject forged links, not just FastAPI.
+    with SessionLocal() as db:
+        from datetime import datetime, timezone
+        with pytest.raises(IntegrityError):
+            db.add(JournalPlace(
+                user_id=a.user_id, journal_id=j1, place_id=bpid,
+                created_at=datetime.now(timezone.utc)
+            ))
+            db.commit()
+        db.rollback()
+        with pytest.raises(IntegrityError):
+            db.add(PlaceNote(
+                user_id=b.user_id, place_id=p1, content="forged",
+            ))
+            db.commit()
+        db.rollback()
+
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.delete(f"/api/v1/journals/{j1}").status_code == 204
+        assert client.get(f"/api/v1/places/{p1}").status_code == 200
+        assert client.get(f"/api/v1/places/{p2}").status_code == 200
+        with SessionLocal() as db:
+            assert db.scalar(select(func.count()).select_from(JournalPlace).where(
+                JournalPlace.journal_id == j1
+            )) == 0
+        assert client.delete(f"/api/v1/places/{p1}").status_code == 204
+        assert client.get(f"/api/v1/journals/{j2}").status_code == 200
+        with SessionLocal() as db:
+            assert db.scalar(select(func.count()).select_from(JournalPlace).where(
+                JournalPlace.place_id == p1
+            )) == 0
+            assert db.scalar(select(func.count()).select_from(PlaceNote).where(
+                PlaceNote.place_id == p1
+            )) == 0
+            assert db.get(SavedPlace, p1) is None
+            assert db.get(JournalEntry, j2) is not None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_notes_and_journal_place_links_do_not_complete_streak(monkeypatch):
+    from datetime import datetime, timezone
+    from app.modules.streak import service
+
+    clock = [datetime(2026, 10, 18, 12, 0, tzinfo=timezone.utc)]
+    monkeypatch.setattr(service, "utc_now", lambda: clock[0])
+    identity = AuthenticatedUser(user_id=uuid4(), email="map-streak@example.com")
+    app.dependency_overrides[get_current_user] = lambda: identity
+    try:
+        journal = client.post("/api/v1/journals", json={"content": "A valid line"})
+        assert journal.status_code == 201, journal.text
+        jid = journal.json()["id"]
+        pin = client.post("/api/v1/places", json={
+            "label": "A reading bench", "latitude": 10, "longitude": 106
+        })
+        assert pin.status_code == 201, pin.text
+        pid = pin.json()["id"]
+
+        clock[0] = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
+        assert client.get("/api/v1/streak").json()["today_completed"] is False
+        assert client.post(f"/api/v1/places/{pid}/notes", json={
+            "content": "Today I sat here"
+        }).status_code == 201
+        assert client.put(f"/api/v1/journals/{jid}/places/{pid}").status_code == 204
+        assert client.get(f"/api/v1/journals/{jid}/places").status_code == 200
+        assert client.delete(f"/api/v1/journals/{jid}/places/{pid}").status_code == 204
+        after = client.get("/api/v1/streak").json()
+        assert after["today_completed"] is False
+        assert after["current_streak"] == 1
+        assert after["activity_dates"] == ["2026-10-18"]
+    finally:
+        app.dependency_overrides.clear()

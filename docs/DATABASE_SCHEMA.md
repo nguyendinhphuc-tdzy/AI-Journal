@@ -81,7 +81,7 @@ Indexes: `(user_id, created_at DESC, id DESC)`; B09 implements a partial unique 
 
 **Provider-neutral schema:** use `provider` and `external_place_id`, never a `google_place_id` dependency. MapLibre/OpenFreeMap is for rendering, **not** for place searches. Geoapify can be used for search later; never persist a whole third-party API response unless its retention terms permit it. Attribution and service terms must be respected.
 
-### 5. `place_notes` — B10
+### 5. `place_notes` — B10 (migration `20261018_06`, not deployed)
 
 | Column | Type | Constraint / semantics |
 |---|---|---|
@@ -93,7 +93,7 @@ Indexes: `(user_id, created_at DESC, id DESC)`; B09 implements a partial unique 
 
 Composite FK `(place_id, user_id) -> saved_places(id, user_id) ON DELETE CASCADE`. Index `(user_id, place_id, created_at DESC, id DESC)`. Multiple notes per place; deleting a saved place deletes its notes, **not** its journals. Derive `user_id` from verified auth context.
 
-### 6. `journal_places` — B10
+### 6. `journal_places` — B10 (migration `20261018_06`, not deployed)
 
 | Column | Type | Constraint / semantics |
 |---|---|---|
@@ -122,7 +122,7 @@ Before any multi-user/private data:
 - **B04:** safely backfill/protect `journal_entries.user_id`; ownership indexes and authorization.
 - **B06:** `journal_action_days` + completed-writing streak logic.
 - **B09:** `saved_places` migration `20261018_05`, coordinate/ownership CHECK and indexes, private API, optional Geoapify autocomplete (backend key only).
-- **B10:** `place_notes`, `journal_places`, composite owner FKs, delete behavior.
+- **B10:** migration `20261018_06` creates `place_notes`, `journal_places`, composite same-owner foreign keys, indexes and delete cascades; RLS and grant hardening proposed. No live migration applied.
 - **B13:** PostgreSQL staging migration, RLS grants and A/B cross-user authorization tests.
 
 Excluded from MVP v1 schema: images, voice transcription, saved AI reflection, reminders, Study progress, public map sharing, background GPS tracking, offline backfill.

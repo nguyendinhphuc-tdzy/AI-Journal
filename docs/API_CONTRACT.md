@@ -164,13 +164,13 @@ Can modify `label`/`address_text` and coordinates for manually created pins. Pro
 ### `DELETE /api/v1/places/{place_id}` → 204 / 404
 Delete owned place, its notes, and journal-place links. **Do not** delete journal entries.
 
-## B10 — Multiple notes per place
+## B10 — Multiple notes per place (implemented on unmerged B10 branch)
 
 ### `POST /api/v1/places/{place_id}/notes` → 201
-Request `{"content":"Quiet corner with a nice view."}` (non-blank). Return `{"id":5,"place_id":9,"content":"Quiet corner with a nice view.","created_at":"2026-10-18T04:10:00Z","updated_at":"2026-10-18T04:10:00Z"}`.
+Request `{"content":"Quiet corner with a nice view."}` (non-blank, max 10,000 characters). Return `{"id":5,"place_id":9,"content":"Quiet corner with a nice view.","created_at":"2026-10-18T04:10:00Z","updated_at":"2026-10-18T04:10:00Z"}`.
 
 ### `GET /api/v1/places/{place_id}/notes?limit=20&cursor=...` → 200
-Paged result `{"items":[...],"next_cursor":null}`, newest first.
+Paged result `{"items":[...],"next_cursor":null}`, newest first; `limit` defaults to 20, maximum 100.
 
 ### `PATCH /api/v1/places/{place_id}/notes/{note_id}` → 200 / 404
 Request `{"content":"Updated place note"}`. Must verify place and note belong to the current user.
@@ -178,19 +178,19 @@ Request `{"content":"Updated place note"}`. Must verify place and note belong to
 ### `DELETE /api/v1/places/{place_id}/notes/{note_id}` → 204 / 404
 Delete only this note. An unknown/non-owned note or place is 404.
 
-## B10 — Link Journal ↔ saved place (many-to-many)
+## B10 — Link Journal ↔ saved place (many-to-many; staged, not merged)
 
 ### `PUT /api/v1/journals/{journal_id}/places/{place_id}` → 204 / 404
-Idempotently attach two **owned** resources, no duplicate join row. Return 204 for both first and repeated valid requests.
+Idempotently attach two **owned** resources, no duplicate join row; this does **not** count as a B06 journal-writing action. Return 204 for both first and repeated valid requests.
 
 ### `DELETE /api/v1/journals/{journal_id}/places/{place_id}` → 204 / 404
-Unlink without deleting journal or place.
+Unlink without deleting journal or place; deletes of either parent cascade only to association rows, not to the other parent.
 
 ### `GET /api/v1/journals/{journal_id}/places` → 200
 Returns `{"items":[{...saved place object...}]}`.
 
 ### `GET /api/v1/places/{place_id}/journals?limit=20&cursor=...` → 200
-Returns paginated owned journals linked to one place. Database compound ownership FKs and backend authorization must agree.
+Returns paginated owned journals linked to one place (`limit` 1–100). Database composite owner foreign keys **on both sides** and backend authorization must agree. Deleting a saved place removes associated notes and links but not the linked Journal entries. Deleting a Journal removes links but not places or notes.
 
 ## Acceptance scenarios and rollout gates
 
