@@ -599,3 +599,27 @@ def test_geoapify_upstream_failure_is_sanitized():
         assert "secret" not in response.text
     finally:
         app.dependency_overrides.clear()
+
+
+def test_geo_search_limits_requests_per_user(monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from app.modules.geo import router as geo_router
+
+    user = AuthenticatedUser(user_id=uuid4(), email="throttled@example.com")
+    monkeypatch.setattr(geo_router.time, "monotonic", lambda: 1000.0)
+    geo_router._recent_requests.clear()
+    try:
+        for _ in range(geo_router.RATE_LIMIT):
+            geo_router.enforce_geo_rate_limit(user)
+        with pytest.raises(HTTPException) as err:
+            geo_router.enforce_geo_rate_limit(user)
+        assert err.value.status_code == 429
+        # Other authenticated accounts have independent limits.
+        geo_router.enforce_geo_rate_limit(
+            AuthenticatedUser(user_id=uuid4(), email="another@example.com")
+        )
+        monkeypatch.setattr(geo_router.time, "monotonic", lambda: 1061.0)
+        geo_router.enforce_geo_rate_limit(user)
+    finally:
+        geo_router._recent_requests.clear()
