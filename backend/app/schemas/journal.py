@@ -1,5 +1,5 @@
 """Authenticated user journal input/output models."""
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -53,6 +53,14 @@ class JournalRead(BaseModel):
     mood: str | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("created_at", "updated_at")
+    @classmethod
+    def timestamps_are_utc(cls, value: datetime) -> datetime:
+        # SQLite test database loses timezone info; timestamps are stored in UTC.
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 class JournalPage(BaseModel):
