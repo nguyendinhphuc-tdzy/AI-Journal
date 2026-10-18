@@ -53,10 +53,10 @@ class ExploreScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       body: MapLibreMap(
         styleString: 'https://tiles.openfreemap.org/styles/liberty',
-        initialCameraPosition: CameraPosition(
+        initialCameraPosition: const CameraPosition(
           target: LatLng(10.8231, 106.6297),
           zoom: 12,
         ),
@@ -66,7 +66,7 @@ class ExploreScreen extends StatelessWidget {
 }
 ```
 
-If const construction fails for a particular compatible plugin revision, remove the outer `const` on Scaffold or adapt to that package's API instead of changing unrelated build configuration. Add `onMapLongClick` + annotations using the currently installed package API to drop a local pin. Only persist after real API contract B09/B10 exists.
+Use the installed package's supported constructor/API if the version differs. Add `onMapLongClick` + annotations using the currently installed package API to drop a local pin. Only persist after real API contract B09/B10 exists.
 
 ## Android and network considerations
 
