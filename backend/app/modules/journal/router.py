@@ -2,11 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import block_unowned_journals
 from app.core.database import get_db
 from app.models.journal import JournalEntry
 from app.schemas.journal import JournalCreate, JournalRead, JournalUpdate
 
-router = APIRouter(prefix="/journals", tags=["journals"])
+# B02 intentionally blocks ALL legacy Journal CRUD (even for valid sessions)
+# until B04 adds user_id + strict per-resource owner filters.
+router = APIRouter(
+    prefix="/journals",
+    tags=["journals"],
+    dependencies=[Depends(block_unowned_journals)],
+)
 
 
 @router.get("", response_model=list[JournalRead])
