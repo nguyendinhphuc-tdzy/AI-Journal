@@ -87,7 +87,7 @@ def list_journals(
         if from_date is not None:
             start = datetime.combine(from_date, time.min, tzinfo=tz).astimezone(timezone.utc)
             statement = statement.where(JournalEntry.created_at >= start)
-        if to_date is not None:
+        if to_date is not None and to_date != date.max:
             next_date = to_date + timedelta(days=1)
             end = datetime.combine(next_date, time.min, tzinfo=tz).astimezone(timezone.utc)
             statement = statement.where(JournalEntry.created_at < end)
