@@ -29,7 +29,10 @@ def upgrade() -> None:
         )
 
     is_postgresql = connection.dialect.name == "postgresql"
-    with op.batch_alter_table("journal_entries", schema=None) as batch:
+    with op.batch_alter_table(
+        "journal_entries", schema=None,
+        recreate="always" if not is_postgresql else "auto",
+    ) as batch:
         batch.add_column(sa.Column("user_id", sa.Uuid(as_uuid=True), nullable=False))
         if is_postgresql:
             batch.create_foreign_key(
