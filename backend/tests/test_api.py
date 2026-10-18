@@ -45,9 +45,10 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261018_03"
+    assert revision == "20261018_04"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
+    assert "journal_action_days" in tables
 
 
 def test_public_mock_ai_preserved():
@@ -227,3 +228,158 @@ def test_me_creates_and_updates_owned_profiles():
         assert response.json()["timezone"] == "Asia/Ho_Chi_Minh"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_completed_journal_action_not_app_open_triggers_streak(monkeypatch):
+    """Only saved nonblank journal content earns a daily completion."""
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+
+    from app.core.database import SessionLocal
+    from app.models.journal_action_day import JournalActionDay
+    from app.modules.streak import service
+
+    time = [datetime(2026, 10, 18, 10, 0, tzinfo=timezone.utc)]
+    monkeypatch.setattr(service, "utc_now", lambda: time[0])
+    user_a = AuthenticatedUser(user_id=uuid4(), email="writer@example.com")
+    user_b = AuthenticatedUser(user_id=uuid4(), email="observer@example.com")
+    app.dependency_overrides[get_current_user] = lambda: user_a
+    try:
+        assert client.get("/api/v1/streak").json()["current_streak"] == 0
+        assert client.get("/api/v1/journals").status_code == 200
+        assert client.post("/api/v1/activity/open", json={}).status_code == 404
+        assert client.get("/api/v1/streak").json()["today_completed"] is False
+        assert client.post("/api/v1/journals", json={"content": "  "}).status_code == 422
+        assert client.get("/api/v1/streak").json()["current_streak"] == 0
+
+        first = client.post("/api/v1/journals", json={"content": "A"})
+        assert first.status_code == 201, first.text
+        entry_id = first.json()["id"]
+        current = client.get("/api/v1/streak").json()
+        assert current["current_streak"] == 1
+        assert current["longest_streak"] == 1
+        assert current["today_completed"] is True
+        assert current["activity_dates"] == ["2026-10-18"]
+
+        # Multiple journal saves on the same day are one achievement day.
+        another = client.post("/api/v1/journals", json={"content": "Another"})
+        assert another.status_code == 201
+        assert client.put(
+            f"/api/v1/journals/{entry_id}", json={"content": "B"}
+        ).status_code == 200
+        with SessionLocal() as db:
+            rows = list(db.scalars(select(JournalActionDay).where(
+                JournalActionDay.user_id == user_a.user_id
+            )))
+        assert len(rows) == 1
+
+        # New day, metadata edits and unchanged content do NOT count.
+        time[0] = datetime(2026, 10, 19, 10, 0, tzinfo=timezone.utc)
+        assert client.get("/api/v1/streak").json()["today_completed"] is False
+        assert client.put(
+            f"/api/v1/journals/{entry_id}", json={"mood": "happy"}
+        ).status_code == 200
+        assert client.put(
+            f"/api/v1/journals/{entry_id}", json={"content": "B"}
+        ).status_code == 200
+        assert client.get("/api/v1/streak").json()["today_completed"] is False
+
+        # Writing a changed line, successfully saving, counts on new day.
+        changed = client.put(
+            f"/api/v1/journals/{entry_id}", json={"content": "One new line"}
+        )
+        assert changed.status_code == 200, changed.text
+        after = client.get("/api/v1/streak").json()
+        assert after["current_streak"] == 2
+        assert after["longest_streak"] == 2
+        assert after["activity_dates"] == ["2026-10-18", "2026-10-19"]
+        assert client.delete(f"/api/v1/journals/{entry_id}").status_code == 204
+        assert client.get("/api/v1/streak").json()["current_streak"] == 2
+
+        # No retroactive credit merely by visiting on a later day.
+        time[0] = datetime(2026, 10, 20, 10, 0, tzinfo=timezone.utc)
+        assert client.get("/api/v1/streak").json()["current_streak"] == 2
+        assert client.get("/api/v1/streak").json()["today_completed"] is False
+        time[0] = datetime(2026, 10, 21, 10, 0, tzinfo=timezone.utc)
+        assert client.get("/api/v1/streak").json()["current_streak"] == 0
+        assert client.get("/api/v1/streak").json()["longest_streak"] == 2
+        assert client.get("/api/v1/streak", params={"days": 1}).json()["activity_dates"] == []
+        assert client.get("/api/v1/streak", params={"days": 0}).status_code == 422
+        assert client.get("/api/v1/streak", params={"days": 366}).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: user_b
+    try:
+        other = client.get("/api/v1/streak").json()
+        assert other["current_streak"] == 0
+        assert other["longest_streak"] == 0
+        assert other["activity_dates"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_streak_uses_profile_local_date_and_server_clock(monkeypatch):
+    from datetime import datetime, timezone
+    from app.modules.streak import service
+
+    time = [datetime(2026, 10, 18, 16, 59, tzinfo=timezone.utc)]
+    monkeypatch.setattr(service, "utc_now", lambda: time[0])
+    user = AuthenticatedUser(user_id=uuid4(), email="timezone@example.com")
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        assert client.get("/api/v1/me").status_code == 200
+        assert client.post("/api/v1/journals", json={"content": "before midnight"}).status_code == 201
+        time[0] = datetime(2026, 10, 18, 17, 1, tzinfo=timezone.utc)
+        assert client.post("/api/v1/journals", json={"content": "after midnight"}).status_code == 201
+        response = client.get("/api/v1/streak").json()
+        assert response["timezone"] == "Asia/Ho_Chi_Minh"
+        assert response["activity_dates"] == ["2026-10-18", "2026-10-19"]
+        assert response["current_streak"] == 2
+
+        # Switching timezones never rewrites the original local dates.
+        assert client.patch(
+            "/api/v1/me", json={"timezone": "Asia/Tokyo"}
+        ).status_code == 200
+        after = client.get("/api/v1/streak").json()
+        assert after["activity_dates"] == ["2026-10-18", "2026-10-19"]
+        assert after["timezone"] == "Asia/Tokyo"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_journal_and_streak_roll_back_together(monkeypatch):
+    """A journal save that fails after its streak insert must credit nothing."""
+    import pytest
+    from sqlalchemy import select
+    from app.core.database import SessionLocal
+    from app.models.journal import JournalEntry
+    from app.models.journal_action_day import JournalActionDay
+    from app.modules.journal import router as journal_router
+
+    identity = AuthenticatedUser(user_id=uuid4(), email="rollback@example.com")
+    app.dependency_overrides[get_current_user] = lambda: identity
+    record_original = journal_router.record_journal_completion
+
+    def record_and_fail(db, user_id):
+        record_original(db, user_id)
+        raise RuntimeError("simulated write failure before transaction commit")
+
+    monkeypatch.setattr(journal_router, "record_journal_completion", record_and_fail)
+    try:
+        with pytest.raises(RuntimeError, match="simulated write failure"):
+            client.post("/api/v1/journals", json={"content": "not persisted"})
+        with SessionLocal() as db:
+            assert not list(db.scalars(
+                select(JournalEntry).where(JournalEntry.user_id == identity.user_id)
+            ))
+            assert not list(db.scalars(
+                select(JournalActionDay).where(JournalActionDay.user_id == identity.user_id)
+            ))
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_streak_requires_valid_authentication():
+    app.dependency_overrides.clear()
+    assert client.get("/api/v1/streak").status_code == 401
