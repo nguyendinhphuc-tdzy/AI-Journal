@@ -36,12 +36,11 @@ No production AI provider is finalized. A deterministic mock protects UI/backend
 
 Supabase Auth manages passwords, sign-up/sign-in, email verification and session refresh. Flutter calls Auth through the supported Supabase SDK and supplies access tokens to FastAPI. FastAPI validates the JWT signature, issuer, audience, expiry and subject before looking up user-owned records. The server obtains `user_id` only from verified token claims, never from client payloads. Default profile timezone is `Asia/Ho_Chi_Minh`.
 
-## ADR-007 — Streak means authenticated app-open days, not journal completion
+## ADR-007 — Daily streak requires a completed writing action
 
-**Status:** accepted by Phúc for MVP v1; implementation pending B06/B07.
+**Status:** changed and approved by Phúc on 2026-10-18; supersedes the earlier app-open rule.
 
-An authenticated first open or foreground-resume request creates at most one `app_open_days` event for a server-calculated local date. A day with multiple opens still counts once; writing a journal is neither required nor sufficient. Streaks derive from stored dates rather than a mutable client counter. MVP v1 does not backdate offline opens. Previously stored dates remain unchanged after timezone edits.
-
+A day counts only when a verified account **successfully saves a new journal with non-blank content** or **meaningfully edits its saved journal content**. One written line is sufficient. Merely opening/foregrounding the app, logging in, reading/deleting, editing metadata only, or resubmitting unchanged content cannot earn a streak. The server records a unique `(user_id, activity_date)` in `journal_action_days` in the same transaction as the journal write. Dates use the server time and the profile's IANA timezone. Multiple completions in one day count once; timezone changes never backdate historical entries; offline v1 does not backfill. The read-only `GET /streak` endpoint replaces any earlier `/activity/open` proposal.
 ## ADR-008 — MapLibre + OpenFreeMap; provider-neutral saved places
 
 **Status:** accepted by Phúc for MVP v1; implementation pending B08/B09/B11.
