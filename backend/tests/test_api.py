@@ -45,10 +45,11 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261018_04"
+    assert revision == "20261018_05"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
+    assert "saved_places" in tables
 
 
 def test_public_mock_ai_preserved():
@@ -387,3 +388,214 @@ def test_journal_and_streak_roll_back_together(monkeypatch):
 def test_streak_requires_valid_authentication():
     app.dependency_overrides.clear()
     assert client.get("/api/v1/streak").status_code == 401
+
+
+def test_saved_places_are_private_and_validate_coordinates():
+    from app.core.database import SessionLocal
+    from app.models.saved_place import SavedPlace
+    from sqlalchemy import select
+
+    a = AuthenticatedUser(user_id=uuid4(), email="map-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="map-b@example.com")
+
+    app.dependency_overrides.clear()
+    assert client.get("/api/v1/places").status_code == 401
+    assert client.post("/api/v1/places", json={
+        "label": "No auth", "latitude": 10, "longitude": 106
+    }).status_code == 401
+
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        for bad in [
+            {"label": "x", "latitude": 91, "longitude": 106},
+            {"label": "x", "latitude": 10, "longitude": -181},
+            {"label": "  ", "latitude": 10, "longitude": 106},
+            {"label": "x", "latitude": "nan", "longitude": 106},
+            {"label": "x", "latitude": 10, "longitude": 106, "user_id": str(b.user_id)},
+            {"label": "x", "latitude": 10, "longitude": 106,
+             "provider": "geoapify", "external_place_id": None},
+            {"label": "x", "latitude": 10, "longitude": 106,
+             "provider": "manual", "external_place_id": "not-allowed"},
+        ]:
+            resp = client.post("/api/v1/places", json=bad)
+            assert resp.status_code == 422, (bad, resp.text)
+
+        pinned = client.post("/api/v1/places", json={
+            "label": "  Reading park  ", "latitude": 10.8231,
+            "longitude": 106.6297, "address_text": "Near a tree"
+        })
+        assert pinned.status_code == 201, pinned.text
+        place_id = pinned.json()["id"]
+        assert pinned.json()["label"] == "Reading park"
+        assert pinned.json()["provider"] == "manual"
+        assert "user_id" not in pinned.json()
+
+        provider = {
+            "label": "Found café", "latitude": 10.9, "longitude": 106.7,
+            "provider": "geoapify", "external_place_id": "provider-123",
+        }
+        first = client.post("/api/v1/places", json=provider)
+        assert first.status_code == 201, first.text
+        provider_id = first.json()["id"]
+        assert client.post("/api/v1/places", json=provider).status_code == 409
+
+        assert client.get(f"/api/v1/places/{place_id}").status_code == 200
+        assert client.patch(f"/api/v1/places/{place_id}", json={
+            "label": "My tree", "latitude": 11.2
+        }).status_code == 200
+        assert client.patch(f"/api/v1/places/{place_id}", json={
+            "label": None
+        }).status_code == 422
+        assert client.patch(f"/api/v1/places/{place_id}", json={
+            "latitude": None
+        }).status_code == 422
+        assert client.patch(f"/api/v1/places/{provider_id}", json={
+            "latitude": 12.0
+        }).status_code == 422
+        assert client.patch(f"/api/v1/places/{provider_id}", json={
+            "label": "Favorite café"
+        }).status_code == 200
+
+        listing = client.get("/api/v1/places", params={"limit": 1})
+        assert listing.status_code == 200, listing.text
+        first_page = listing.json()
+        assert len(first_page["items"]) == 1
+        assert first_page["next_cursor"]
+        next_page = client.get("/api/v1/places", params={
+            "limit": 1, "cursor": first_page["next_cursor"]
+        })
+        assert next_page.status_code == 200
+        assert len(next_page.json()["items"]) == 1
+        assert next_page.json()["next_cursor"] is None
+        assert first_page["items"][0]["id"] != next_page.json()["items"][0]["id"]
+        assert client.get("/api/v1/places", params={"cursor": "!bad!"}).status_code == 400
+        assert client.get("/api/v1/places", params={"limit": 101}).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: b
+    try:
+        assert client.get("/api/v1/places").json()["items"] == []
+        assert client.get(f"/api/v1/places/{place_id}").status_code == 404
+        assert client.patch(f"/api/v1/places/{place_id}", json={
+            "label": "attempted steal"
+        }).status_code == 404
+        assert client.delete(f"/api/v1/places/{place_id}").status_code == 404
+        # Provider uniqueness is per account, not across all users.
+        assert client.post("/api/v1/places", json=provider).status_code == 201
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.delete(f"/api/v1/places/{place_id}").status_code == 204
+        assert client.get(f"/api/v1/places/{place_id}").status_code == 404
+        with SessionLocal() as db:
+            assert db.scalar(select(SavedPlace).where(
+                SavedPlace.id == place_id
+            )) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_geo_search_requires_auth_key_and_valid_bias():
+    from app.core.config import Settings, get_settings
+    from app.modules.geo.router import enforce_geo_rate_limit
+
+    app.dependency_overrides.clear()
+    assert client.get("/api/v1/geo/search", params={"q": "Hanoi"}).status_code == 401
+
+    identity = AuthenticatedUser(user_id=uuid4(), email="geo@example.com")
+    app.dependency_overrides[get_current_user] = lambda: identity
+    app.dependency_overrides[enforce_geo_rate_limit] = lambda: None
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        database_url="sqlite://", geoapify_api_key=None
+    )
+    try:
+        assert client.get("/api/v1/geo/search", params={"q": "Hanoi"}).status_code == 503
+        assert client.get("/api/v1/geo/search", params={"q": "a"}).status_code == 422
+        assert client.get("/api/v1/geo/search", params={
+            "q": "Hanoi", "lat": 10
+        }).status_code == 422
+        assert client.get("/api/v1/geo/search", params={
+            "q": "Hanoi", "lat": 99, "lon": 106
+        }).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_geoapify_search_normalizes_response_without_exposing_key():
+    import httpx
+    from app.core.config import Settings, get_settings
+    from app.modules.geo.router import get_geo_client, enforce_geo_rate_limit
+
+    calls = []
+
+    def fake_provider(request):
+        calls.append(request)
+        assert request.url.path == "/v1/geocode/autocomplete"
+        assert request.url.params["bias"] == "proximity:106.6297,10.8231"
+        assert request.url.params["limit"] == "5"
+        return httpx.Response(200, json={
+            "type": "FeatureCollection",
+            "features": [{
+                "properties": {
+                    "place_id": "place-123",
+                    "name": "Reading café",
+                    "formatted": "Example, Vietnam",
+                    "lat": 10.8231, "lon": 106.6297
+                }
+            }, {
+                "properties": {"formatted": "Missing provider id", "lat": 10, "lon": 106}
+            }]
+        })
+
+    # Never call external network in tests.
+    provider = httpx.AsyncClient(transport=httpx.MockTransport(fake_provider))
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(
+        user_id=uuid4(), email="geo@example.com"
+    )
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        database_url="sqlite://", geoapify_api_key="test-secret-key"
+    )
+    app.dependency_overrides[get_geo_client] = lambda: provider
+    app.dependency_overrides[enforce_geo_rate_limit] = lambda: None
+    try:
+        response = client.get("/api/v1/geo/search", params={
+            "q": "coffee", "lat": 10.8231, "lon": 106.6297
+        })
+        assert response.status_code == 200, response.text
+        assert response.json() == {"items": [{
+            "provider": "geoapify", "external_place_id": "place-123",
+            "label": "Reading café", "formatted_address": "Example, Vietnam",
+            "latitude": 10.8231, "longitude": 106.6297
+        }]}
+        assert "test-secret-key" not in response.text
+        assert len(calls) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_geoapify_upstream_failure_is_sanitized():
+    import httpx
+    from app.core.config import Settings, get_settings
+    from app.modules.geo.router import get_geo_client, enforce_geo_rate_limit
+
+    def provider_failure(request):
+        return httpx.Response(401, json={"error": "secret-key-not-authorized"})
+
+    provider = httpx.AsyncClient(transport=httpx.MockTransport(provider_failure))
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(
+        user_id=uuid4(), email="geo-fail@example.com"
+    )
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        database_url="sqlite://", geoapify_api_key="test-secret"
+    )
+    app.dependency_overrides[get_geo_client] = lambda: provider
+    app.dependency_overrides[enforce_geo_rate_limit] = lambda: None
+    try:
+        response = client.get("/api/v1/geo/search", params={"q": "Hanoi"})
+        assert response.status_code == 502, response.text
+        assert "secret" not in response.text
+    finally:
+        app.dependency_overrides.clear()
