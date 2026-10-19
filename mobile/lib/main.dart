@@ -81,6 +81,14 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.auth != null) {
+      // A new MaterialApp and user-scoped JournalScope are owned by AuthGate.
+      return AuthGate(
+        auth: widget.auth!,
+        showOnboarding: _showOnboarding,
+        resetOnboarding: _resetOnboarding,
+      );
+    }
     final onboarding = widget.onboarding;
     return JournalScope(
       repository: _journals,
@@ -88,20 +96,14 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
         debugShowCheckedModeBanner: false,
         title: appName,
         theme: AppTheme.light,
-        home: widget.auth != null
-            ? AuthGate(
-                auth: widget.auth!,
-                showOnboarding: _showOnboarding,
-                resetOnboarding: _resetOnboarding,
-              )
-            : (onboarding == null || onboarding.completed
-                ? const AppShell()
-                : OnboardingFlow(
-                    store: onboarding,
-                    brandName: appName,
-                    // Done is saved: rebuild, and Home replaces the flow.
-                    onComplete: () => setState(() {}),
-                  )),
+        home: onboarding == null || onboarding.completed
+            ? const AppShell()
+            : OnboardingFlow(
+                store: onboarding,
+                brandName: appName,
+                // Done is saved: rebuild, and Home replaces the flow.
+                onComplete: () => setState(() {}),
+              ),
       ),
     );
   }

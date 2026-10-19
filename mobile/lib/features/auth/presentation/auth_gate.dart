@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../navigation/app_shell.dart';
 import '../../journal/data/journal_repository.dart';
 import '../../journal/journal_scope.dart';
@@ -58,27 +59,32 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   @override
-  Widget build(BuildContext context) => AuthScope(
-        auth: widget.auth,
-        child: _userId == null
-            ? AuthScreen(auth: widget.auth)
-            : _SignedInHome(
-                key: ValueKey(_userId),
-                userId: _userId!,
-                showOnboarding: widget.showOnboarding,
-                resetOnboarding: widget.resetOnboarding,
-              ),
-      );
+  Widget build(BuildContext context) => _userId == null
+      ? MaterialApp(
+          title: 'AI Diary',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          home: AuthScreen(auth: widget.auth),
+        )
+      : _SignedInHome(
+          key: ValueKey(_userId),
+          auth: widget.auth,
+          userId: _userId!,
+          showOnboarding: widget.showOnboarding,
+          resetOnboarding: widget.resetOnboarding,
+        );
 }
 
 class _SignedInHome extends StatefulWidget {
   const _SignedInHome({
     super.key,
     required this.userId,
+    required this.auth,
     required this.showOnboarding,
     required this.resetOnboarding,
   });
   final String userId;
+  final AuthService auth;
   final bool showOnboarding;
   final bool resetOnboarding;
 
@@ -108,23 +114,37 @@ class _SignedInHomeState extends State<_SignedInHome> {
         future: _data,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return const Center(
-                child: Text('Không thể mở dữ liệu. Thử khởi động lại.'));
+            return const MaterialApp(home: Scaffold(
+              body: Center(
+                  child: Text('Không thể mở dữ liệu. Thử khởi động lại.')),
+            ));
           }
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+            return const MaterialApp(home: Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            ));
           }
           final data = snapshot.data!;
           final onboarding = data.onboarding;
+          // Both scopes wrap MaterialApp, so pushed routes (Journal,
+          // Reflection, Profile) inherit the signed-in account's data.
           return JournalScope(
             repository: data.journals,
-            child: onboarding == null || onboarding.completed
-                ? const AppShell()
-                : OnboardingFlow(
-                    store: onboarding,
-                    brandName: 'AI Diary',
-                    onComplete: () => setState(() {}),
-                  ),
+            child: AuthScope(
+              auth: widget.auth,
+              child: MaterialApp(
+                title: 'AI Diary',
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.light,
+                home: onboarding == null || onboarding.completed
+                    ? const AppShell()
+                    : OnboardingFlow(
+                        store: onboarding,
+                        brandName: 'AI Diary',
+                        onComplete: () => setState(() {}),
+                      ),
+              ),
+            ),
           );
         },
       );
