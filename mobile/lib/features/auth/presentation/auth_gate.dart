@@ -10,9 +10,10 @@ import '../../onboarding/data/onboarding_store.dart';
 import '../../onboarding/onboarding_flow.dart';
 import '../../onboarding/presentation/first_entry_session.dart';
 import '../data/auth_service.dart';
+import '../data/guest_mode_store.dart';
 import 'auth_screen.dart';
 
-/// Exposes the authenticated session to the Profile logout control.
+/// Auth scope is above MaterialApp, so pushed routes see the active session.
 class AuthScope extends InheritedWidget {
   const AuthScope({super.key, required this.auth, required super.child});
   final AuthService auth;
@@ -22,6 +23,20 @@ class AuthScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AuthScope oldWidget) => oldWidget.auth != auth;
+}
+
+/// Guest mode has no Supabase user, token or cloud persistence.
+class GuestScope extends InheritedWidget {
+  const GuestScope({super.key, required this.onLeaveGuest, required super.child});
+
+  final Future<void> Function() onLeaveGuest;
+
+  static GuestScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<GuestScope>();
+
+  @override
+  bool updateShouldNotify(GuestScope oldWidget) =>
+      oldWidget.onLeaveGuest != onLeaveGuest;
 }
 
 class AuthGate extends StatefulWidget {
@@ -42,13 +57,68 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   StreamSubscription<String?>? _subscription;
+  late final Future<GuestModeStore> _guestStore = GuestModeStore.open();
   late String? _userId = widget.auth.currentUserId;
+  bool _guestReady = false;
+  bool _guestSelected = false;
+  String? _localError;
 
   @override
   void initState() {
     super.initState();
-    _subscription = widget.auth.userChanges.listen((id) {
-      if (mounted) setState(() => _userId = id);
+    _restoreGuest();
+    _subscription = widget.auth.userChanges.listen((id) async {
+      if (id != null) {
+        try {
+          await (await _guestStore).deactivate();
+        } catch (_) {
+          // Do not turn a confirmed Supabase session into a guest session.
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _userId = id;
+          _guestSelected = id == null ? _guestSelected : false;
+        });
+      }
+    });
+  }
+
+  Future<void> _restoreGuest() async {
+    try {
+      final guest = await _guestStore;
+      if (!mounted) return;
+      setState(() {
+        _guestSelected = _userId == null && guest.isActive;
+        _guestReady = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _guestReady = true;
+        _localError = 'Không thể đọc chế độ khách trên thiết bị.';
+      });
+    }
+  }
+
+  Future<void> _continueAsGuest() async {
+    if (_userId != null) return;
+    final guest = await _guestStore;
+    await guest.enter();
+    if (!mounted) return;
+    setState(() {
+      _guestSelected = true;
+      _localError = null;
+    });
+  }
+
+  Future<void> _leaveGuest() async {
+    final guest = await _guestStore;
+    await guest.leaveAndDiscard();
+    if (!mounted) return;
+    setState(() {
+      _guestSelected = false;
+      _localError = null;
     });
   }
 
@@ -59,51 +129,70 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   @override
-  Widget build(BuildContext context) => _userId == null
-      ? MaterialApp(
-          title: 'AI Diary',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.light,
-          home: AuthScreen(auth: widget.auth),
-        )
-      : _SignedInHome(
-          key: ValueKey(_userId),
-          auth: widget.auth,
-          userId: _userId!,
-          showOnboarding: widget.showOnboarding,
-          resetOnboarding: widget.resetOnboarding,
-        );
+  Widget build(BuildContext context) {
+    if (!_guestReady) {
+      return const MaterialApp(
+        home: Scaffold(body: Center(child: CircularProgressIndicator())),
+      );
+    }
+    if (_userId != null) {
+      return _LocalSessionHome(
+        key: ValueKey('auth-$_userId'),
+        userId: _userId!,
+        auth: widget.auth,
+        resetOnboarding: widget.resetOnboarding,
+      );
+    }
+    if (_guestSelected) {
+      return _LocalSessionHome(
+        key: const ValueKey('device-guest'),
+        userId: GuestModeStore.userId,
+        onLeaveGuest: _leaveGuest,
+        resetOnboarding: widget.resetOnboarding,
+      );
+    }
+    return MaterialApp(
+      title: 'AI Diary',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.light,
+      home: AuthScreen(
+        auth: widget.auth,
+        onContinueAsGuest: _continueAsGuest,
+        initialError: _localError,
+      ),
+    );
+  }
 }
 
-class _SignedInHome extends StatefulWidget {
-  const _SignedInHome({
+class _LocalSessionHome extends StatefulWidget {
+  const _LocalSessionHome({
     super.key,
     required this.userId,
-    required this.auth,
-    required this.showOnboarding,
+    this.auth,
+    this.onLeaveGuest,
     required this.resetOnboarding,
-  });
+  }) : assert((auth == null) != (onLeaveGuest == null));
+
   final String userId;
-  final AuthService auth;
-  final bool showOnboarding;
+  final AuthService? auth;
+  final Future<void> Function()? onLeaveGuest;
   final bool resetOnboarding;
 
   @override
-  State<_SignedInHome> createState() => _SignedInHomeState();
+  State<_LocalSessionHome> createState() => _LocalSessionHomeState();
 }
 
-class _SignedInHomeState extends State<_SignedInHome> {
-  late final Future<({JournalRepository journals, OnboardingStore? onboarding})>
+class _LocalSessionHomeState extends State<_LocalSessionHome> {
+  late final Future<({JournalRepository journals, OnboardingStore onboarding})>
       _data = _prepare();
 
-  Future<({JournalRepository journals, OnboardingStore? onboarding})>
+  Future<({JournalRepository journals, OnboardingStore onboarding})>
       _prepare() async {
     final journals = await LocalJournalRepository.open(userId: widget.userId);
-    final onboarding = widget.showOnboarding || widget.resetOnboarding
-        ? await OnboardingStore.open(userId: widget.userId)
-        : null;
+    // Account and guest modes both enter OB01 unless OB11 is already complete.
+    final onboarding = await OnboardingStore.open(userId: widget.userId);
     if (widget.resetOnboarding) {
-      await onboarding!.reset();
+      await onboarding.reset();
       await journals.deleteDraft(FirstEntrySession.draftKey);
     }
     return (journals: journals, onboarding: onboarding);
@@ -114,37 +203,36 @@ class _SignedInHomeState extends State<_SignedInHome> {
         future: _data,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return const MaterialApp(home: Scaffold(
-              body: Center(
-                  child: Text('Không thể mở dữ liệu. Thử khởi động lại.')),
-            ));
+            return const MaterialApp(
+              home: Scaffold(body: Center(
+                child: Text('Không thể mở dữ liệu cục bộ. Thử khởi động lại.'),
+              )),
+            );
           }
           if (!snapshot.hasData) {
-            return const MaterialApp(home: Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            ));
+            return const MaterialApp(
+              home: Scaffold(body: Center(child: CircularProgressIndicator())),
+            );
           }
+
           final data = snapshot.data!;
-          final onboarding = data.onboarding;
-          // Both scopes wrap MaterialApp, so pushed routes (Journal,
-          // Reflection, Profile) inherit the signed-in account's data.
+          final app = MaterialApp(
+            title: 'AI Diary',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.light,
+            home: data.onboarding.completed
+                ? const AppShell()
+                : OnboardingFlow(
+                    store: data.onboarding,
+                    brandName: 'AI Diary',
+                    onComplete: () => setState(() {}),
+                  ),
+          );
           return JournalScope(
             repository: data.journals,
-            child: AuthScope(
-              auth: widget.auth,
-              child: MaterialApp(
-                title: 'AI Diary',
-                debugShowCheckedModeBanner: false,
-                theme: AppTheme.light,
-                home: onboarding == null || onboarding.completed
-                    ? const AppShell()
-                    : OnboardingFlow(
-                        store: onboarding,
-                        brandName: 'AI Diary',
-                        onComplete: () => setState(() {}),
-                      ),
-              ),
-            ),
+            child: widget.auth != null
+                ? AuthScope(auth: widget.auth!, child: app)
+                : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: app),
           );
         },
       );
