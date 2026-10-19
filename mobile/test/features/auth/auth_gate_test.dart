@@ -81,11 +81,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Continue without an account'), findsOneWidget);
+    await tester.ensureVisible(find.text('Continue without an account'));
+    await tester.pump();
     await tester.tap(find.text('Continue without an account'));
     await tester.pumpAndSettle();
     expect(find.text('Tiếp tục không có tài khoản?'), findsOneWidget);
     await tester.tap(find.text('Tiếp tục'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
     expect(find.byType(OnboardingFlow), findsOneWidget);
     expect(auth.currentUserId, isNull);
     expect((await GuestModeStore.open()).isActive, isTrue);
@@ -95,7 +99,9 @@ void main() {
     await onboarding.saveNickname('Khách');
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpWidget(AiDiaryApp(auth: auth));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
 
     expect(find.byType(OnboardingFlow), findsOneWidget);
     expect((await OnboardingStore.open(userId: GuestModeStore.userId)).nickname,
@@ -112,7 +118,8 @@ void main() {
     await tester.pumpAndSettle();
     auth.signIn('new-account');
     await tester.pump();
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 450));
+    await tester.pump();
     expect(find.byType(OnboardingFlow), findsOneWidget);
     expect(find.byType(HomeScreen), findsNothing);
   });
