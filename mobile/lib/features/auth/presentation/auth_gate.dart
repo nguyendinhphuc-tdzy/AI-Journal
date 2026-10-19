@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/data/app_data.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../navigation/app_shell.dart';
 import '../../journal/data/journal_repository.dart';
@@ -66,8 +67,12 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void initState() {
     super.initState();
+    // Preview quotes are process-wide demo state: never carry them between
+    // the guest and two different Supabase identities.
+    savedThisWeekItems.value = [];
     _restoreGuest();
     _subscription = widget.auth.userChanges.listen((id) async {
+      if (id != _userId) savedThisWeekItems.value = [];
       if (id != null) {
         try {
           await (await _guestStore).deactivate();
@@ -105,6 +110,7 @@ class _AuthGateState extends State<AuthGate> {
     if (_userId != null) return;
     final guest = await _guestStore;
     await guest.enter();
+    savedThisWeekItems.value = [];
     if (!mounted) return;
     setState(() {
       _guestSelected = true;
@@ -115,6 +121,7 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _leaveGuest() async {
     final guest = await _guestStore;
     await guest.leaveAndDiscard();
+    savedThisWeekItems.value = [];
     if (!mounted) return;
     setState(() {
       _guestSelected = false;
