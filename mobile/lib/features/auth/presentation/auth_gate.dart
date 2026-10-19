@@ -10,6 +10,7 @@ import '../../journal/journal_scope.dart';
 import '../../onboarding/data/onboarding_store.dart';
 import '../../onboarding/onboarding_flow.dart';
 import '../../onboarding/presentation/first_entry_session.dart';
+import '../../streak/streak_state.dart';
 import '../data/auth_service.dart';
 import '../data/guest_mode_store.dart';
 import 'auth_screen.dart';
@@ -69,10 +70,10 @@ class _AuthGateState extends State<AuthGate> {
     super.initState();
     // Preview quotes are process-wide demo state: never carry them between
     // the guest and two different Supabase identities.
-    savedThisWeekItems.value = [];
+    _resetTransientPreview();
     _restoreGuest();
     _subscription = widget.auth.userChanges.listen((id) async {
-      if (id != _userId) savedThisWeekItems.value = [];
+      if (id != _userId) _resetTransientPreview();
       if (id != null) {
         try {
           await (await _guestStore).deactivate();
@@ -87,6 +88,11 @@ class _AuthGateState extends State<AuthGate> {
         });
       }
     });
+  }
+
+  void _resetTransientPreview() {
+    savedThisWeekItems.value = [];
+    StreakState.shared.resetForNewLocalSession();
   }
 
   Future<void> _restoreGuest() async {
@@ -110,7 +116,7 @@ class _AuthGateState extends State<AuthGate> {
     if (_userId != null) return;
     final guest = await _guestStore;
     await guest.enter();
-    savedThisWeekItems.value = [];
+    _resetTransientPreview();
     if (!mounted) return;
     setState(() {
       _guestSelected = true;
@@ -121,7 +127,7 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _leaveGuest() async {
     final guest = await _guestStore;
     await guest.leaveAndDiscard();
-    savedThisWeekItems.value = [];
+    _resetTransientPreview();
     if (!mounted) return;
     setState(() {
       _guestSelected = false;
