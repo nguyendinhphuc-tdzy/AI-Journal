@@ -52,6 +52,60 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   label: const Text('Đăng xuất'),
                 ),
               ),
+            if (GuestScope.maybeOf(context) case final guest?)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Chế độ khách — dữ liệu chỉ nằm trên thiết bị này, '
+                      'không được đồng bộ với tài khoản.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.person_add_alt_1_outlined),
+                      label: const Text('Đăng nhập / Tạo tài khoản'),
+                      onPressed: () async {
+                        final discard = await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) => AlertDialog(
+                            title: const Text('Rời chế độ khách?'),
+                            content: const Text(
+                              'Nhật ký, bản nháp và onboarding trong chế độ '
+                              'khách sẽ bị xóa khỏi thiết bị. Dữ liệu này '
+                              'không được chuyển sang tài khoản mới.',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.pop(dialogContext, false),
+                                child: const Text('Hủy'),
+                              ),
+                              FilledButton(
+                                onPressed: () =>
+                                    Navigator.pop(dialogContext, true),
+                                child: const Text('Xóa dữ liệu và tiếp tục'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (discard != true || !context.mounted) return;
+                        try {
+                          await guest.onLeaveGuest();
+                        } catch (_) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text(
+                              'Chưa thể xóa dữ liệu khách. Vui lòng thử lại.',
+                            )),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
