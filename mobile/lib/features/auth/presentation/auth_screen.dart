@@ -91,9 +91,12 @@ class _AuthScreenState extends State<AuthScreen> {
         });
         return;
       }
-      if (password.length < 8) {
+      if ((_signUp && password.length < 8) ||
+          (!_signUp && password.isEmpty)) {
         setState(() {
-          _message = 'Mật khẩu phải có ít nhất 8 ký tự.';
+          _message = _signUp
+              ? 'Mật khẩu mới phải có ít nhất 8 ký tự.'
+              : 'Vui lòng nhập mật khẩu.';
           _error = true;
         });
         return;
