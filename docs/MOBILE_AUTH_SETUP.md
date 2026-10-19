@@ -24,9 +24,10 @@ from Dashboard → Project Settings → API Keys. **Never pass a service-role
 or secret key to Flutter or commit it.** This branch intentionally does not
 store a key in the repository.
 
-With both URL + key defined, real Auth gates the app. Without config, the
-existing unauthenticated Flutter UI demo still works. With AUTH_ENABLED=true
-and missing config, the app fails closed and refuses to bypass authentication.
+With both URL + key defined, real Auth gates the app. In debug/development,
+without config, the existing unauthenticated Flutter UI demo still works.
+**Release builds always require configured Supabase Auth** and fail closed if
+URL/key are missing. AUTH_ENABLED=true also fails closed when config is missing.
 
 Google OAuth is **optional**. Enable only after configuring Google
 provider in Supabase, an OAuth app in Google Cloud and the allowed callback
