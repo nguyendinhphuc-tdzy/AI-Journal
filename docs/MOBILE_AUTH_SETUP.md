@@ -39,6 +39,42 @@ testing Android redirect handling:
 The Android manifest adds the matching callback intent filter. iOS setup
 is separate and has not been validated.
 
+## Continue without an account (guest)
+
+The start screen now offers **Continue without an account** alongside
+Email/Gmail + password and Phone + SMS OTP. User consent is shown before
+entering guest mode. Neither `signInAnonymously()` nor another Supabase
+authentication endpoint is invoked: guest mode creates **no Supabase account**.
+
+- On first guest launch: OB01–OB11 onboarding, then Home.
+- Guest state survives app restarts **on the same installation only**.
+- Guest journals, drafts and onboarding are stored under local
+  `users.local-guest.*` preferences, separate from
+  `users.<supabase-auth-uuid>.*`.
+- The app does not upload guest journals to Supabase, FastAPI or cloud
+  storage. Existing Explore places and Album Share remain mock/demo-only.
+- Profile's **Đăng nhập / Tạo tài khoản** action asks the user to confirm
+  deletion of guest journal, drafts and onboarding progress before opening
+  the account login. **There is no automatic guest-to-account migration.**
+- Android disables automatic app backup (`allowBackup=false`) and
+  adds explicit Android 12+ cloud/device-transfer exclusions so OS backups
+  do not restore guest private files after reinstall.
+- **Important limitations:** This repository has no iOS runner, so
+  iOS device/iCloud backup exclusions have NOT been implemented or verified.
+  Do not promise complete irreversible erasure on iOS yet. No software can
+  delete user-made exports, screenshots, third-party backups or system copies
+  outside its app sandbox. For verified privacy on iOS, implement and test
+  native backup exclusions before release.
+- Android backup is disabled for the **whole app**, including authenticated
+  users' *local* journals. Since journal cloud sync is not yet built,
+  uninstall/reinstall currently loses those local journal entries as well.
+  A real Supabase account/identity still exists, but does not restore
+  unsynchronized journal content.
+
+In release builds `SUPABASE_URL` and publishable key are still required
+to initialize Auth, **even when the user later selects guest**. The app
+never silently grants a "logged in" server session to guests.
+
 ## Supabase Dashboard configuration (requires project admin)
 
 1. Authentication → Sign In / Providers → Email: enable email/password
