@@ -9,8 +9,16 @@ enum _AuthMethod { email, phone }
 
 /// Real Supabase login: email/password or phone number with SMS OTP.
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key, required this.auth});
+  const AuthScreen({
+    super.key,
+    required this.auth,
+    this.onContinueAsGuest,
+    this.initialError,
+  });
+
   final AuthService auth;
+  final Future<void> Function()? onContinueAsGuest;
+  final String? initialError;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -29,6 +37,44 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _showPassword = false;
   String? _message;
   bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _message = widget.initialError;
+    _error = widget.initialError != null;
+  }
+
+  Future<void> _confirmGuest() async {
+    if (_busy || widget.onContinueAsGuest == null) return;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Tiếp tục không có tài khoản?'),
+        content: const Text(
+          'Nhật ký và tiến trình của bạn chỉ lưu trên thiết bị này. '
+          'AI-Journal không đồng bộ hay sao lưu dữ liệu khách. '
+          'Khi gỡ ứng dụng, dữ liệu cục bộ sẽ mất và không thể khôi phục '
+          'từ tài khoản AI-Journal.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Quay lại'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Tiếp tục'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || approved != true) return;
+    await _perform(() async {
+      await widget.onContinueAsGuest!();
+      return null;
+    });
+  }
 
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
   static final _phonePattern = RegExp(r'^\+[1-9]\d{7,14}$');
@@ -296,6 +342,21 @@ class _AuthScreenState extends State<AuthScreen> {
                         label: const Text('Tiếp tục bằng Google'),
                       ),
                     ],
+                  ],
+                  if (widget.onContinueAsGuest != null) ...[
+                    const Divider(height: 32),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _confirmGuest,
+                      icon: const Icon(Icons.person_outline),
+                      label: const Text('Continue without an account'),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Chế độ khách: không tạo tài khoản, không đồng bộ. '
+                      'Gỡ ứng dụng sẽ mất nhật ký và tiến trình lưu cục bộ.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
                   ],
                   const SizedBox(height: 20),
                   Text('Đăng nhập qua Supabase Auth. Nhật ký hiện lưu '
