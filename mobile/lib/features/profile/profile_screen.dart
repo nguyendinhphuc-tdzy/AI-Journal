@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../auth/presentation/auth_gate.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -32,6 +33,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
+            if (AuthScope.maybeOf(context) case final auth?)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    try {
+                      await auth.signOut();
+                    } catch (_) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text(
+                          'Không thể đăng xuất. Vui lòng thử lại.')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Đăng xuất'),
+                ),
+              ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),

@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'core/config/app_config.dart';
+import 'features/auth/data/auth_service.dart';
+import 'features/auth/presentation/auth_gate.dart';
 
 import 'core/theme/app_theme.dart';
 import 'features/journal/data/journal_repository.dart';
@@ -21,6 +26,29 @@ const _resetOnboarding = bool.fromEnvironment('ONBOARDING_RESET');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (AppConfig.authEnabled || AppConfig.supabaseConfigured) {
+    if (!AppConfig.supabaseConfigured) {
+      runApp(const MaterialApp(
+        home: Scaffold(
+          body: Center(child: Text(
+            'Thiếu SUPABASE_URL hoặc SUPABASE_PUBLISHABLE_KEY. '
+            'Không cho phép bỏ qua đăng nhập.',
+            textAlign: TextAlign.center,
+          )),
+        ),
+      ));
+      return;
+    }
+    await Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      anonKey: AppConfig.supabasePublishableKey,
+    );
+    runApp(AiDiaryApp(auth: SupabaseAuthService(Supabase.instance.client)));
+    return;
+  }
+
+  // Existing non-auth demo remains available for UI development/tests.
   final journals = await LocalJournalRepository.open();
   final onboarding =
       _showOnboarding || _resetOnboarding ? await OnboardingStore.open() : null;
@@ -32,7 +60,10 @@ Future<void> main() async {
 }
 
 class AiDiaryApp extends StatefulWidget {
-  const AiDiaryApp({super.key, this.journals, this.onboarding});
+  const AiDiaryApp({super.key, this.journals, this.onboarding, this.auth});
+
+  /// Optional real Supabase auth; demo tests can omit it.
+  final AuthService? auth;
 
   /// The journal store; an in-memory one when not given (tests).
   final JournalRepository? journals;
@@ -57,14 +88,20 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
         debugShowCheckedModeBanner: false,
         title: appName,
         theme: AppTheme.light,
-        home: onboarding == null || onboarding.completed
-            ? const AppShell()
-            : OnboardingFlow(
-                store: onboarding,
-                brandName: appName,
-                // Done is saved: rebuild, and Home replaces the flow.
-                onComplete: () => setState(() {}),
-              ),
+        home: widget.auth != null
+            ? AuthGate(
+                auth: widget.auth!,
+                showOnboarding: _showOnboarding,
+                resetOnboarding: _resetOnboarding,
+              )
+            : (onboarding == null || onboarding.completed
+                ? const AppShell()
+                : OnboardingFlow(
+                    store: onboarding,
+                    brandName: appName,
+                    // Done is saved: rebuild, and Home replaces the flow.
+                    onComplete: () => setState(() {}),
+                  )),
       ),
     );
   }
