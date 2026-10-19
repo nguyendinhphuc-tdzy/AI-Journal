@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -27,7 +28,8 @@ const _resetOnboarding = bool.fromEnvironment('ONBOARDING_RESET');
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (AppConfig.authEnabled || AppConfig.supabaseConfigured) {
+  // Never ship a release build with an unauthenticated demo fallback.
+  if (kReleaseMode || AppConfig.authEnabled || AppConfig.supabaseConfigured) {
     if (!AppConfig.supabaseConfigured) {
       runApp(const MaterialApp(
         home: Scaffold(
