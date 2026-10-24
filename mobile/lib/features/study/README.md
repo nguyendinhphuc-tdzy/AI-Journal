@@ -15,7 +15,7 @@ mascot; the banner is about 357 px tall at 390 px with normal text, above the
 Elsewhere, Nudaeng shows the GIF's first frame as a
 poster (never the idle pose first), plays it once, then returns to the
 explicitly paired idle artwork, with a 240 ms dissolve when that pose is a
-separate drawing (S04, S05, S06), and stops for reduced motion, hidden tabs/routes, or
+separate drawing (S04, S05), and stops for reduced motion, hidden tabs/routes, or
 an inactive app.
 
 Banner behavior beyond the S01 spec, confirmed by the product owner on
@@ -103,7 +103,8 @@ No generic mascot fallback is used.
 | S03 Reader practice panel | `Deimage/Chó Bài học đọc hoặc video.jpg` | None |
 | S04 Challenge detail | `Deimage/Mời.jpg` | `NudaenggifDe/Nudaeng_gio_bang_ra_truoc_1_5s.gif` |
 | S05 Challenge progress | `Deimage/Pose chờ challenges.jpg` | Newly generated `NudaenggifDe/ND05-check-notebook-transparent.gif`, 1.2 s, on a new non-final task completion only |
-| S06 Challenge completion | `Deimage/Bạn đã hoàn thành challengs.jpg` | `NudaenggifDe/Vẫy đuôi.gif` |
+| S06 Challenge completion, first time | First frame (index 0) of `NudaenggifDe/Vẫy đuôi.gif`, with a living idle loop | Same GIF, one pass (≤ 1.8 s); never dissolves into the completion image |
+| S06 Challenge completion, reopened (“Xem kết quả”) | `Deimage/Bạn đã hoàn thành challengs.jpg` | None |
 | S07 Course completion | Hugging frame (index 4) of `NudaenggifDe/Chú chó ôm sách đầy yêu thương.gif` | Same GIF |
 
 S01 content cards carry no mascot (icon thumbnails only), so the banner is the
