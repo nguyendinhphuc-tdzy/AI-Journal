@@ -1,0 +1,57 @@
+name: Flutter CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - setup/initial-import
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  flutter:
+    name: Flutter analyze / test / bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Print toolchain versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Resolve packages
+        run: flutter pub get
+
+      - name: Analyze Flutter sources
+        run: flutter analyze --no-pub
+
+      - name: Run widget and unit tests
+        run: flutter test --no-pub --reporter expanded
+
+      # A Flutter asset bundle validates the Dart app/assets without Android
+      # Gradle. The repository currently lacks android/gradlew and wrapper JAR;
+      # see docs/CI_SETUP.md before enabling a real Android APK build.
+      - name: Compile Flutter asset bundle
+        # Still check compilation if unit tests fail; keep the job red overall.
+        if: ${{ !cancelled() }}
+        run: flutter build bundle --no-pub
