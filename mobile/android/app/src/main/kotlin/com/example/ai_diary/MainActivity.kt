@@ -1,5 +1,6 @@
 package com.example.ai_diary
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// local_auth shows the system prompt from a FragmentActivity.
+class MainActivity : FlutterFragmentActivity()
