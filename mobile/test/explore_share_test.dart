@@ -25,7 +25,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       await tester.pumpWidget(const AiDiaryApp());
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Album'));
+      await tester.tap(find.text('Kỷ niệm'));
       await tester.pumpAndSettle();
       // What A10 does once the service accepted a post: the album routes
       // close and the library hands the post to the shell.

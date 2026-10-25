@@ -13,10 +13,10 @@ class CustomBottomNavigation extends StatelessWidget {
   final ValueChanged<int> onDestinationSelected;
 
   static const _tabs = [
-    (label: 'Home', icon: Icons.home_outlined),
-    (label: 'Study', icon: Icons.school_outlined),
-    (label: 'Album', icon: Icons.photo_album_outlined),
-    (label: 'Explore', icon: Icons.explore_outlined),
+    (label: 'Trang chủ', icon: Icons.home_outlined),
+    (label: 'Học tập', icon: Icons.school_outlined),
+    (label: 'Kỷ niệm', icon: Icons.photo_album_outlined),
+    (label: 'Khám phá', icon: Icons.explore_outlined),
   ];
 
   @override

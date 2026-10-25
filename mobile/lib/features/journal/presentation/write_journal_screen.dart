@@ -8,6 +8,8 @@ import '../../../navigation/custom_bottom_navigation.dart';
 import '../data/journal_entry.dart';
 import '../journal_scope.dart';
 import 'ai_reflection_screen.dart';
+import '../../onboarding/data/onboarding_store.dart';
+import '../../profile/data/writing_preferences.dart';
 
 class WriteJournalScreen extends StatefulWidget {
   const WriteJournalScreen({super.key, this.entry});
@@ -28,6 +30,56 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   final _scrollController = ScrollController();
   bool _hasFollowUp = false;
   bool _isPaperBackground = true;
+  double _textSize = 16;
+  WritingPreferences? _preferences;
+  bool _changingPaper = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await WritingPreferences.open();
+      if (!mounted) return;
+      setState(() {
+        _preferences = prefs;
+        _isPaperBackground = prefs.paper;
+        _textSize = prefs.textSize;
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'Chưa tải được tùy chỉnh. Đang dùng giao diện mặc định.')));
+      }
+    }
+  }
+
+  Future<void> _togglePaper() async {
+    if (_changingPaper) return;
+    setState(() => _changingPaper = true);
+    try {
+      final prefs = _preferences ?? await WritingPreferences.open();
+      final paper = !_isPaperBackground;
+      await prefs.savePaper(paper);
+      if (!mounted) return;
+      setState(() {
+        _preferences = prefs;
+        _isPaperBackground = paper;
+      });
+      await prefs.feedback();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Chưa lưu được nền giấy. Hãy thử lại.')));
+      }
+    } finally {
+      if (mounted) setState(() => _changingPaper = false);
+    }
+  }
 
   String get _entryText => [
         _controller.text.trim(),
@@ -36,13 +88,15 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
 
   void _showEmptyEntryMessage() {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-      content: Text('Vui lòng viết ít nhất một dòng nhật ký trước khi hoàn thành.'),
+      content:
+          Text('Vui lòng viết ít nhất một dòng nhật ký trước khi hoàn thành.'),
     ));
   }
 
   void _goDeeper() {
     if (_hasFollowUp || _controller.text.trim().isEmpty) return;
     setState(() => _hasFollowUp = true);
+    _preferences?.feedback();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _followUpFocus.requestFocus();
@@ -72,7 +126,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Finished?',
+                'Bạn đã hoàn tất chưa?',
                 textAlign: TextAlign.center,
                 style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
@@ -87,7 +141,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                       foregroundColor: Colors.black,
                       side: const BorderSide(color: Colors.black),
                     ),
-                    child: const Text('Back'),
+                    child: const Text('Quay lại'),
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -98,7 +152,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                       backgroundColor: AppColors.primaryDark,
                       foregroundColor: Colors.white,
                     ),
-                    child: const Text('Confirm'),
+                    child: const Text('Xác nhận'),
                   ),
                 ),
               ]),
@@ -122,10 +176,14 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     final content = JournalContent(
       body: text,
       mood: saved?.content.mood,
-      guided:
-          saved != null && saved.body == text ? saved.content.guided : null,
+      guided: saved != null && saved.body == text ? saved.content.guided : null,
     );
+    bool useAi;
     try {
+      final settings = await OnboardingStore.open();
+      // Preserve the demo's existing flow when no choice has been recorded.
+      useAi = settings.aiEnabled != false;
+      if (!mounted) return;
       final journals = JournalScope.of(context);
       _saved = saved == null
           ? await journals.create(content)
@@ -139,7 +197,19 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     }
     if (!mounted) return;
     setState(() => _saving = false);
-    _openReflection();
+    await _preferences?.feedback();
+    if (!mounted) return;
+    if (useAi) {
+      _openReflection();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Đã lưu nhật ký. Phản hồi AI đang tắt.')));
+      if (Navigator.of(context).canPop()) {
+        Navigator.pop(context);
+      } else {
+        _selectTab(0);
+      }
+    }
   }
 
   @override
@@ -206,7 +276,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                   children: [
                     Row(children: [
                       IconButton(
-                        tooltip: 'Close',
+                        tooltip: 'Đóng',
                         icon: const Icon(Icons.close),
                         color: AppColors.textPrimary,
                         onPressed: () => Navigator.of(context).pop(),
@@ -215,7 +285,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(
-                            'Daily Reflection',
+                            'Nhật ký hôm nay',
                             textAlign: TextAlign.center,
                             style: textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.bold,
@@ -225,12 +295,10 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                         ),
                       ),
                       IconButton(
-                        tooltip: 'Toggle journal background',
+                        tooltip: 'Đổi nền nhật ký',
                         icon: const Icon(Icons.palette_outlined),
                         color: AppColors.textPrimary,
-                        onPressed: () => setState(() {
-                          _isPaperBackground = !_isPaperBackground;
-                        }),
+                        onPressed: _changingPaper ? null : _togglePaper,
                       ),
                     ]),
                     SizedBox(height: compact ? 4 : 12),
@@ -252,13 +320,14 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                       CrossAxisAlignment.stretch,
                                   children: [
                                     _buildPrompt(
-                                        'What do you notice about your mood today?'),
+                                        'Hôm nay bạn nhận thấy tâm trạng mình thế nào?'),
                                     const SizedBox(height: 12),
                                     if (_hasFollowUp) ...[
                                       Text(
                                         _controller.text,
                                         style: textTheme.bodyLarge?.copyWith(
                                           color: Colors.grey.shade700,
+                                          fontSize: _textSize,
                                           height: 1.5,
                                         ),
                                       ),
@@ -282,6 +351,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                       cursorColor: AppColors.primaryDark,
                                       style: textTheme.bodyLarge?.copyWith(
                                         color: AppColors.textPrimary,
+                                        fontSize: _textSize,
                                         height: 1.5,
                                       ),
                                       onTapOutside: (_) => FocusManager
@@ -290,8 +360,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                       decoration: InputDecoration(
                                         isCollapsed: true,
                                         hintText: _hasFollowUp
-                                            ? 'Write here...'
-                                            : 'Start writing...',
+                                            ? 'Viết tại đây...'
+                                            : 'Bắt đầu viết...',
                                         hintStyle: const TextStyle(
                                             color: AppColors.textSecondary),
                                         filled: false,
@@ -313,7 +383,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                               height: mascotSize,
                               child: IgnorePointer(
                                 child: Semantics(
-                                  label: 'Nudaeng, reading',
+                                  label: 'Nudaeng đang đọc sách',
                                   child: ColoredBox(
                                     color: Colors.transparent,
                                     child: ColorFiltered(
@@ -377,13 +447,13 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
         // Attachment flows are not implemented in this UI prototype.
         const Row(mainAxisSize: MainAxisSize.min, children: [
           IconButton(
-            tooltip: 'Voice input (coming soon)',
+            tooltip: 'Nhập bằng giọng nói (sắp có)',
             onPressed: null,
             disabledColor: AppColors.textSecondary,
             icon: Icon(Icons.mic_none_outlined),
           ),
           IconButton(
-            tooltip: 'Add image (coming soon)',
+            tooltip: 'Thêm ảnh (sắp có)',
             onPressed: null,
             disabledColor: AppColors.textSecondary,
             icon: Icon(Icons.image_outlined),
@@ -401,7 +471,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: const Size(0, 48),
                 ),
-                child: const Text('Finish entry'),
+                child: const Text('Hoàn tất'),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
@@ -412,7 +482,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: const Size(0, 48),
                 ),
-                child: const Text('✨ Go Deeper'),
+                child: const Text('✨ Suy ngẫm sâu hơn'),
               ),
             ]),
           ),

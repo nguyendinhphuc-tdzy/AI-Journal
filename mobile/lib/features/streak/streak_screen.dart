@@ -25,15 +25,15 @@ class StreakScreen extends StatefulWidget {
 class _StreakScreenState extends State<StreakScreen> {
   late final int _previousCount;
   late final int _newCount;
-  static const _days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  static const _days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
   static const _dayNames = [
-    'Sunday',
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
+    'Chủ nhật',
+    'Thứ hai',
+    'Thứ ba',
+    'Thứ tư',
+    'Thứ năm',
+    'Thứ sáu',
+    'Thứ bảy',
   ];
 
   @override
@@ -86,7 +86,7 @@ class _StreakScreenState extends State<StreakScreen> {
                       width: constraints.maxWidth,
                       child: Column(mainAxisSize: MainAxisSize.min, children: [
                         Semantics(
-                          label: 'Nudaeng, celebrating',
+                          label: 'Nudaeng đang ăn mừng',
                           child: Container(
                             width: 150,
                             height: 150,
@@ -116,7 +116,7 @@ class _StreakScreenState extends State<StreakScreen> {
                               : const Duration(milliseconds: 900),
                           curve: Curves.easeInCubic,
                           builder: (context, count, _) => Text(
-                            '${count.round()} day streak',
+                            'Chuỗi ${count.round()} ngày liên tiếp',
                             textAlign: TextAlign.center,
                             style: textTheme.headlineLarge?.copyWith(
                                 color: AppColors.primaryDark,
@@ -124,7 +124,8 @@ class _StreakScreenState extends State<StreakScreen> {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        Text('Reflect daily to keep your mind healthy...',
+                        Text(
+                            'Hãy suy ngẫm mỗi ngày để tâm trí luôn khỏe mạnh và bình yên nhé...',
                             textAlign: TextAlign.center,
                             style: textTheme.bodyLarge?.copyWith(
                                 color: AppColors.textSecondary, height: 1.5)),
@@ -171,7 +172,7 @@ class _StreakScreenState extends State<StreakScreen> {
                   foregroundColor: AppColors.surface,
                   minimumSize: const Size.fromHeight(54),
                 ),
-                child: const Text('Continue'),
+                child: const Text('Tiếp tục'),
               ),
             ),
           ]),

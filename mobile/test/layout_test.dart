@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_diary/main.dart';
 import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
     testWidgets('All tabs fit viewport $size', (tester) async {
       tester.view.devicePixelRatio = 1;
@@ -15,7 +17,7 @@ void main() {
       await tester.pumpWidget(const AiDiaryApp());
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      for (final tab in ['Study', 'Album', 'Explore', 'Home']) {
+      for (final tab in ['Học tập', 'Kỷ niệm', 'Khám phá', 'Trang chủ']) {
         await tester.tap(find.text(tab));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: tab);
@@ -35,14 +37,14 @@ void main() {
       home: const WriteJournalScreen(),
     ));
     await tester.enterText(find.byType(TextField), 'A peaceful afternoon.');
-    await tester.tap(find.text('✨ Go Deeper'));
+    await tester.tap(find.text('✨ Suy ngẫm sâu hơn'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 3));
     expect(find.byType(WriteJournalScreen), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
     expect(
         tester.widget<TextField>(find.byType(TextField)).decoration!.hintText,
-        'Write here...');
+        'Viết tại đây...');
     expect(tester.takeException(), isNull);
   });
 }

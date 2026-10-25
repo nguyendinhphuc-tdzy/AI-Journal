@@ -2,9 +2,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-/// A single static GIF frame above a pink heart pin. Native markers are bitmaps.
-Future<Uint8List> createNudaengMarker() async {
-  final data = await rootBundle.load('assets/images/docsach.gif');
+/// A single static GIF frame above a heart pin. Native markers are bitmaps.
+Future<Uint8List> createNudaengMarker([
+  String assetPath = 'assets/images/docsach.gif',
+  Color pinColor = const Color(0xFFE994AC),
+]) async {
+  final data = await rootBundle.load(assetPath);
   final codec = await ui.instantiateImageCodec(
       data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
       targetWidth: 144);
@@ -58,7 +61,7 @@ Future<Uint8List> createNudaengMarker() async {
         ..cubicTo(23, 61, 61, 61, 61, 85)
         ..cubicTo(61, 94, 50, 105, 42, 116)
         ..close();
-      canvas.drawPath(drop, Paint()..color = const Color(0xFFE994AC));
+      canvas.drawPath(drop, Paint()..color = pinColor);
       final heart = Path()
         ..moveTo(42, 94)
         ..cubicTo(17, 77, 39, 72, 42, 81)

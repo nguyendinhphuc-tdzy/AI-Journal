@@ -26,25 +26,26 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     if (_quoteSaved) return;
     final now = DateTime.now();
     const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
+      'Thg 1',
+      'Thg 2',
+      'Thg 3',
+      'Thg 4',
+      'Thg 5',
+      'Thg 6',
+      'Thg 7',
+      'Thg 8',
+      'Thg 9',
+      'Thg 10',
+      'Thg 11',
+      'Thg 12'
     ];
     savedThisWeekItems.value = [
       {
         'type': 'quote',
-        'content': 'Do what you can, with what you have, where you are.',
+        'content':
+            'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.',
         'author': 'Theodore Roosevelt',
-        'date': 'Today',
+        'date': 'Hôm nay',
         'timestamp': '${months[now.month - 1]} ${now.day} - '
             '${now.hour.toString().padLeft(2, '0')}:'
             '${now.minute.toString().padLeft(2, '0')}',
@@ -53,7 +54,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     ];
     setState(() => _quoteSaved = true);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Saved to This Week!')),
+      const SnackBar(content: Text('Đã lưu vào mục Tuần này!')),
     );
   }
 
@@ -127,8 +128,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                       children: [
                         Text(
                           quote
-                              ? 'Do what you can, with what you have, where you are.'
-                              : "Take a deep breath and calm your mind while we're analyzing your entry...",
+                              ? 'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'
+                              : 'Hãy hít thở thật sâu và thư giãn tâm trí trong lúc chúng mình đọc nhật ký của bạn nhé...',
                           textAlign: TextAlign.center,
                           style: textTheme.headlineMedium?.copyWith(
                             fontSize: compact ? 23 : 30,
@@ -164,7 +165,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                       ),
                       icon: Icon(
                           _quoteSaved ? Icons.bookmark : Icons.bookmark_border),
-                      label: Text(_quoteSaved ? 'Saved' : 'Save'),
+                      label: Text(_quoteSaved ? 'Đã lưu' : 'Lưu'),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -172,7 +173,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     child: ElevatedButton(
                       onPressed: _showInsight,
                       style: _blackButton,
-                      child: const Text('Continue'),
+                      child: const Text('Tiếp tục'),
                     ),
                   ),
                 ])
@@ -180,7 +181,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                 TextButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text(
-                    'Cancel analysis',
+                    'Hủy phân tích',
                     style: TextStyle(
                       color: Colors.black,
                       decoration: TextDecoration.underline,
@@ -212,8 +213,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
           width: size,
           height: size,
           fit: BoxFit.contain,
-          semanticLabel:
-              quote ? 'Nudaeng, encouraging you' : 'Nudaeng, reflecting',
+          semanticLabel: quote
+              ? 'Nudaeng đang động viên bạn'
+              : 'Nudaeng đang cùng bạn suy ngẫm',
         ),
       ),
     );
@@ -230,13 +232,21 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Your Reflection', style: textTheme.labelLarge),
+                Text('Góc suy ngẫm', style: textTheme.labelLarge),
                 const SizedBox(height: 12),
-                Text('Avoiding school',
-                    style: textTheme.headlineLarge?.copyWith(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                    )),
+                SizedBox(
+                  width: double.infinity,
+                  child: FittedBox(
+                    alignment: Alignment.centerLeft,
+                    fit: BoxFit.scaleDown,
+                    child: Text('Né tránh chuyện học hành',
+                        maxLines: 1,
+                        style: textTheme.headlineLarge?.copyWith(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                        )),
+                  ),
+                ),
                 const SizedBox(height: 24),
                 Container(
                   padding: const EdgeInsets.all(4),
@@ -245,9 +255,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(children: [
-                    _buildTab('Entry', _showEntry,
+                    _buildTab('Nhật ký', _showEntry,
                         () => setState(() => _showEntry = true)),
-                    _buildTab('Analysis', !_showEntry,
+                    _buildTab('Phân tích', !_showEntry,
                         () => setState(() => _showEntry = false)),
                   ]),
                 ),
@@ -255,31 +265,31 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                 if (_showEntry)
                   SelectableText(
                     widget.journalContent.isEmpty
-                        ? 'No entry text.'
+                        ? 'Chưa có nội dung nhật ký.'
                         : widget.journalContent,
                     style: textTheme.bodyLarge?.copyWith(height: 1.7),
                   )
                 else ...[
                   // Mock insight for the prototype; replace with the API response.
                   Text(
-                    'It sounds like school has become something with weight around it. '
-                    'Even thinking about it may bring up a mix of pressure, uncertainty, '
-                    'or feelings that are hard to put into words. Keeping some distance '
-                    'can feel like a way to catch your breath. You do not have to figure '
-                    'everything out at once. Noticing what feels heavy, and giving '
-                    'yourself room to name it, can be a gentle place to start.',
+                    'Có lẽ chuyện học hành đang trở thành một gánh nặng trong lòng bạn. '
+                    'Ngay cả khi nghĩ về nó, bạn cũng có thể cảm thấy áp lực, bối rối, '
+                    'hoặc có những cảm xúc khó gọi thành tên. Giữ một khoảng cách đôi khi '
+                    'là cách để bạn kịp thở. Bạn không cần phải giải quyết mọi thứ ngay lập tức. '
+                    'Nhận ra điều gì đang nặng lòng và cho mình không gian để gọi tên nó '
+                    'có thể là một khởi đầu dịu dàng.',
                     style: textTheme.bodyLarge?.copyWith(height: 1.7),
                   ),
                   const SizedBox(height: 32),
                   _buildSectionTitle(
-                      Icons.push_pin_outlined, 'What we noticed'),
+                      Icons.push_pin_outlined, 'Chúng mình nhận thấy rằng'),
                   const SizedBox(height: 12),
                   Text(
-                    'School feels emotionally loaded enough that your mind is trying to keep some distance from it.',
+                    'Chuyện học hành đang mang nhiều cảm xúc đến mức tâm trí bạn muốn giữ một khoảng cách để tự bảo vệ mình.',
                     style: textTheme.bodyLarge?.copyWith(height: 1.7),
                   ),
                   const SizedBox(height: 28),
-                  _buildSectionTitle(Icons.star_border, 'Mood & Topics'),
+                  _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -288,7 +298,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                       color: const Color(0xFFECEFF1),
                       borderRadius: BorderRadius.circular(24),
                     ),
-                    child: const Text('😕  Uneasy & school - avoidance'),
+                    child:
+                        const Text('😕  Bồn chồn · né tránh chuyện học hành'),
                   ),
                 ],
               ],
@@ -346,9 +357,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(children: [
-            const Expanded(child: Text('How helpful was this reflection?')),
+            const Expanded(child: Text('Góc suy ngẫm này có ích cho bạn chứ?')),
             IconButton(
-              tooltip: 'Helpful',
+              tooltip: 'Hữu ích',
               isSelected: _helpful == true,
               onPressed: () =>
                   setState(() => _helpful = _helpful == true ? null : true),
@@ -356,7 +367,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
               selectedIcon: const Icon(Icons.thumb_up),
             ),
             IconButton(
-              tooltip: 'Not helpful',
+              tooltip: 'Chưa hữu ích',
               isSelected: _helpful == false,
               onPressed: () =>
                   setState(() => _helpful = _helpful == false ? null : false),
@@ -370,7 +381,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
             child: ElevatedButton(
               onPressed: _openingStreak ? null : _continueToStreak,
               style: _blackButton,
-              child: const Text('Continue'),
+              child: const Text('Tiếp tục'),
             ),
           ),
         ],

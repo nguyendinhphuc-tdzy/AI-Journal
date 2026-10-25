@@ -26,12 +26,12 @@ void main() {
       await tester.pumpAndSettle();
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Save'));
+      await tester.tap(find.text('Lưu'));
       await tester.pump();
-      expect(find.text('Saved to This Week!'), findsOneWidget);
+      expect(find.text('Đã lưu vào mục Tuần này!'), findsOneWidget);
       expect(savedThisWeekItems.value.length, 2);
       expect(savedThisWeekItems.value.first['type'], 'quote');
-      await tester.tap(find.text('Saved'));
+      await tester.tap(find.text('Đã lưu'));
       expect(savedThisWeekItems.value.length, 2);
       Navigator.of(tester.element(find.byType(AIReflectionScreen))).pop();
       await tester.pumpAndSettle();
@@ -63,12 +63,15 @@ void main() {
       expect(tester.getTopLeft(topBar), topBarPosition);
       expect(tester.getTopLeft(panel).dy, lessThan(panelPosition.dy));
       await tester.scrollUntilVisible(
-        find.text('Do what you can, with what you have, where you are.'),
+        find.text(
+            'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
         150,
         scrollable:
             find.descendant(of: list, matching: find.byType(Scrollable)),
       );
-      expect(find.text('Do what you can, with what you have, where you are.'),
+      expect(
+          find.text(
+              'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
           findsOneWidget);
       expect(tester.getTopLeft(find.byType(NavigationBar)), navigationPosition);
       await tester.scrollUntilVisible(
@@ -78,16 +81,18 @@ void main() {
             find.descendant(of: list, matching: find.byType(Scrollable)),
       );
       expect(find.text('An existing insight.'), findsOneWidget);
-      final unsave = find.byTooltip('Unsave quote');
+      final unsave = find.byTooltip('Bỏ lưu trích dẫn');
       await Scrollable.ensureVisible(tester.element(unsave), alignment: 0.5);
       await tester.pumpAndSettle();
       await tester.tap(unsave);
       await tester.pumpAndSettle();
       expect(savedThisWeekItems.value.length, 1);
       expect(savedThisWeekItems.value.single['type'], 'insight');
-      expect(find.text('Do what you can, with what you have, where you are.'),
+      expect(
+          find.text(
+              'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
           findsNothing);
-      expect(find.text('Quote removed from This Week'), findsOneWidget);
+      expect(find.text('Đã xóa trích dẫn khỏi mục Tuần này'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(seconds: 7));
     });
