@@ -23,6 +23,14 @@ class StreakState extends ValueNotifier<int> {
     return gap == 1 ? value + 1 : 1;
   }
 
+  /// Existing session-only demo counter must not leak between accounts
+  /// or between authenticated and guest sessions. Backend B06 remains the
+  /// future source of truth once integrated.
+  void resetForNewLocalSession() {
+    _lastCompletedDay = _today.subtract(const Duration(days: 1));
+    value = 0;
+  }
+
   void completeToday() {
     final updatedCount = nextCount;
     _lastCompletedDay = _today;
