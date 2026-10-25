@@ -45,13 +45,15 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261018_06"
+    assert revision == "20261025_07"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
     assert "saved_places" in tables
     assert "place_notes" in tables
     assert "journal_places" in tables
+    assert "albums" in tables
+    assert "album_memories" in tables
 
 
 def test_public_mock_ai_preserved():
