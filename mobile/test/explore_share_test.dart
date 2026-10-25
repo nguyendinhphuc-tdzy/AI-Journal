@@ -77,13 +77,13 @@ void main() {
       await tester.tap(find.byTooltip('Filter places'));
       await tester.pumpAndSettle();
       await tester.tap(find.byWidgetPredicate((widget) =>
-          widget is CheckedPopupMenuItem<String> && widget.value == 'Food'));
+          widget is CheckedPopupMenuItem<String> && widget.value == 'Yên tĩnh'));
       await tester.pumpAndSettle();
-      expect(find.byType(ListTile), findsOneWidget);
+      expect(find.textContaining('Đang xem: Yên tĩnh'), findsOneWidget);
       await tester.tap(find.byTooltip('Filter places'));
       await tester.pumpAndSettle();
       await tester.tap(find.byWidgetPredicate((widget) =>
-          widget is CheckedPopupMenuItem<String> && widget.value == 'Food'));
+          widget is CheckedPopupMenuItem<String> && widget.value == 'Tất cả'));
       await tester.pumpAndSettle();
       expect(find.byType(MapLibreMap), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'Quiet');
