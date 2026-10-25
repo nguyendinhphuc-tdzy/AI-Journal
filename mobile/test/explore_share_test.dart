@@ -1,6 +1,8 @@
 import 'package:ai_diary/main.dart';
+import 'package:ai_diary/features/album/data/memory.dart';
+import 'package:ai_diary/features/album/data/memory_share.dart';
+import 'package:ai_diary/features/album/presentation/album_routes.dart';
 import 'package:ai_diary/features/explore/presentation/explore_screen.dart';
-import 'package:ai_diary/features/explore/presentation/widgets/share_dialog.dart';
 import 'dart:math' as math;
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:ai_diary/features/explore/presentation/widgets/nudaeng_map_marker.dart';
@@ -15,7 +17,7 @@ void main() {
     expect(icon, isNotEmpty);
   });
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
-    testWidgets('Album Share opens Explore and dismisses mock dialog at $size',
+    testWidgets('A post shared from Album opens Explore with its pin at $size',
         (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = size;
@@ -25,36 +27,53 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Album'));
       await tester.pumpAndSettle();
-      final share = find.widgetWithText(ElevatedButton, 'Share');
-      await tester.ensureVisible(share);
+      // What A10 does once the service accepted a post: the album routes
+      // close and the library hands the post to the shell.
+      final expiresAt = DateTime(2026, 10, 21, 14, 5);
+      AlbumRoutes.published.value = SharedMemoryPost(
+        id: 'post-1',
+        payload: const SharePayload(
+          albumId: 'a',
+          memoryId: 'm',
+          audience: ShareAudience(id: 'friends', label: 'Bạn bè'),
+          place: MemoryPlace(
+              label: 'Hồ Xuân Hương', latitude: 11.94, longitude: 108.44),
+          title: 'Chiều ở Đà Lạt',
+          text: 'Ly ca cao nóng.',
+        ),
+        publishedAt: expiresAt.subtract(const Duration(hours: 24)),
+        expiresAt: expiresAt.add(const Duration(days: 3650)),
+      );
       await tester.pumpAndSettle();
-      await tester.tap(share);
-      await tester.pumpAndSettle();
-      expect(find.byType(ShareDialog), findsOneWidget);
+      expect(AlbumRoutes.published.value, isNull);
       expect(
           tester
               .widget<NavigationBar>(find.byType(NavigationBar))
               .selectedIndex,
           3);
-      final description = find.descendant(
-          of: find.byType(ShareDialog), matching: find.byType(TextField));
-      await tester.ensureVisible(description);
-      await tester.enterText(description, 'A lovely meal.');
-      tester.view.viewInsets = const FakeViewPadding(bottom: 120);
-      addTearDown(tester.view.resetViewInsets);
-      await tester.pumpAndSettle();
-      final confirm = find.descendant(
-          of: find.byType(ShareDialog),
-          matching: find.widgetWithText(ElevatedButton, 'Share'));
-      await tester.ensureVisible(confirm);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-      await tester.tap(confirm);
-      tester.view.resetViewInsets();
-      await tester.pumpAndSettle();
-      expect(find.byType(ShareDialog), findsNothing);
       expect(find.byType(ExploreScreen), findsOneWidget);
+      expect(
+          tester
+              .widget<ExploreScreen>(find.byType(ExploreScreen))
+              .highlight!
+              .id,
+          'post-1');
+      // Its card is open: what was shared and until when.
+      expect(find.text('Chiều ở Đà Lạt'), findsOneWidget);
+      expect(find.textContaining('Ly ca cao nóng.'), findsOneWidget);
+      expect(
+          find.textContaining('Hồ Xuân Hương · Hết hạn lúc'), findsOneWidget);
       expect(find.byType(MapLibreMap), findsOneWidget);
+      await tester.tap(find.byTooltip('Đóng bài chia sẻ'));
+      await tester.pumpAndSettle();
+      expect(find.text('Chiều ở Đà Lạt'), findsNothing);
+      // Taken off the map in Album (A12 or A11): E01 drops the pin.
+      AlbumRoutes.unshared.value = const ShareRemoval(postId: 'post-1');
+      await tester.pumpAndSettle();
+      expect(AlbumRoutes.unshared.value, isNull);
+      expect(
+          tester.widget<ExploreScreen>(find.byType(ExploreScreen)).highlight,
+          isNull);
       await tester.tap(find.byTooltip('Filter places'));
       await tester.pumpAndSettle();
       await tester.tap(find.byWidgetPredicate((widget) =>
