@@ -361,6 +361,7 @@ def test_journal_and_streak_roll_back_together(monkeypatch):
     """A journal save that fails after its streak insert must credit nothing."""
     import pytest
     from sqlalchemy import select
+    from uuid import UUID
     from app.core.database import SessionLocal
     from app.models.journal import JournalEntry
     from app.models.journal_action_day import JournalActionDay
@@ -994,7 +995,7 @@ def test_pr17_album_memory_owner_isolation_and_e05_place():
         assert client.get(f"/api/v1/albums/{aid}").status_code == 404
         with SessionLocal() as session:
             assert session.scalar(
-                select(AlbumMemory).where(AlbumMemory.id == mid)
+                select(AlbumMemory).where(AlbumMemory.id == UUID(mid))
             ) is None
     finally:
         app.dependency_overrides.clear()
