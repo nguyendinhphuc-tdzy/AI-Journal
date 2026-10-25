@@ -12,54 +12,57 @@ void main() {
   testWidgets('Loading changes at 3 seconds and insight at 7 seconds',
       (tester) async {
     await tester.pumpWidget(app());
-    expect(find.text('Cancel analysis'), findsOneWidget);
-    expect(find.text('Continue'), findsNothing);
+    expect(find.text('Hủy phân tích'), findsOneWidget);
+    expect(find.text('Tiếp tục'), findsNothing);
     await tester.pump(const Duration(milliseconds: 2999));
     expect(find.text('Theodore Roosevelt'), findsNothing);
     await tester.pump(const Duration(milliseconds: 1));
     expect(find.text('Theodore Roosevelt'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
-    expect(find.text('Cancel analysis'), findsNothing);
-    await tester.tap(find.text('Save'));
+    expect(find.text('Hủy phân tích'), findsNothing);
+    await tester.tap(find.text('Lưu'));
     await tester.pump();
-    expect(find.text('Saved'), findsOneWidget);
+    expect(find.text('Đã lưu'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 3499));
-    expect(find.text('Your Reflection'), findsNothing);
+    expect(find.text('Góc suy ngẫm'), findsNothing);
     await tester.pump(const Duration(milliseconds: 1));
-    expect(find.text('Your Reflection'), findsOneWidget);
+    expect(find.text('Góc suy ngẫm'), findsOneWidget);
     await tester.pumpAndSettle();
     expect(find.text('Theodore Roosevelt'), findsNothing);
-    expect(find.text('What we noticed'), findsOneWidget);
-    await tester.tap(find.text('Entry'));
+    expect(find.text('Chúng mình nhận thấy rằng'), findsOneWidget);
+    await tester.tap(find.descendant(
+      of: find.byKey(const ValueKey('reflection-insight')),
+      matching: find.widgetWithText(TextButton, 'Nhật ký'),
+    ));
     await tester.pumpAndSettle();
     expect(find.text('My original entry.'), findsOneWidget);
-    expect(find.text('What we noticed'), findsNothing);
-    await tester.tap(find.text('Analysis'));
+    expect(find.text('Chúng mình nhận thấy rằng'), findsNothing);
+    await tester.tap(find.text('Phân tích'));
     await tester.pumpAndSettle();
-    expect(find.text('What we noticed'), findsOneWidget);
+    expect(find.text('Chúng mình nhận thấy rằng'), findsOneWidget);
     await tester.tap(find.byWidgetPredicate(
-        (widget) => widget is IconButton && widget.tooltip == 'Helpful'));
+        (widget) => widget is IconButton && widget.tooltip == 'Hữu ích'));
     await tester.pump();
     expect(
         tester
             .widget<IconButton>(find.byWidgetPredicate((widget) =>
-                widget is IconButton && widget.tooltip == 'Helpful'))
+                widget is IconButton && widget.tooltip == 'Hữu ích'))
             .isSelected,
         isTrue);
     await tester.tap(find.byWidgetPredicate(
-        (widget) => widget is IconButton && widget.tooltip == 'Not helpful'));
+        (widget) => widget is IconButton && widget.tooltip == 'Chưa hữu ích'));
     await tester.pump();
     expect(
         tester
             .widget<IconButton>(find.byWidgetPredicate((widget) =>
-                widget is IconButton && widget.tooltip == 'Helpful'))
+                widget is IconButton && widget.tooltip == 'Hữu ích'))
             .isSelected,
         isFalse);
     expect(
         tester
             .widget<IconButton>(find.byWidgetPredicate((widget) =>
-                widget is IconButton && widget.tooltip == 'Not helpful'))
+                widget is IconButton && widget.tooltip == 'Chưa hữu ích'))
             .isSelected,
         isTrue);
     expect(tester.takeException(), isNull);
@@ -77,11 +80,14 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('Continue'));
+      await tester.tap(find.text('Tiếp tục'));
       await tester.pumpAndSettle();
-      expect(find.text('Your Reflection'), findsOneWidget);
+      expect(find.text('Góc suy ngẫm'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('Entry'));
+      await tester.tap(find.descendant(
+        of: find.byKey(const ValueKey('reflection-insight')),
+        matching: find.widgetWithText(TextButton, 'Nhật ký'),
+      ));
       await tester.pump();
       await tester.pump(const Duration(seconds: 4));
       expect(find.text('My original entry.'), findsOneWidget);
@@ -107,7 +113,7 @@ void main() {
     ));
     await tester.tap(find.text('Open reflection'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cancel analysis'));
+    await tester.tap(find.text('Hủy phân tích'));
     await tester.pumpAndSettle();
     expect(find.byType(AIReflectionScreen), findsNothing);
     expect(find.text('Open reflection'), findsOneWidget);

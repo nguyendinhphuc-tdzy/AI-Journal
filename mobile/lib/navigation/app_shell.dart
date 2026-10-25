@@ -49,13 +49,13 @@ class _AppShellState extends State<AppShell> {
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
           NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined), label: 'Home'),
+              icon: Icon(Icons.menu_book_outlined), label: 'Trang chủ'),
           NavigationDestination(
-              icon: Icon(Icons.school_outlined), label: 'Study'),
+              icon: Icon(Icons.school_outlined), label: 'Học tập'),
           NavigationDestination(
-              icon: Icon(Icons.photo_album_outlined), label: 'Album'),
+              icon: Icon(Icons.photo_album_outlined), label: 'Kỷ niệm'),
           NavigationDestination(
-              icon: Icon(Icons.map_outlined), label: 'Explore'),
+              icon: Icon(Icons.map_outlined), label: 'Khám phá'),
         ],
       ),
     );

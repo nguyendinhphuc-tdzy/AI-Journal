@@ -22,9 +22,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // Local sample prompts until the daily-prompt API is connected.
   static const _prompts = [
-    'What do you notice about your mood today?',
-    'What is one small thing that brought you joy today?',
-    'What would help you feel more at ease right now?',
+    'Hôm nay bạn nhận thấy điều gì về tâm trạng của mình?',
+    'Điều nhỏ bé nào đã mang lại niềm vui cho bạn hôm nay?',
+    'Ngay lúc này, điều gì có thể giúp bạn thấy nhẹ lòng hơn?',
   ];
 
   int _promptIndex = 0;
@@ -74,17 +74,14 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                     child: Column(children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: SizedBox(
-                          height: math.max(130.0, constraints.maxHeight * 0.35),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.topCenter,
-                            child: SizedBox(
-                              width: constraints.maxWidth - 40,
-                              child: _buildDailyReflection(context),
-                            ),
+                      SizedBox(
+                        height: math.max(130.0, constraints.maxHeight * 0.35),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.topCenter,
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            child: _buildDailyReflection(context),
                           ),
                         ),
                       ),
@@ -114,7 +111,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Padding(
                           padding: const EdgeInsets.all(16),
-                          child: Text('This Week',
+                          child: Text('Tuần này',
                               style: Theme.of(context)
                                   .textTheme
                                   .titleLarge
@@ -177,7 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const Icon(Icons.auto_awesome,
                 size: 18, color: AppColors.primaryDark),
             const SizedBox(width: 8),
-            Text('AI Insight',
+            Text('Gợi ý từ AI',
                 style: textTheme.titleSmall?.copyWith(
                   color: AppColors.primaryDark,
                   fontWeight: FontWeight.w600,
@@ -211,17 +208,25 @@ class _HomeScreenState extends State<HomeScreen> {
             const Icon(Icons.local_fire_department_outlined,
                 color: AppColors.primaryDark, size: 22),
             const SizedBox(width: 8),
-            ValueListenableBuilder<int>(
-              valueListenable: StreakState.shared,
-              builder: (context, count, _) => Text(
-                '$count day streak',
-                style: Theme.of(context).textTheme.labelLarge,
+            SizedBox(
+              width: 112,
+              child: FittedBox(
+                alignment: Alignment.centerLeft,
+                fit: BoxFit.scaleDown,
+                child: ValueListenableBuilder<int>(
+                  valueListenable: StreakState.shared,
+                  builder: (context, count, _) => Text(
+                    '$count ngày liên tiếp',
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
               ),
             ),
           ]),
         ),
         Semantics(
-          label: 'Profile avatar',
+          label: 'Ảnh đại diện hồ sơ',
           button: true,
           child: InkWell(
             customBorder: const CircleBorder(),
@@ -243,6 +248,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildDailyReflection(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     return JournalCard(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,17 +257,22 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(children: [
             const SizedBox(width: 48),
             Expanded(
-              child: Text(
-                'Daily Reflection',
-                textAlign: TextAlign.center,
-                style: textTheme.headlineSmall?.copyWith(
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.bold,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  'Khoảnh khắc suy ngẫm',
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  style: textTheme.headlineSmall?.copyWith(
+                    color: AppColors.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
             IconButton(
-              tooltip: 'Refresh prompt',
+              tooltip: 'Đổi gợi ý',
               onPressed: () => setState(() {
                 _promptIndex = (_promptIndex + 1) % _prompts.length;
               }),
@@ -271,12 +283,18 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 12),
           Semantics(
             liveRegion: true,
-            child: Text(_prompts[_promptIndex],
-                style: textTheme.headlineSmall?.copyWith(height: 1.35)),
+            child: Text(
+              _prompts[_promptIndex],
+              style: textTheme.bodyLarge?.copyWith(
+                fontSize: 16,
+                fontWeight: FontWeight.normal,
+                height: 1.35,
+              ),
+            ),
           ),
           const SizedBox(height: 20),
           PrimaryButton(
-            label: 'Reflect ➔',
+            label: 'Cùng suy ngẫm ➔',
             onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -291,7 +309,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildMascot() {
     return Semantics(
-      label: 'Nudaeng, idle',
+      label: 'Nudaeng đang nghỉ ngơi',
       excludeSemantics: true,
       child: SizedBox(
         width: 200,
@@ -321,6 +339,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildWeekItem(BuildContext context, Map<String, dynamic> item) {
     final textTheme = Theme.of(context).textTheme;
     final quote = item['type'] == 'quote';
+    final rawDate = item['date'] as String? ?? 'Hôm nay';
+    final dateLabel = rawDate == 'Today' ? 'Hôm nay' : rawDate;
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       padding: const EdgeInsets.all(20),
@@ -332,7 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Text(item['date'] as String? ?? 'Today',
+            Text(dateLabel,
                 style: textTheme.labelLarge?.copyWith(color: Colors.black)),
             const SizedBox(width: 10),
             Expanded(
@@ -341,17 +361,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       ?.copyWith(color: AppColors.textSecondary)),
             ),
             const Tooltip(
-              message: 'More options (coming soon)',
+              message: 'Thêm lựa chọn (sắp có)',
               child: Icon(Icons.more_horiz, size: 22),
             ),
           ]),
           const SizedBox(height: 16),
-          Text(quote ? 'Quote' : 'Daily Reflection',
+          Text(quote ? 'Trích dẫn' : 'Khoảnh khắc suy ngẫm',
               style: textTheme.bodySmall
                   ?.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 10),
           if (!quote) ...[
-            Text(item['title'] as String? ?? 'AI Insight',
+            Text(item['title'] as String? ?? 'Gợi ý từ AI',
                 style: textTheme.headlineSmall
                     ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
@@ -369,7 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Text('-${item['author'] ?? ''}',
                       style: textTheme.bodyMedium)),
               IconButton(
-                tooltip: 'Unsave quote',
+                tooltip: 'Bỏ lưu trích dẫn',
                 icon: const Icon(Icons.bookmark,
                     size: 20, color: AppColors.primaryDark),
                 onPressed: () {
@@ -378,7 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ..remove(item);
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                        content: Text('Quote removed from This Week')),
+                        content: Text('Đã xóa trích dẫn khỏi mục Tuần này')),
                   );
                 },
               ),

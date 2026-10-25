@@ -8,7 +8,7 @@ import 'features/onboarding/onboarding_flow.dart';
 import 'features/onboarding/presentation/first_entry_session.dart';
 import 'navigation/app_shell.dart';
 
-const appName = 'AI Diary';
+const appName = 'Nhật ký AI';
 
 /// Opt in with `--dart-define=ONBOARDING=true`. OB11 now completes the flow;
 /// making onboarding the default launch is a separate decision.

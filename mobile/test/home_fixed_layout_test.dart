@@ -34,7 +34,7 @@ void main() {
       final topBarRect = tester.getRect(topBar);
       final navRect = tester.getRect(find.byType(NavigationBar));
       final panelTop = tester.getTopLeft(panel).dy;
-      final mascot = find.bySemanticsLabel('Nudaeng, idle');
+      final mascot = find.bySemanticsLabel('Nudaeng đang nghỉ ngơi');
       expect(tester.getRect(find.byType(JournalCard)).bottom,
           lessThanOrEqualTo(tester.getTopLeft(mascot).dy));
       expect(topBarRect.top, greaterThanOrEqualTo(44));

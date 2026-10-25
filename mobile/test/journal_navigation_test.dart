@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
 import 'package:ai_diary/main.dart';
 import 'package:ai_diary/navigation/custom_bottom_navigation.dart';
@@ -5,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  for (final tab in ['Home', 'Study', 'Album', 'Explore']) {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+  for (final tab in ['Trang chủ', 'Học tập', 'Kỷ niệm', 'Khám phá']) {
     testWidgets('Journal card and navigation to $tab', (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = const Size(412, 915);
@@ -15,7 +17,7 @@ void main() {
       addTearDown(tester.view.resetPadding);
       await tester.pumpWidget(const AiDiaryApp());
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Reflect ➔'));
+      await tester.tap(find.text('Cùng suy ngẫm ➔'));
       await tester.pumpAndSettle();
 
       final card = find.descendant(
@@ -27,10 +29,10 @@ void main() {
       );
       final cardRect = tester.getRect(card);
       for (final child in [
-        find.text('Daily Reflection'),
+        find.text('Nhật ký hôm nay'),
         find.byType(TextField),
-        find.text('Finish entry'),
-        find.text('✨ Go Deeper'),
+        find.text('Hoàn tất'),
+        find.text('✨ Suy ngẫm sâu hơn'),
       ]) {
         final rect = tester.getRect(child);
         expect(cardRect.contains(rect.topLeft), isTrue);
@@ -47,7 +49,7 @@ void main() {
       expect(find.byType(NavigationBar), findsOneWidget);
       expect(
         tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
-        ['Home', 'Study', 'Album', 'Explore'].indexOf(tab),
+        ['Trang chủ', 'Học tập', 'Kỷ niệm', 'Khám phá'].indexOf(tab),
       );
       expect(tester.takeException(), isNull);
     });
