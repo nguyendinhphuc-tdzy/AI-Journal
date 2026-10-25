@@ -21,21 +21,21 @@ enum NudaengArtwork {
         'assets/NudaenggifDe/Chó Nudaeng lật trang sách-transparent.gif',
     idleFidget: true,
   ),
-  lesson('assets/Deimage/Chó Bài học đọc hoặc video-transparent.png'),
+  lesson('assets/Deimage/Chó Bài học đọc hoặc video-transparent.png'),
   challengeInvitation(
-    'assets/Deimage/Mời-transparent.png',
+    'assets/Deimage/Mời-transparent.png',
     animationAsset:
         'assets/NudaenggifDe/Nudaeng_gio_bang_ra_truoc_1_5s-transparent.gif',
     maxDuration: Duration(milliseconds: 1500),
   ),
   challengeProgress(
-    'assets/Deimage/Pose chờ challenges-transparent.png',
+    'assets/Deimage/Pose chờ challenges-transparent.png',
     animationAsset: 'assets/NudaenggifDe/ND05-check-notebook-transparent.gif',
     maxDuration: Duration(milliseconds: 1200),
   ),
   challengeCompletion(
-    'assets/Deimage/Bạn đã hoàn thành challengs-transparent.png',
-    animationAsset: 'assets/NudaenggifDe/Vẫy đuôi-transparent.gif',
+    'assets/Deimage/Bạn đã hoàn thành challengs-transparent.png',
+    animationAsset: 'assets/NudaenggifDe/Vẫy đuôi-transparent.gif',
     maxDuration: Duration(milliseconds: 1800),
   ),
   courseCompletion(
