@@ -199,7 +199,7 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                 onChanged: (value) => setState(() => _isAnonymousShare = value),
                 title: const Text('Chia sẻ ẩn danh cho cộng đồng'),
                 subtitle: const Text(
-                  'Người khác sẽ thấy địa điểm này nhưng không biết ai là người gửi.',
+                  'Bản demo: trạm ẩn danh chỉ hiển thị trên máy này, chưa gửi cho cộng đồng.',
                 ),
               ),
               const SizedBox(height: 12),

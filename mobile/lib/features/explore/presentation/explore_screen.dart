@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
+import '../data/explore_highlight.dart';
 import '../data/explore_places_repository.dart';
 import 'widgets/nudaeng_map_marker.dart';
 import 'widgets/place_sheets.dart';
@@ -20,12 +21,16 @@ class ExploreScreen extends StatefulWidget {
     super.key,
     this.placesRepository = const MockExplorePlacesRepository(),
     this.clock,
+    this.highlight,
   });
 
   final ExplorePlacesRepository placesRepository;
 
   /// Allows deterministic day/night rendering in widget tests.
   final DateTime Function()? clock;
+
+  /// Shared memory pin passed from Album A10; cleared after A11/A12 revoke.
+  final ExploreHighlight? highlight;
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -54,6 +59,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
   List<ExplorePlace> _places = [];
   ExplorePlace? _selected;
   LatLng? _draftPin;
+  ExploreHighlight? _highlight;
+  bool _highlightCard = false;
   LatLng _currentCameraPosition = const LatLng(10.8231, 106.6297);
   final List<SavedPlace> _savedPlaces = [
     const SavedPlace(
@@ -114,12 +121,60 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void initState() {
     super.initState();
+    _highlight = widget.highlight;
+    _highlightCard = _highlight != null;
     // Use Android TextureView so Flutter overlays and tab clipping compose
     // correctly; the default SurfaceView uses a separate virtual display.
     MapLibreMap.useHybridComposition = true;
     final hour = (widget.clock?.call() ?? DateTime.now()).hour;
     _isNight = hour >= 18 || hour < 5;
     _search();
+  }
+
+  @override
+  void didUpdateWidget(ExploreScreen old) {
+    super.didUpdateWidget(old);
+    final highlight = widget.highlight;
+    if (highlight?.id == old.highlight?.id) return;
+    if (highlight == null) {
+      // Taken off the map (revoked or deleted in Album).
+      setState(() {
+        _highlight = null;
+        _highlightCard = false;
+      });
+      _syncMarkers();
+      return;
+    }
+    setState(() {
+      _highlight = highlight;
+      _highlightCard = true;
+      _selected = null;
+      _draftPin = null;
+    });
+    _syncMarkers();
+    _focusHighlight();
+  }
+
+  ExploreHighlight? get _activeHighlight {
+    final highlight = _highlight;
+    return highlight != null && highlight.isActive(DateTime.now())
+        ? highlight
+        : null;
+  }
+
+  Future<void> _focusHighlight() async {
+    final highlight = _activeHighlight;
+    final map = _map;
+    if (highlight == null || map == null || !_styleReady) return;
+    final camera = CameraUpdate.newLatLngZoom(
+        LatLng(highlight.latitude, highlight.longitude), 15);
+    try {
+      MediaQuery.disableAnimationsOf(context)
+          ? await map.moveCamera(camera)
+          : await map.animateCamera(camera);
+    } catch (_) {
+      if (mounted) setState(() => _loadFailed = true);
+    }
   }
 
   @override
@@ -142,6 +197,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         _searchError = null;
       });
       _syncMarkers();
+      _focusHighlight();
     } catch (_) {
       if (!mounted || version != _searchVersion) return;
       setState(() {
@@ -237,6 +293,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
         }
       }
       if (id == 'draft') setState(() => _selected = null);
+      if (id == 'highlight') {
+        setState(() {
+          _selected = null;
+          _highlightCard = true;
+        });
+      }
     });
     _loadTimeout?.cancel();
     _loadTimeout = Timer(const Duration(seconds: 20), () {
@@ -295,6 +357,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ? List<Map<String, dynamic>>.of(_anonymousPlaces)
           : const <Map<String, dynamic>>[];
       final draft = _draftPin;
+      final highlight = _activeHighlight;
       await map.clearSymbols();
       if (!mounted || _map != map) return;
       for (final place in places) {
@@ -342,6 +405,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 iconAnchor: 'bottom'),
             {'id': 'draft'});
       }
+      if (highlight != null) {
+        await map.addSymbol(
+            SymbolOptions(
+                geometry: LatLng(highlight.latitude, highlight.longitude),
+                iconImage: 'nudaeng',
+                iconSize: .7,
+                iconAnchor: 'bottom'),
+            {'id': 'highlight'});
+      }
     }).catchError((Object error) {
       if (mounted && _map == map) setState(() => _loadFailed = true);
     });
@@ -353,6 +425,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     setState(() {
       _draftPin = coordinate;
       _selected = null;
+      _highlightCard = false;
     });
     _syncMarkers();
   }
@@ -477,6 +550,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     setState(() {
       _selected = place;
       _query = '';
+      _highlightCard = false;
     });
     _search();
     try {
@@ -651,6 +725,28 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               onPressed: _retryMap,
                               child: const Text('Retry map')),
                         ])))),
+          if (_selected == null &&
+              _draftPin == null &&
+              _highlightCard &&
+              _activeHighlight != null)
+            Positioned(
+                left: 12,
+                right: 12,
+                bottom: 40,
+                child: SafeArea(
+                    top: false,
+                    child: Card(
+                        child: ListTile(
+                      leading: const Icon(Icons.share_location_outlined),
+                      title: Text(_activeHighlight!.title),
+                      subtitle: Text(_activeHighlight!.subtitle),
+                      isThreeLine: true,
+                      trailing: IconButton(
+                          tooltip: 'Đóng bài chia sẻ',
+                          icon: const Icon(Icons.close),
+                          onPressed: () =>
+                              setState(() => _highlightCard = false)),
+                    )))),
           if (_selected != null || _draftPin != null)
             Positioned(
                 left: 12,
