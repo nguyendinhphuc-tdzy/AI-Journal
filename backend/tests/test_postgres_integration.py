@@ -23,6 +23,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 TABLES = (
     "alembic_version", "journal_entries", "user_profiles",
     "journal_action_days", "saved_places", "place_notes", "journal_places",
+    "albums", "album_memories",
 )
 USER_TABLES = TABLES[1:]
 
@@ -97,7 +98,7 @@ def postgres_engine():
 def test_postgres_upgrade_schema_and_rls(postgres_engine):
     inspector = sa.inspect(postgres_engine)
     with postgres_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261018_06"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261025_07"
         for table in TABLES:
             assert inspector.has_table(table, schema="public"), table
             rls = conn.execute(text("""
@@ -117,6 +118,7 @@ def test_postgres_upgrade_schema_and_rls(postgres_engine):
 
         expected_composites = {
             "place_notes": {"fk_place_notes_owner_place"},
+            "album_memories": {"fk_album_memories_owner_album"},
             "journal_places": {
                 "fk_journal_places_owner_journal",
                 "fk_journal_places_owner_place",
@@ -134,6 +136,9 @@ def test_postgres_upgrade_schema_and_rls(postgres_engine):
         assert any(fk["referred_schema"] == "auth" and
                    fk["referred_table"] == "users"
                    for fk in inspector.get_foreign_keys("user_profiles"))
+        assert any(fk["referred_schema"] == "auth" and
+                   fk["referred_table"] == "users"
+                   for fk in inspector.get_foreign_keys("albums"))
 
 
 def test_postgres_composite_owner_fk_and_cascades(postgres_engine):
