@@ -95,7 +95,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                   child: ElevatedButton(
                     onPressed: () => Navigator.pop(sheetContext, true),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
+                      backgroundColor: AppColors.primaryDark,
                       foregroundColor: Colors.white,
                     ),
                     child: const Text('Confirm'),

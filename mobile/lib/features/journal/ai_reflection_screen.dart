@@ -82,7 +82,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   }
 
   ButtonStyle get _blackButton => ElevatedButton.styleFrom(
-        backgroundColor: Colors.black,
+        backgroundColor: AppColors.primaryDark,
         foregroundColor: Colors.white,
         minimumSize: const Size.fromHeight(52),
       );
