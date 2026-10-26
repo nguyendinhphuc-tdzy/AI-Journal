@@ -177,7 +177,10 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// has one) for the next requests, then OB07. Sends nothing.
   Future<void> _saveAiChoice(bool enabled) async {
     await widget.store.saveAiChoice(
-        enabled: enabled, policyVersion: DataPolicy.current.version);
+        enabled: enabled,
+        policyVersion: widget.reflections is ApiAIService
+            ? DataPolicy.localOllama.version
+            : DataPolicy.current.version);
     // AI off from now on: stop waiting; a late response is ignored.
     if (!enabled) _reflection.cancel();
     if (mounted) _goTo(OnboardingStep.firstEntry);
