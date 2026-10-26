@@ -80,6 +80,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.lastPhone, '+84901234567');
     await tester.enterText(find.byType(TextField).last, '123456');
+    // At the default 800x600 widget test viewport, OTP adds a field and
+    // pushes the submit button below the fold. Scroll before tapping.
+    await tester.ensureVisible(find.text('Xác nhận OTP'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Xác nhận OTP'));
     await tester.pumpAndSettle();
     expect(auth.lastOtp, '123456');
