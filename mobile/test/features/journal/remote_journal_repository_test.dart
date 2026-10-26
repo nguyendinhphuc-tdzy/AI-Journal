@@ -33,6 +33,14 @@ Map<String, Object?> _serverEntry({
       'updated_at': '2026-10-26T10:01:00Z',
     };
 
+// Package:http Response defaults to latin1 for String bodies. Use UTF-8
+// explicitly: real FastAPI JSON may contain Vietnamese journal text.
+http.Response _json(Object? value, int status) =>
+    http.Response.bytes(
+      utf8.encode(jsonEncode(value)), status,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+    );
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -45,21 +53,21 @@ void main() {
       client: MockClient((request) async {
         requests.add(request);
         if (request.method == 'POST') {
-          return http.Response(jsonEncode(_serverEntry()), 201);
+          return _json(_serverEntry(), 201);
         }
         if (request.method == 'DELETE') {
           return http.Response('', 204);
         }
         if (request.method == 'GET' && request.url.path.endsWith('/journals/42')) {
-          return http.Response(jsonEncode(_serverEntry()), 200);
+          return _json(_serverEntry(), 200);
         }
         if (request.method == 'PUT') {
-          return http.Response(jsonEncode(_serverEntry(version: 2,
-              content: 'Nội dung mới')), 200);
+          return _json(_serverEntry(version: 2,
+              content: 'Nội dung mới'), 200);
         }
-        return http.Response(jsonEncode({
+        return _json({
           'items': [_serverEntry()], 'next_cursor': null,
-        }), 200);
+        }, 200);
       }),
     );
     final local = await LocalJournalRepository.open(userId: 'alice');
@@ -146,13 +154,13 @@ void main() {
           return http.Response('{"detail":"Not found"}', 404);
         }
         if (request.url.queryParameters['cursor'] == 'after-1') {
-          return http.Response(jsonEncode({
+          return _json({
             'items': [_serverEntry(id: 1)], 'next_cursor': null,
-          }), 200);
+          }, 200);
         }
-        return http.Response(jsonEncode({
+        return _json({
           'items': [_serverEntry(id: 2)], 'next_cursor': 'after-1',
-        }), 200);
+        }, 200);
       }),
     );
     final local = await LocalJournalRepository.open(userId: 'user-a');
