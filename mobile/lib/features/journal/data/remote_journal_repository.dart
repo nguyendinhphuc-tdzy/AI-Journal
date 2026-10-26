@@ -154,6 +154,12 @@ class RemoteJournalRepository extends ChangeNotifier implements JournalRepositor
     return journal;
   }
 
+  @override
+  Future<void> delete(String id) async {
+    await client.deleteNoContent(_pathFor(id), requireAuth: true);
+    notifyListeners();
+  }
+
   // Autosaved drafts never leave the device, even for logged-in users.
   @override
   Future<JournalDraft?> draft(String key) => localDrafts.draft(key);
