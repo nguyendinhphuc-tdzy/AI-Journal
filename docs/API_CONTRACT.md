@@ -8,6 +8,7 @@
 - **PLANNED for MVP v1 (B02/B04/B06/B09/B10):** Supabase JWT authentication, owner-scoped Journal APIs, profile, completed-action streak, search and saved places, multiple notes, journal-place linking.
 - B04 changes `GET /journals` from a bare list to a paginated object `{items,next_cursor}`. Trâm must switch at the same integration milestone; **do not silently deploy a breaking change to active Flutter clients**. Preserve existing integer Journal IDs and basic input fields.
 - There is **no** production AI integration in MVP v1; mock responses remain in the separate AI module.
+- **STAGED B14 (not merged):** unified runtime branch `integration/journal-cloud-runtime-20261027` contains reviewed backend Phase 2 (PR #26), Flutter Phase 2 (PR #27), and manual runtime launchers. Shared Supabase Dev has Alembic `20261026_08`, but runtime E2E on Android is **not yet verified**. This does not change the API in the default GitHub branch.
 
 ## Transport, authentication and error conventions
 
@@ -90,6 +91,32 @@ Keep current partial-update semantics for the existing fields; omitted fields un
 
 ### `DELETE /api/v1/journals/{journal_id}` → 204 / 404
 Removes entry and its `journal_places` join rows only; does not delete saved places or their notes.
+
+### Phase 2 cloud Journal extension (PR #26/#27, staged)
+
+This extension is active **only** when FastAPI is running code containing Alembic
+`20261026_08` and Flutter opts into `JOURNAL_CLOUD_ENABLED=true`.
+It supplements the earlier B04 examples (which omit these optional fields):
+
+- `POST /api/v1/journals` accepts `guided` (nullable JSON object) in addition
+  to existing `content`, `mood`, `title`, `prompt` fields. The guided
+  format is `{"id":"onboarding_first_entry","version":1,"fields":{"cause":"trời mát"}}`.
+- Journal responses and paginated archive entries include `guided` (object
+  or `null`) and server-owned `body_version` (positive integer, starts at 1).
+- `PUT /api/v1/journals/{journal_id}` accepts the same guided snapshot.
+  `body_version` increments on changed content, mood or guided values;
+  no-op and title/prompt-only edits do not increment. Streak credit still
+  requires actual changed, nonblank **content text**.
+- `user_id`, `body_version`, server timestamps and integer row IDs cannot
+  be assigned by the client. An entry belonging to another user is a `404`.
+- Flutter maps server integer ID `42` to UI ID `cloud-42` to prevent a
+  collision with local-only journal IDs (`local-...`). The UI ID is never
+  sent in JSON mutation bodies.
+- Auto-saved `JournalDraft` remains device-only, scoped by signed-in account.
+  No draft endpoints or automatic local-entry imports are implemented.
+- All private cloud requests require a fresh Supabase Bearer token, validated
+  through the existing FastAPI JWKS verifier. Plain HTTP is only supported
+  for local Android Emulator ↔ laptop development; deploy with HTTPS.
 
 ## B06 — Streak on a completed journal-writing action
 
