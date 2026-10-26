@@ -103,7 +103,7 @@ class _AuthGateState extends State<AuthGate> {
     savedThisWeekItems.value = [];
     StreakState.shared.resetForNewLocalSession();
     AlbumSettingsDraft.session.clear();
-    MemoryShareDraft.reset();
+    MemoryShareDraft.clearOnSessionChange();
     AlbumUnlocks.instance.lockAll();
   }
 
@@ -218,7 +218,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           (widget.auth as SupabaseAuthService)
               .client.auth.currentSession?.accessToken)
       : null;
-  late final ApiAIService? _ai = _api == null ? null : ApiAIService(_api!);
+  late final ApiAIService? _ai = _api == null ? null : ApiAIService(_api);
 
   late final Future<({
     JournalRepository journals,
@@ -293,7 +293,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           );
           final session = widget.auth != null
               ? AuthScope(auth: widget.auth!, child: scoped)
-              : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: scoped);
+              : GuestScope(onLeaveGuest: widget.onLeaveGuest, child: scoped);
           return _ai == null
               ? session
               : AiRemoteScope(service: _ai!, child: session);
