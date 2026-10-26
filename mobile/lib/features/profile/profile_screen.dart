@@ -78,7 +78,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           save = (value) =>
               store.saveExperience(JournalingExperience.values.byName(value));
         case 'ai reflections':
-          initial = store.aiEnabled == true ? 'on' : 'off';
+          final aiActive = AiRemoteScope.maybeOf(context) == null
+              ? store.aiEnabled == true
+              : store.consentedToRemoteAi;
+          initial = aiActive ? 'on' : 'off';
           final aiPolicy = AiRemoteScope.maybeOf(context) == null
               ? DataPolicy.current
               : DataPolicy.localOllama;
