@@ -209,14 +209,16 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     );
     bool useAi;
     try {
-      final settings = OnboardingScope.maybeOf(context) ??
-          await OnboardingStore.open();
-      // Preserve the demo's existing flow when no choice has been recorded.
-      // Local prototype keeps its old mock behavior. Real AI only runs
-      // after this signed-in user explicitly opted in.
-      useAi = AiRemoteScope.maybeOf(context) == null
-          ? settings.aiEnabled != false
-          : settings.consentedToRemoteAi;
+      // Resolve both inherited scopes before the async storage fallback.
+      // No BuildContext lookup is allowed after an async gap.
+      final usesRealAi = AiRemoteScope.maybeOf(context) != null;
+      final scopedSettings = OnboardingScope.maybeOf(context);
+      final settings = scopedSettings ?? await OnboardingStore.open();
+      // The device-only mock preserves the original demo default.
+      // Remote AI requires explicit consent to the current policy.
+      useAi = usesRealAi
+          ? settings.consentedToRemoteAi
+          : settings.aiEnabled != false;
       if (!mounted) return;
       final journals = JournalScope.of(context);
       _saved = saved == null
