@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../auth/presentation/auth_gate.dart';
+import '../journal/data/api_ai_service.dart';
+import '../onboarding/data/onboarding_scope.dart';
 import '../onboarding/data/onboarding_store.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
@@ -28,6 +31,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     _onboarding = OnboardingStore.open();
     _preferences = WritingPreferences.open();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scoped = OnboardingScope.maybeOf(context);
+    if (scoped != null) _onboarding = Future.value(scoped);
   }
 
   Future<void> _edit(String item) async {
@@ -229,6 +239,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
+            if (AuthScope.maybeOf(context) case final auth?)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Đăng xuất'),
+                  onPressed: () async {
+                    try {
+                      await auth.signOut();
+                    } catch (_) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Không thể đăng xuất. Thử lại.')),
+                      );
+                    }
+                  },
+                ),
+              ),
+            if (GuestScope.maybeOf(context) case final guest?)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.person_add_alt_1_outlined),
+                  label: const Text('Đăng nhập / Tạo tài khoản'),
+                  onPressed: () async {
+                    final discard = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AlertDialog(
+                        title: const Text('Rời chế độ khách?'),
+                        content: const Text(
+                          'Nhật ký, bản nháp và album của khách trên thiết bị '
+                          'sẽ bị xóa, không chuyển sang tài khoản mới.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(dialogContext, false),
+                            child: const Text('Hủy'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                            child: const Text('Xóa dữ liệu và tiếp tục'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (discard != true || !context.mounted) return;
+                    try {
+                      await guest.onLeaveGuest();
+                    } catch (_) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Chưa thể xóa dữ liệu khách. Thử lại.'),
+                      ));
+                    }
+                  },
+                ),
+              ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
