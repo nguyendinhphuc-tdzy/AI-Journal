@@ -1,0 +1,7 @@
+{
+  "AUTH_ENABLED": "true",
+  "JOURNAL_CLOUD_ENABLED": "true",
+  "SUPABASE_URL": "https://rjwentsuqmwncpseakkt.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "REPLACE_WITH_PUBLISHABLE_KEY",
+  "API_BASE_URL": "http://10.0.2.2:8000/api/v1"
+}
