@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -16,6 +16,7 @@ class JournalEntry(Base):
     __tablename__ = "journal_entries"
     __table_args__ = (
         UniqueConstraint("id", "user_id", name="uq_journal_entries_id_user_id"),
+        CheckConstraint("body_version >= 1", name="ck_journal_entries_body_version"),
         Index("ix_journal_entries_user_created_id", "user_id", "created_at", "id"),
     )
 
@@ -29,6 +30,8 @@ class JournalEntry(Base):
     content: Mapped[str] = mapped_column(Text)
     prompt: Mapped[str | None] = mapped_column(String(500), nullable=True)
     mood: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    guided: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    body_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
