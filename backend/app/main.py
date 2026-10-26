@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.ai.router import router as ai_router
+from app.modules.albums.router import router as albums_router
 from app.modules.journal.router import router as journal_router
 from app.modules.places.router import router as places_router
 from app.modules.places.notes_router import router as notes_router
@@ -38,3 +39,4 @@ app.include_router(journal_links_router, prefix="/api/v1")
 app.include_router(place_links_router, prefix="/api/v1")
 app.include_router(geo_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
+app.include_router(albums_router, prefix="/api/v1")

@@ -23,6 +23,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 TABLES = (
     "alembic_version", "journal_entries", "user_profiles",
     "journal_action_days", "saved_places", "place_notes", "journal_places",
+    "albums", "album_memories",
 )
 USER_TABLES = TABLES[1:]
 
@@ -75,6 +76,58 @@ def postgres_engine():
     env["DATABASE_URL"] = raw
     env["MIGRATION_DATABASE_URL"] = raw
     env["APP_ENV"] = "test"
+    # Reproduce the exact live Supabase-Dev baseline: revision 20261011_01,
+    # public journals/alembic_version with RLS enabled and client grants
+    # revoked. The project is not a fresh database, so testing only a clean
+    # upgrade head would miss failures unique to the deployed state.
+    baseline = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20261011_01"],
+        cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
+    )
+    assert baseline.returncode == 0, (
+        f"Baseline Alembic migration FAILED:\n{baseline.stdout}\n{baseline.stderr}"
+    )
+    with engine.begin() as connection:
+        connection.execute(text(
+            "ALTER TABLE public.journal_entries ENABLE ROW LEVEL SECURITY"
+        ))
+        connection.execute(text(
+            "ALTER TABLE public.alembic_version ENABLE ROW LEVEL SECURITY"
+        ))
+        connection.execute(text(
+            "REVOKE ALL ON TABLE public.journal_entries, public.alembic_version "
+            "FROM anon, authenticated"
+        ))
+        connection.execute(text(
+            "REVOKE ALL ON SEQUENCE public.journal_entries_id_seq "
+            "FROM anon, authenticated"
+        ))
+        assert connection.execute(text(
+            "SELECT COUNT(*) FROM public.journal_entries"
+        )).scalar_one() == 0
+
+    # Before deploying revision 08, rehearse the upgrade on a populated
+    # existing revision 07 database. Cloud fields MUST preserve old entries.
+    previous = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20261025_07"],
+        cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
+    )
+    assert previous.returncode == 0, (
+        f"Previous head failed:\\n{previous.stdout}\\n{previous.stderr}"
+    )
+    synthetic_user = uuid4()
+    with engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO auth.users (id) VALUES (:id)"),
+            {"id": synthetic_user},
+        )
+        old_journal = connection.execute(text("""
+            INSERT INTO public.journal_entries
+              (user_id, title, content, created_at, updated_at)
+            VALUES (:id, 'Existing entry', 'Keep this journal', now(), now())
+            RETURNING id
+        """), {"id": synthetic_user}).scalar_one()
+
     migrated = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
@@ -82,6 +135,13 @@ def postgres_engine():
     assert migrated.returncode == 0, (
         f"Postgres Alembic migration FAILED:\n{migrated.stdout}\n{migrated.stderr}"
     )
+    with engine.connect() as connection:
+        preserved = connection.execute(text("""
+            SELECT content, body_version, guided
+            FROM public.journal_entries WHERE id = :id
+        """), {"id": old_journal}).one()
+        assert preserved == ("Keep this journal", 1, None)
+
     checked = subprocess.run(
         [sys.executable, "-m", "alembic", "check"],
         cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
@@ -97,7 +157,7 @@ def postgres_engine():
 def test_postgres_upgrade_schema_and_rls(postgres_engine):
     inspector = sa.inspect(postgres_engine)
     with postgres_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261018_06"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261026_08"
         for table in TABLES:
             assert inspector.has_table(table, schema="public"), table
             rls = conn.execute(text("""
@@ -117,6 +177,7 @@ def test_postgres_upgrade_schema_and_rls(postgres_engine):
 
         expected_composites = {
             "place_notes": {"fk_place_notes_owner_place"},
+            "album_memories": {"fk_album_memories_owner_album"},
             "journal_places": {
                 "fk_journal_places_owner_journal",
                 "fk_journal_places_owner_place",
@@ -134,6 +195,9 @@ def test_postgres_upgrade_schema_and_rls(postgres_engine):
         assert any(fk["referred_schema"] == "auth" and
                    fk["referred_table"] == "users"
                    for fk in inspector.get_foreign_keys("user_profiles"))
+        assert any(fk["referred_schema"] == "auth" and
+                   fk["referred_table"] == "users"
+                   for fk in inspector.get_foreign_keys("albums"))
 
 
 def test_postgres_composite_owner_fk_and_cascades(postgres_engine):
