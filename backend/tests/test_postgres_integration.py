@@ -128,7 +128,7 @@ def postgres_engine():
 def test_postgres_upgrade_schema_and_rls(postgres_engine):
     inspector = sa.inspect(postgres_engine)
     with postgres_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261025_07"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261026_08"
         for table in TABLES:
             assert inspector.has_table(table, schema="public"), table
             rls = conn.execute(text("""
