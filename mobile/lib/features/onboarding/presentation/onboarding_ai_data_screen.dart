@@ -29,6 +29,7 @@ class OnboardingAiDataScreen extends StatelessWidget {
 
   static const title = 'Bạn chọn cách dùng AI.';
   static const demoLabel = 'Bản thử nghiệm: phản hồi AI là mô phỏng';
+  static const realAiLabel = 'Bản thử nghiệm: AI chạy trên máy tính của nhóm';
   static const storageHeading = 'Nhật ký của bạn';
   static const aiHeading = 'Khi yêu cầu phản hồi AI';
   static const choiceHeading = 'Quyền lựa chọn';
@@ -58,7 +59,9 @@ class OnboardingAiDataScreen extends StatelessWidget {
               ),
               if (!policy.approved) ...[
                 const SizedBox(height: 12),
-                const StaggerItem(order: 2, child: _DemoLabel()),
+                StaggerItem(order: 2, child: _DemoLabel(
+                  policy.realLocalAi ? realAiLabel : demoLabel,
+                )),
               ],
               const SizedBox(height: AppSpacing.md),
               StaggerItem(
@@ -89,7 +92,9 @@ class OnboardingAiDataScreen extends StatelessWidget {
 }
 
 class _DemoLabel extends StatelessWidget {
-  const _DemoLabel();
+  const _DemoLabel(this.label);
+
+  final String label;
 
   @override
   Widget build(BuildContext context) => Align(
@@ -101,17 +106,17 @@ class _DemoLabel extends StatelessWidget {
             color: AppColors.primaryLight,
             borderRadius: BorderRadius.circular(AppRadius.small),
           ),
-          child: const Row(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              ExcludeSemantics(
+              const ExcludeSemantics(
                 child: Icon(Icons.science_outlined,
                     size: 18, color: AppColors.primaryAction),
               ),
-              SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: AppSpacing.sm),
               Flexible(
                 child:
-                    Text(OnboardingAiDataScreen.demoLabel, style: _Text.label),
+                    Text(label, style: _Text.label),
               ),
             ],
           ),
