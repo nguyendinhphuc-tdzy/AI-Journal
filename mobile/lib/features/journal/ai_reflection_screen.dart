@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../../core/data/app_data.dart';
+import 'data/api_ai_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../streak/streak_screen.dart';
 
 enum _ReflectionStage { loading, quote, insight }
 
 class AIReflectionScreen extends StatefulWidget {
-  const AIReflectionScreen({super.key, required this.journalContent});
+  const AIReflectionScreen({super.key, required this.journalContent, this.remote});
 
   final String journalContent;
+
+  /// Authenticated backend AI. Null preserves the device-only UI demo.
+  final ApiAIService? remote;
 
   @override
   State<AIReflectionScreen> createState() => _AIReflectionScreenState();
@@ -21,6 +25,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   bool _quoteSaved = false;
   bool? _helpful;
   bool _openingStreak = false;
+  AiAnalysis? _analysis;
+  bool _aiFailed = false;
+  int _aiRequest = 0;
 
   void _saveQuote() {
     if (_quoteSaved) return;
@@ -61,6 +68,10 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.remote != null) {
+      _loadRemote();
+      return;
+    }
     Future<void>.delayed(const Duration(seconds: 3), () {
       if (!mounted || _stage != _ReflectionStage.loading) return;
       setState(() => _stage = _ReflectionStage.quote);
@@ -69,6 +80,37 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
       if (!mounted || _stage == _ReflectionStage.insight) return;
       _showInsight();
     });
+  }
+
+  Future<void> _loadRemote() async {
+    final service = widget.remote;
+    if (service == null) return;
+    final request = ++_aiRequest;
+    setState(() {
+      _stage = _ReflectionStage.loading;
+      _aiFailed = false;
+      _analysis = null;
+    });
+    try {
+      final result = await service.analyze(widget.journalContent);
+      if (!mounted || request != _aiRequest) return;
+      setState(() {
+        _analysis = result;
+        _stage = _ReflectionStage.insight;
+      });
+    } catch (_) {
+      if (!mounted || request != _aiRequest) return;
+      setState(() {
+        _aiFailed = true;
+        _stage = _ReflectionStage.insight;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _aiRequest++;
+    super.dispose();
   }
 
   void _showInsight() {
@@ -239,7 +281,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                   child: FittedBox(
                     alignment: Alignment.centerLeft,
                     fit: BoxFit.scaleDown,
-                    child: Text('Né tránh chuyện học hành',
+                    child: Text(widget.remote == null
+                        ? 'Né tránh chuyện học hành'
+                        : (_analysis?.emotion ?? 'Phản hồi AI'),
                         maxLines: 1,
                         style: textTheme.headlineLarge?.copyWith(
                           color: Colors.black,
@@ -270,6 +314,50 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     style: textTheme.bodyLarge?.copyWith(height: 1.7),
                   )
                 else ...[
+                  if (widget.remote != null) ...[
+                    if (_aiFailed || _analysis == null) ...[
+                      const Text(
+                        'Phản hồi AI chưa sẵn sàng. Bạn có thể thử lại; '
+                        'chúng mình sẽ không hiển thị phân tích mô phỏng '
+                        'thay cho AI thật.',
+                      ),
+                      const SizedBox(height: 16),
+                      OutlinedButton(
+                        onPressed: _loadRemote,
+                        child: const Text('Thử lại AI'),
+                      ),
+                    ] else ...[
+                      Text(
+                        _analysis!.reflection,
+                        style: textTheme.bodyLarge?.copyWith(height: 1.7),
+                      ),
+                      const SizedBox(height: 32),
+                      _buildSectionTitle(
+                        Icons.push_pin_outlined, 'Chúng mình nhận thấy rằng',
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _analysis!.observation,
+                        style: textTheme.bodyLarge?.copyWith(height: 1.7),
+                      ),
+                      const SizedBox(height: 28),
+                      _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
+                      const SizedBox(height: 12),
+                      Text(
+                        _analysis!.emotion,
+                        style: textTheme.bodyLarge?.copyWith(height: 1.7),
+                      ),
+                      const SizedBox(height: 28),
+                      _buildSectionTitle(
+                        Icons.question_answer_outlined, 'Một câu hỏi cho bạn',
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        _analysis!.question,
+                        style: textTheme.bodyLarge?.copyWith(height: 1.7),
+                      ),
+                    ],
+                  ] else ...[
                   // Mock insight for the prototype; replace with the API response.
                   Text(
                     'Có lẽ chuyện học hành đang trở thành một gánh nặng trong lòng bạn. '
@@ -301,6 +389,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     child:
                         const Text('😕  Bồn chồn · né tránh chuyện học hành'),
                   ),
+                  ],
                 ],
               ],
             ),
