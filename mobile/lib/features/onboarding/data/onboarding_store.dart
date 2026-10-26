@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../reminders/data/reminder_service.dart';
+import 'data_policy.dart';
 import 'journal_goal.dart';
 import 'journaling_experience.dart';
 
@@ -98,6 +99,11 @@ class OnboardingStore {
 
   /// Policy version the AI choice was made under, when the policy has one.
   String? get aiPolicyVersion => _prefs.getString(_key(_aiPolicyKey));
+
+  /// Explicit opt-in under the *current* local Ollama disclosure. A choice
+  /// made under an earlier simulated-AI policy is never reused silently.
+  bool get consentedToRemoteAi =>
+      aiEnabled == true && aiPolicyVersion == DataPolicy.localOllama.version;
 
   /// Applies to the next requests only; it cannot recall anything sent
   /// before.
