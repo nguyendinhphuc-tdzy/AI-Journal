@@ -45,7 +45,24 @@ abstract interface class MemoryPhotoCleanup {
 }
 
 class DeviceMemoryPhotos implements MemoryPhotos, MemoryPhotoCleanup {
-  DeviceMemoryPhotos([ImagePicker? picker]) : _picker = picker ?? ImagePicker();
+  DeviceMemoryPhotos([ImagePicker? picker], {this.userId})
+      : _picker = picker ?? ImagePicker();
+
+  /// Keep the guest and each signed-in user's images in separate folders.
+  final String? userId;
+
+  Future<Directory> _ownFolder() async {
+    final base = (await getApplicationDocumentsDirectory()).path;
+    return Directory('$base/album_photos'
+        '${userId == null ? '' : '/$userId'}');
+  }
+
+  /// Explicit guest exit only: do not remove another user's files.
+  static Future<void> discardGuestFolder() async {
+    final base = (await getApplicationDocumentsDirectory()).path;
+    final folder = Directory('$base/album_photos/local-guest');
+    if (await folder.exists()) await folder.delete(recursive: true);
+  }
 
   final ImagePicker _picker;
   final _random = math.Random();
@@ -87,8 +104,7 @@ class DeviceMemoryPhotos implements MemoryPhotos, MemoryPhotoCleanup {
 
   @override
   Future<String> keep(String sourcePath) async {
-    final dir = Directory('${(await getApplicationDocumentsDirectory()).path}'
-        '/album_photos');
+    final dir = await _ownFolder();
     await dir.create(recursive: true);
     final dot = sourcePath.lastIndexOf('.');
     final ext = dot < 0 ? '.jpg' : sourcePath.substring(dot);
@@ -100,8 +116,7 @@ class DeviceMemoryPhotos implements MemoryPhotos, MemoryPhotoCleanup {
 
   @override
   Future<void> discard(String keptPath) async {
-    final dir = '${(await getApplicationDocumentsDirectory()).path}'
-        '/album_photos/';
+    final dir = '${(await _ownFolder()).path}/';
     // Only the app's own copies, never a file it did not make.
     if (!keptPath.startsWith(dir) || keptPath.contains('..')) return;
     final file = File(keptPath);
