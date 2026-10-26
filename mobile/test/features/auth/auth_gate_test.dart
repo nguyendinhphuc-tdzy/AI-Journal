@@ -32,6 +32,8 @@ class _FakeAuth implements AuthService {
   @override
   Future<void> signInGoogle() async {}
   @override
+  Future<void> signInFacebook() async {}
+  @override
   Future<void> signOut() async {
     currentId = null;
     changes.add(null);
