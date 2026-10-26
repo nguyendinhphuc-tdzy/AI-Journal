@@ -212,7 +212,11 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       final settings = OnboardingScope.maybeOf(context) ??
           await OnboardingStore.open();
       // Preserve the demo's existing flow when no choice has been recorded.
-      // Local prototype preserves its old mock behavior, but a real\n      // model is never called without the user's explicit opt-in.\n      useAi = AiRemoteScope.maybeOf(context) == null\n          ? settings.aiEnabled != false\n          : settings.aiEnabled == true;
+      // Local prototype keeps its old mock behavior. Real AI only runs
+      // after this signed-in user explicitly opted in.
+      useAi = AiRemoteScope.maybeOf(context) == null
+          ? settings.aiEnabled != false
+          : settings.aiEnabled == true;
       if (!mounted) return;
       final journals = JournalScope.of(context);
       _saved = saved == null
