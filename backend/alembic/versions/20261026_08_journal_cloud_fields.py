@@ -15,21 +15,19 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "journal_entries",
-        sa.Column("guided", sa.JSON(), nullable=True),
-    )
-    op.add_column(
-        "journal_entries",
-        sa.Column(
+    # SQLite requires a table rebuild to add a CHECK constraint; use the
+    # Alembic batch operation in tests and simple ALTER TABLE in PostgreSQL.
+    sqlite = op.get_bind().dialect.name == "sqlite"
+    with op.batch_alter_table(
+        "journal_entries", recreate="always" if sqlite else "auto"
+    ) as batch:
+        batch.add_column(sa.Column("guided", sa.JSON(), nullable=True))
+        batch.add_column(sa.Column(
             "body_version", sa.Integer(), nullable=False, server_default=sa.text("1")
-        ),
-    )
-    op.create_check_constraint(
-        "ck_journal_entries_body_version",
-        "journal_entries",
-        "body_version >= 1",
-    )
+        ))
+        batch.create_check_constraint(
+            "ck_journal_entries_body_version", "body_version >= 1"
+        )
     if op.get_bind().dialect.name == "postgresql":
         op.execute("ALTER TABLE public.journal_entries ENABLE ROW LEVEL SECURITY")
         op.execute(
