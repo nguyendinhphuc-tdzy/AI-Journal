@@ -22,7 +22,7 @@ void main() {
     final client = ApiClient(
       client: MockClient((request) async {
         requests++;
-        return http.Response(jsonEncode(example), 200);
+        return http.Response(jsonEncode(example), 200, headers: {'content-type': 'application/json; charset=utf-8'});
       }),
       accessTokenProvider: () async => null,
     );
@@ -48,9 +48,9 @@ void main() {
         seen.add(request);
         if (request.url.path.endsWith('/go-deeper')) {
           return http.Response(
-              jsonEncode({'question': 'Điều gì khiến bạn lo lắng?'}), 200);
+              jsonEncode({'question': 'Điều gì khiến bạn lo lắng?'}), 200, headers: {'content-type': 'application/json; charset=utf-8'});
         }
-        return http.Response(jsonEncode(example), 200);
+        return http.Response(jsonEncode(example), 200, headers: {'content-type': 'application/json; charset=utf-8'});
       }),
       accessTokenProvider: () async => token,
     );
@@ -84,7 +84,7 @@ void main() {
   test('rejects malformed successful backend response', () async {
     final client = ApiClient(
       client: MockClient((request) async => http.Response(
-          jsonEncode({'emotion': 'lo lắng'}), 200)),
+          jsonEncode({'emotion': 'lo lắng'}), 200, headers: {'content-type': 'application/json; charset=utf-8'})),
       accessTokenProvider: () async => 'test-token',
     );
     await expectLater(ApiAIService(client).analyze('demo'),
@@ -95,7 +95,7 @@ void main() {
   testWidgets('real AI card contains server content rather than hardcoded mock',
       (tester) async {
     final client = ApiClient(
-      client: MockClient((_) async => http.Response(jsonEncode(example), 200)),
+      client: MockClient((_) async => http.Response(jsonEncode(example), 200, headers: {'content-type': 'application/json; charset=utf-8'})),
       accessTokenProvider: () async => 'test-token',
     );
     await tester.pumpWidget(MaterialApp(
