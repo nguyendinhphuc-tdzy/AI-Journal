@@ -16,8 +16,16 @@ class ApiClient {
   final http.Client _client;
   final AccessTokenProvider? _accessTokenProvider;
 
-  Future<Map<String, String>> _headers({bool jsonBody = false}) async {
+  Future<Map<String, String>> _headers({
+    bool jsonBody = false,
+    bool requireAuth = false,
+  }) async {
     final token = await _accessTokenProvider?.call();
+    // Never send private journal content to an AI endpoint without an
+    // authenticated session. A missing token fails before any HTTP request.
+    if (requireAuth && (token == null || token.trim().isEmpty)) {
+      throw const MissingAccessTokenException();
+    }
     return {
       if (jsonBody) 'Content-Type': 'application/json',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
@@ -34,11 +42,12 @@ class ApiClient {
 
   Future<Map<String, dynamic>> postJson(
     String path,
-    Map<String, dynamic> body,
-  ) async {
+    Map<String, dynamic> body, {
+    bool requireAuth = false,
+  }) async {
     final response = await _client.post(
       Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(jsonBody: true),
+      headers: await _headers(jsonBody: true, requireAuth: requireAuth),
       body: jsonEncode(body),
     );
     return _decode(response);
@@ -61,4 +70,12 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'API request failed (HTTP $statusCode)';
+}
+
+/// Local authentication is missing; the HTTP request was never sent.
+class MissingAccessTokenException implements Exception {
+  const MissingAccessTokenException();
+
+  @override
+  String toString() => 'Authentication required for private AI requests';
 }
