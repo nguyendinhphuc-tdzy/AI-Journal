@@ -4,6 +4,7 @@ import 'core/theme/app_theme.dart';
 import 'features/album/album_scope.dart';
 import 'features/album/data/album_repository.dart';
 import 'features/journal/data/journal_repository.dart';
+import 'features/journal/data/api_ai_service.dart';
 import 'features/journal/journal_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
 import 'features/onboarding/onboarding_flow.dart';
@@ -36,7 +37,7 @@ Future<void> main() async {
 }
 
 class AiDiaryApp extends StatefulWidget {
-  const AiDiaryApp({super.key, this.journals, this.albums, this.onboarding});
+  const AiDiaryApp({super.key, this.journals, this.albums, this.onboarding, this.ai});
 
   /// The journal store; an in-memory one when not given (tests).
   final JournalRepository? journals;
@@ -46,6 +47,9 @@ class AiDiaryApp extends StatefulWidget {
 
   /// When set and not completed, launch goes through onboarding.
   final OnboardingStore? onboarding;
+
+  /// Explicit authenticated AI service; absent in guest/device-only demo.
+  final ApiAIService? ai;
 
   @override
   State<AiDiaryApp> createState() => _AiDiaryAppState();
@@ -60,7 +64,7 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
   @override
   Widget build(BuildContext context) {
     final onboarding = widget.onboarding;
-    return JournalScope(
+    final app = JournalScope(
       repository: _journals,
       child: AlbumScope(
         repository: _albums,
@@ -74,10 +78,13 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
                   store: onboarding,
                   brandName: appName,
                   // Done is saved: rebuild, and Home replaces the flow.
+                  reflections: widget.ai,
                   onComplete: () => setState(() {}),
                 ),
         ),
       ),
     );
+    final ai = widget.ai;
+    return ai == null ? app : AiRemoteScope(service: ai, child: app);
   }
 }
