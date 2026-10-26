@@ -18,6 +18,10 @@ def baseline():
         authenticated_select_by_table={
             "alembic_version": False, "journal_entries": False,
         },
+        anon_write_by_table={"alembic_version": False, "journal_entries": False},
+        authenticated_write_by_table={
+            "alembic_version": False, "journal_entries": False,
+        },
     )
 
 
@@ -46,6 +50,17 @@ def test_abort_if_anon_or_authenticated_can_read():
         "alembic_version": False, "journal_entries": True,
     })
     assert any("Authenticated client" in x for x in blocking_findings(wrong))
+
+
+def test_abort_if_any_client_can_mutate_private_tables():
+    bad_anon = replace(baseline(), anon_write_by_table={
+        "alembic_version": False, "journal_entries": True,
+    })
+    assert any("Anon can write" in s for s in blocking_findings(bad_anon))
+    bad_auth = replace(baseline(), authenticated_write_by_table={
+        "alembic_version": False, "journal_entries": True,
+    })
+    assert any("Authenticated client can write" in s for s in blocking_findings(bad_auth))
 
 
 def test_abort_if_rls_missing_or_auth_table_and_sequence_drift():
