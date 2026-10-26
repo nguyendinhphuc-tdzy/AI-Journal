@@ -6,6 +6,7 @@ import '../../../core/data/app_data.dart';
 import '../../../core/network/api_client.dart';
 import '../../album/album_scope.dart';
 import '../../album/data/album_repository.dart';
+import '../../album/data/memory_photos.dart';
 import '../../journal/data/api_ai_service.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../../../core/theme/app_theme.dart';
@@ -131,6 +132,9 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<void> _leaveGuest() async {
     final guest = await _guestStore;
+    // Remove guest-owned album photo copies before clearing guest metadata.
+    // Failure must not pretend that all private guest content was deleted.
+    await DeviceMemoryPhotos.discardGuestFolder();
     await guest.leaveAndDiscard();
     _resetTransientPreview();
     if (!mounted) return;
@@ -276,6 +280,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
               repository: data.journals,
               child: AlbumScope(
                 repository: data.albums,
+                photos: DeviceMemoryPhotos(userId: widget.userId),
                 child: app,
               ),
             ),
