@@ -11,6 +11,7 @@ abstract interface class AuthService {
   Future<void> requestPhoneOtp(String phone);
   Future<void> verifyPhoneOtp(String phone, String otp);
   Future<void> signInGoogle();
+  Future<void> signInFacebook();
   Future<void> signOut();
 }
 
@@ -65,6 +66,24 @@ class SupabaseAuthService implements AuthService {
     );
     if (!opened) {
       throw const AuthException('Không mở được trang đăng nhập Google.');
+    }
+  }
+
+  @override
+  Future<void> signInFacebook() async {
+    if (!AppConfig.facebookOAuthEnabled) {
+      throw const AuthException('Facebook OAuth chưa được bật trong ứng dụng.');
+    }
+    // Let Supabase Auth complete the OAuth handshake. Flutter only receives
+    // the signed-in Supabase session after the app deep link is processed.
+    // Never embed a Facebook App Secret or provider token in mobile code.
+    final opened = await client.auth.signInWithOAuth(
+      OAuthProvider.facebook,
+      redirectTo: AppConfig.oauthRedirectUrl,
+      scopes: 'email,public_profile',
+    );
+    if (!opened) {
+      throw const AuthException('Không mở được trang đăng nhập Facebook.');
     }
   }
 
