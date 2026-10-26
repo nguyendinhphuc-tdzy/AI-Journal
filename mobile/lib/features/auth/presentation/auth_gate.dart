@@ -286,7 +286,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
               repository: data.journals,
               child: AlbumScope(
                 repository: data.albums,
-                photos: DeviceMemoryPhotos(userId: widget.userId),
+                photos: DeviceMemoryPhotos.forUser(widget.userId),
                 child: app,
               ),
             ),
