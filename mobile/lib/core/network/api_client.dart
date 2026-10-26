@@ -32,10 +32,13 @@ class ApiClient {
     };
   }
 
-  Future<Map<String, dynamic>> getJson(String path) async {
+  Future<Map<String, dynamic>> getJson(
+    String path, {
+    bool requireAuth = false,
+  }) async {
     final response = await _client.get(
       Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(),
+      headers: await _headers(requireAuth: requireAuth),
     );
     return _decode(response);
   }
@@ -46,6 +49,19 @@ class ApiClient {
     bool requireAuth = false,
   }) async {
     final response = await _client.post(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: await _headers(jsonBody: true, requireAuth: requireAuth),
+      body: jsonEncode(body),
+    );
+    return _decode(response);
+  }
+
+  Future<Map<String, dynamic>> putJson(
+    String path,
+    Map<String, dynamic> body, {
+    bool requireAuth = false,
+  }) async {
+    final response = await _client.put(
       Uri.parse('${AppConfig.apiBaseUrl}$path'),
       headers: await _headers(jsonBody: true, requireAuth: requireAuth),
       body: jsonEncode(body),
