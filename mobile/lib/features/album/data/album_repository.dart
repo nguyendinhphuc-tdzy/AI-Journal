@@ -295,12 +295,16 @@ abstract class _JsonAlbumRepository extends ChangeNotifier
 
 /// On this device, via shared_preferences.
 class LocalAlbumRepository extends _JsonAlbumRepository {
-  LocalAlbumRepository(this._prefs);
+  LocalAlbumRepository(this._prefs, {this.userId});
 
-  static Future<LocalAlbumRepository> open() async =>
-      LocalAlbumRepository(await SharedPreferences.getInstance());
+  static Future<LocalAlbumRepository> open({String? userId}) async =>
+      LocalAlbumRepository(await SharedPreferences.getInstance(), userId: userId);
 
   final SharedPreferences _prefs;
+  final String? userId;
+
+  // Preserve legacy unscoped demo keys; auth + guest never read them.
+  String _key(String key) => userId == null ? key : 'users.$userId.$key';
 
   /// Acknowledged values by key; a key not written yet reads what was there
   /// when the app started.
@@ -308,17 +312,18 @@ class LocalAlbumRepository extends _JsonAlbumRepository {
 
   @override
   String? read(String key) =>
-      _committed.putIfAbsent(key, () => _prefs.getString(key));
+      _committed.putIfAbsent(_key(key), () => _prefs.getString(_key(key)));
 
   @override
   Future<void> write(String key, String? value) async {
+    final scoped = _key(key);
     final ok = value == null
-        ? await _prefs.remove(key)
-        : await _prefs.setString(key, value);
-    if (!ok) throw StateError('Could not write $key');
+        ? await _prefs.remove(scoped)
+        : await _prefs.setString(scoped, value);
+    if (!ok) throw StateError('Could not write $scoped');
     // SharedPreferences mutates its cache before the platform write finishes.
     // Expose only acknowledged data to the UI, including after a write failure.
-    _committed[key] = value;
+    _committed[scoped] = value;
   }
 }
 
