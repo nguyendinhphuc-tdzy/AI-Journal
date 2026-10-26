@@ -76,6 +76,36 @@ def postgres_engine():
     env["DATABASE_URL"] = raw
     env["MIGRATION_DATABASE_URL"] = raw
     env["APP_ENV"] = "test"
+    # Reproduce the exact live Supabase-Dev baseline: revision 20261011_01,
+    # public journals/alembic_version with RLS enabled and client grants
+    # revoked. The project is not a fresh database, so testing only a clean
+    # upgrade head would miss failures unique to the deployed state.
+    baseline = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20261011_01"],
+        cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
+    )
+    assert baseline.returncode == 0, (
+        f"Baseline Alembic migration FAILED:\n{baseline.stdout}\n{baseline.stderr}"
+    )
+    with engine.begin() as connection:
+        connection.execute(text(
+            "ALTER TABLE public.journal_entries ENABLE ROW LEVEL SECURITY"
+        ))
+        connection.execute(text(
+            "ALTER TABLE public.alembic_version ENABLE ROW LEVEL SECURITY"
+        ))
+        connection.execute(text(
+            "REVOKE ALL ON TABLE public.journal_entries, public.alembic_version "
+            "FROM anon, authenticated"
+        ))
+        connection.execute(text(
+            "REVOKE ALL ON SEQUENCE public.journal_entries_id_seq "
+            "FROM anon, authenticated"
+        ))
+        assert connection.execute(text(
+            "SELECT COUNT(*) FROM public.journal_entries"
+        )).scalar_one() == 0
+
     migrated = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
