@@ -47,6 +47,9 @@ void main() {
         if (request.method == 'POST') {
           return http.Response(jsonEncode(_serverEntry()), 201);
         }
+        if (request.method == 'DELETE') {
+          return http.Response('', 204);
+        }
         if (request.method == 'GET' && request.url.path.endsWith('/journals/42')) {
           return http.Response(jsonEncode(_serverEntry()), 200);
         }
@@ -99,6 +102,9 @@ void main() {
     expect(posted['mood'], 'calm');
     expect(requests.every((req) =>
         req.headers.containsKey('authorization')), isTrue);
+    await repo.delete(created.id);
+    expect(updates, 3);
+    expect(requests.last.method, 'DELETE');
     await repo.deleteDraft(draftKey);
     expect(await local.draft(draftKey), isNull);
 
@@ -123,6 +129,8 @@ void main() {
       throwsA(isA<MissingAccessTokenException>()),
     );
     await expectLater(repo.entries(),
+        throwsA(isA<MissingAccessTokenException>()));
+    await expectLater(repo.delete('cloud-42'),
         throwsA(isA<MissingAccessTokenException>()));
     expect(networkCalls, 0);
     expect((await local.entries()), isEmpty);
