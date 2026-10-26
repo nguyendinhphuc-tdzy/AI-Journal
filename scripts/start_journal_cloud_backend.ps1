@@ -20,7 +20,7 @@ if (-not (Test-Path $EnvFile)) {
 Push-Location $Backend
 try {
   # Read-only revision gate: a mismatched schema must not serve journals.
-  $Revision = (& $Python -m alembic current 2>&1 | Out-String)
+  $Revision = (& $Python -m alembic current | Out-String)
   if ($LASTEXITCODE -ne 0 -or $Revision -notmatch "(?m)^20261026_08(\s|\()") {
     throw "Journal Cloud requires Alembic 20261026_08. Check your backend DATABASE_URL and migration branch; do NOT rerun migrations."
   }
