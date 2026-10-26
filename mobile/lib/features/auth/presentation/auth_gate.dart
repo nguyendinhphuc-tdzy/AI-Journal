@@ -7,6 +7,9 @@ import '../../../core/network/api_client.dart';
 import '../../album/album_scope.dart';
 import '../../album/data/album_repository.dart';
 import '../../album/data/memory_photos.dart';
+import '../../album/data/album_settings.dart';
+import '../../album/data/album_unlocks.dart';
+import '../../album/data/memory_share.dart';
 import '../../journal/data/api_ai_service.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../../../core/theme/app_theme.dart';
@@ -99,6 +102,9 @@ class _AuthGateState extends State<AuthGate> {
   void _resetTransientPreview() {
     savedThisWeekItems.value = [];
     StreakState.shared.resetForNewLocalSession();
+    AlbumSettingsDraft.session.clear();
+    MemoryShareDraft.reset();
+    AlbumUnlocks.instance.lockAll();
   }
 
   Future<void> _restoreGuest() async {
