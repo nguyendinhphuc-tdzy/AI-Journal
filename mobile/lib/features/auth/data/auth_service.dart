@@ -41,6 +41,9 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<void> requestPhoneOtp(String phone) async {
+    if (!AppConfig.phoneOtpEnabled) {
+      throw const AuthException('SMS OTP chưa được cấu hình cho bản demo.');
+    }
     await client.auth.signInWithOtp(phone: phone);
   }
 
