@@ -46,9 +46,9 @@ jobs:
       # pubspec.lock contains public package metadata only (no credentials).
       - name: Export auth dependency lockfile
         run: |
-          printf 'AUTH_LOCKFILE_BEGIN\\n'
+          echo AUTH_LOCKFILE_BEGIN
           base64 -w0 pubspec.lock
-          printf '\\nAUTH_LOCKFILE_END\\n'
+          echo; echo AUTH_LOCKFILE_END
 
       - name: Analyze Flutter sources
         run: flutter analyze --no-pub
