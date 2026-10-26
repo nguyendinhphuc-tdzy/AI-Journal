@@ -239,10 +239,11 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
     // they continue using the local repository until a reviewed migration UI
     // explicitly transfers them. Guest and fake-auth sessions stay local.
     final hasDeviceEntries = (await localJournals.entries()).isNotEmpty;
-    final JournalRepository journals =
-        _api != null && AppConfig.journalCloudEnabled && !hasDeviceEntries
-            ? RemoteJournalRepository(client: _api, localDrafts: localJournals)
-            : localJournals;
+    JournalRepository journals = localJournals;
+    final api = _api;
+    if (api != null && AppConfig.journalCloudEnabled && !hasDeviceEntries) {
+      journals = RemoteJournalRepository(client: api, localDrafts: localJournals);
+    }
     final albums = await LocalAlbumRepository.open(userId: widget.userId);
     final onboarding = await OnboardingStore.open(userId: widget.userId);
     if (widget.resetOnboarding) {
