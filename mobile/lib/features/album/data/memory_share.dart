@@ -166,8 +166,11 @@ class MemoryShareDraft {
 
   static void discard(String memoryId) => _session.remove(memoryId);
 
+  /// Clear all unsaved share drafts when the active account changes.
+  static void clearOnSessionChange() => _session.clear();
+
   @visibleForTesting
-  static void reset() => _session.clear();
+  static void reset() => clearOnSessionChange();
 
   String? audienceId;
   MemoryPlace? place;

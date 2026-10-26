@@ -122,22 +122,29 @@ abstract class _JsonJournalRepository extends ChangeNotifier
 
 /// On this device, via shared_preferences.
 class LocalJournalRepository extends _JsonJournalRepository {
-  LocalJournalRepository(this._prefs);
+  LocalJournalRepository(this._prefs, {this.userId});
 
-  static Future<LocalJournalRepository> open() async =>
-      LocalJournalRepository(await SharedPreferences.getInstance());
+  static Future<LocalJournalRepository> open({String? userId}) async =>
+      LocalJournalRepository(await SharedPreferences.getInstance(),
+          userId: userId);
 
   final SharedPreferences _prefs;
+  final String? userId;
+
+  // The anonymous demo keeps its existing keys. Authenticated users never
+  // read each other's local entries; server synchronization is separate.
+  String _scopedKey(String key) => userId == null ? key : 'users.$userId.$key';
 
   @override
-  String? read(String key) => _prefs.getString(key);
+  String? read(String key) => _prefs.getString(_scopedKey(key));
 
   @override
   Future<void> write(String key, String? value) async {
+    final scoped = _scopedKey(key);
     final ok = value == null
-        ? await _prefs.remove(key)
-        : await _prefs.setString(key, value);
-    if (!ok) throw StateError('Could not write $key');
+        ? await _prefs.remove(scoped)
+        : await _prefs.setString(scoped, value);
+    if (!ok) throw StateError('Could not write $scoped');
   }
 }
 
