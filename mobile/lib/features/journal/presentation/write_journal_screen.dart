@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../navigation/app_shell.dart';
 import '../../../navigation/custom_bottom_navigation.dart';
 import '../data/journal_entry.dart';
+import '../data/api_ai_service.dart';
 import '../journal_scope.dart';
 import 'ai_reflection_screen.dart';
 import '../../onboarding/data/onboarding_store.dart';
@@ -29,6 +30,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   final _followUpFocus = FocusNode();
   final _scrollController = ScrollController();
   bool _hasFollowUp = false;
+  bool _askingDeeper = false;
+  String _followUpPrompt = 'Điều gì trong hôm nay khiến bạn muốn viết thêm?';
   bool _isPaperBackground = true;
   double _textSize = 16;
   WritingPreferences? _preferences;
@@ -93,8 +96,27 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     ));
   }
 
-  void _goDeeper() {
-    if (_hasFollowUp || _controller.text.trim().isEmpty) return;
+  Future<void> _goDeeper() async {
+    if (_askingDeeper || _hasFollowUp || _controller.text.trim().isEmpty) return;
+    final remote = AiRemoteScope.maybeOf(context);
+    if (remote != null) {
+      setState(() => _askingDeeper = true);
+      try {
+        final question = await remote.goDeeper(_controller.text);
+        if (!mounted) return;
+        _followUpPrompt = question;
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Chưa thể nhận câu hỏi AI. Hãy thử lại.'),
+        ));
+        // Never substitute a demo prompt after a real AI request failed.
+        return;
+      } finally {
+        if (mounted) setState(() => _askingDeeper = false);
+      }
+    }
+    if (!mounted) return;
     setState(() => _hasFollowUp = true);
     _preferences?.feedback();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -228,6 +250,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       MaterialPageRoute(
         builder: (_) => AiReflectionScreen(
           journalContent: _entryText,
+          remote: AiRemoteScope.maybeOf(context),
         ),
       ),
     );
@@ -332,8 +355,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                         ),
                                       ),
                                       const SizedBox(height: 24),
-                                      _buildPrompt(
-                                          'What about school is weighing on you right now?'),
+                                      _buildPrompt(_followUpPrompt),
                                       const SizedBox(height: 12),
                                     ],
                                     TextField(
@@ -475,14 +497,14 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
               ),
               const SizedBox(width: 8),
               ElevatedButton(
-                onPressed: _hasFollowUp ? null : _goDeeper,
+                onPressed: (_hasFollowUp || _askingDeeper) ? null : _goDeeper,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primaryAction,
                   foregroundColor: AppColors.surface,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   minimumSize: const Size(0, 48),
                 ),
-                child: const Text('✨ Suy ngẫm sâu hơn'),
+                child: Text(_askingDeeper ? 'Đang hỏi AI…' : '✨ Suy ngẫm sâu hơn'),
               ),
             ]),
           ),
