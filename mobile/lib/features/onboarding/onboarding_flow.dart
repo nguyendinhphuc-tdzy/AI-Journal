@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../journal/data/journal_entry.dart';
+import '../journal/data/api_ai_service.dart';
 import '../journal/data/reflection_service.dart';
 import '../journal/journal_scope.dart';
 import '../reminders/data/reminder_service.dart';
@@ -280,6 +281,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                 onContinue: () => _goTo(OnboardingStep.aiAndData),
               ),
             OnboardingStep.aiAndData => OnboardingAiDataScreen(
+                policy: widget.reflections is ApiAIService
+                    ? DataPolicy.localOllama
+                    : DataPolicy.current,
                 onBack: _back,
                 onChoose: _saveAiChoice,
               ),
