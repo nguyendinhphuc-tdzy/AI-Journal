@@ -293,10 +293,10 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           );
           final session = widget.auth != null
               ? AuthScope(auth: widget.auth!, child: scoped)
-              : GuestScope(onLeaveGuest: widget.onLeaveGuest, child: scoped);
+              : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: scoped);
           return _ai == null
               ? session
-              : AiRemoteScope(service: _ai!, child: session);
+              : AiRemoteScope(service: _ai, child: session);
         },
       );
 }
