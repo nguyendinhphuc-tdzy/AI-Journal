@@ -10,6 +10,7 @@ import '../data/api_ai_service.dart';
 import '../journal_scope.dart';
 import 'ai_reflection_screen.dart';
 import '../../onboarding/data/onboarding_store.dart';
+import '../../onboarding/data/onboarding_scope.dart';
 import '../../profile/data/writing_preferences.dart';
 
 class WriteJournalScreen extends StatefulWidget {
@@ -100,6 +101,12 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     if (_askingDeeper || _hasFollowUp || _controller.text.trim().isEmpty) return;
     final remote = AiRemoteScope.maybeOf(context);
     if (remote != null) {
+      if (OnboardingScope.maybeOf(context)?.aiEnabled != true) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Bạn chưa bật phản hồi AI trong cài đặt.'),
+        ));
+        return;
+      }
       setState(() => _askingDeeper = true);
       try {
         final question = await remote.goDeeper(_controller.text);
@@ -202,7 +209,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     );
     bool useAi;
     try {
-      final settings = await OnboardingStore.open();
+      final settings = OnboardingScope.maybeOf(context) ??
+          await OnboardingStore.open();
       // Preserve the demo's existing flow when no choice has been recorded.
       useAi = settings.aiEnabled != false;
       if (!mounted) return;
