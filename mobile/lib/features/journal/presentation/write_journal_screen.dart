@@ -101,7 +101,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     if (_askingDeeper || _hasFollowUp || _controller.text.trim().isEmpty) return;
     final remote = AiRemoteScope.maybeOf(context);
     if (remote != null) {
-      if (OnboardingScope.maybeOf(context)?.aiEnabled != true) {
+      if (OnboardingScope.maybeOf(context)?.consentedToRemoteAi != true) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Bạn chưa bật phản hồi AI trong cài đặt.'),
         ));
@@ -216,7 +216,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       // after this signed-in user explicitly opted in.
       useAi = AiRemoteScope.maybeOf(context) == null
           ? settings.aiEnabled != false
-          : settings.aiEnabled == true;
+          : settings.consentedToRemoteAi;
       if (!mounted) return;
       final journals = JournalScope.of(context);
       _saved = saved == null
