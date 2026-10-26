@@ -79,11 +79,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
               store.saveExperience(JournalingExperience.values.byName(value));
         case 'ai reflections':
           initial = store.aiEnabled == true ? 'on' : 'off';
-          options = {'off': 'Không dùng AI', 'on': 'Dùng phản hồi AI mô phỏng'};
-          note = '${DataPolicy.current.aiRequest}\n${DataPolicy.choiceNote}';
+          final aiPolicy = AiRemoteScope.maybeOf(context) == null
+              ? DataPolicy.current
+              : DataPolicy.localOllama;
+          options = {
+            'off': 'Không dùng AI',
+            'on': aiPolicy.realLocalAi
+                ? 'Dùng AI local qua backend'
+                : 'Dùng phản hồi AI mô phỏng'
+          };
+          note = '${aiPolicy.aiRequest}\n${DataPolicy.choiceNote}';
           save = (value) => store.saveAiChoice(
               enabled: value == 'on',
-              policyVersion: DataPolicy.current.version);
+              policyVersion: aiPolicy.version);
         case 'paper':
           initial = prefs.paper ? 'paper' : 'plain';
           options = {'paper': 'Nền giấy', 'plain': 'Nền trắng'};
