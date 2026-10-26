@@ -120,7 +120,7 @@ def create_journal(
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    journal = JournalEntry(**payload.model_dump(), user_id=user.user_id)
+    journal = JournalEntry(**payload.model_dump(), user_id=user.user_id, body_version=1)
     db.add(journal)
     # Completion is recorded only when a valid journal is successfully saved.
     # One DB transaction covers BOTH journal and daily streak entry.
@@ -165,8 +165,17 @@ def update_journal(
     wrote_new_content = (
         "content" in changes and changes["content"].strip() != journal.content.strip()
     )
+    # Retain exact guided-template values and update the version when any
+    # meaningful part of JournalContent changes. Title and prompt do not
+    # belong to Flutter's JournalContent.
+    content_changed = any(
+        field in changes and changes[field] != getattr(journal, field)
+        for field in ("content", "mood", "guided")
+    )
     for field, value in changes.items():
         setattr(journal, field, value)
+    if content_changed:
+        journal.body_version += 1
     if wrote_new_content:
         record_journal_completion(db, user.user_id)
     db.commit()
