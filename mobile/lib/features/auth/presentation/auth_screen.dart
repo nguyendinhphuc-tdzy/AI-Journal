@@ -177,7 +177,7 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
     final otp = _otp.text.trim();
-    if (!RegExp(r'^[0-9]{6}.hasMatch(otp)) {
+    if (!RegExp(r'^[0-9]{6}$').hasMatch(otp)) {
       setState(() {
         _message = 'Nhập mã OTP gồm 6 chữ số.';
         _error = true;
