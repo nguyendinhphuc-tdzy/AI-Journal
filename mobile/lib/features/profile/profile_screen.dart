@@ -169,7 +169,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 textAlign: TextAlign.center),
             TextButton(
               onPressed: () => setState(() {
-                _onboarding = OnboardingStore.open();
+                final scoped = OnboardingScope.maybeOf(context);
+                _onboarding = scoped == null
+                    ? OnboardingStore.open()
+                    : Future.value(scoped);
               }),
               child: const Text('Thử lại'),
             ),
