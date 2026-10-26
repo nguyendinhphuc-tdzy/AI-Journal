@@ -45,7 +45,11 @@ abstract interface class MemoryPhotoCleanup {
 }
 
 class DeviceMemoryPhotos implements MemoryPhotos, MemoryPhotoCleanup {
-  DeviceMemoryPhotos([ImagePicker? picker], {this.userId})
+  DeviceMemoryPhotos([ImagePicker? picker])
+      : userId = null,
+        _picker = picker ?? ImagePicker();
+
+  DeviceMemoryPhotos.forUser(this.userId, [ImagePicker? picker])
       : _picker = picker ?? ImagePicker();
 
   /// Keep the guest and each signed-in user's images in separate folders.
