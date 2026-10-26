@@ -4,4 +4,6 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Emulator-only localhost HTTP in debug; release stays HTTPS-only. -->
+    <application android:networkSecurityConfig="@xml/journal_cloud_debug_network_security" />
 </manifest>
