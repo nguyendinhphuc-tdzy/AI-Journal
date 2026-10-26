@@ -106,6 +106,28 @@ def postgres_engine():
             "SELECT COUNT(*) FROM public.journal_entries"
         )).scalar_one() == 0
 
+    # Before deploying revision 08, rehearse the upgrade on a populated
+    # existing revision 07 database. Cloud fields MUST preserve old entries.
+    previous = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "20261025_07"],
+        cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
+    )
+    assert previous.returncode == 0, (
+        f"Previous head failed:\\n{previous.stdout}\\n{previous.stderr}"
+    )
+    synthetic_user = uuid4()
+    with engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO auth.users (id) VALUES (:id)"),
+            {"id": synthetic_user},
+        )
+        old_journal = connection.execute(text("""
+            INSERT INTO public.journal_entries
+              (user_id, title, content, created_at, updated_at)
+            VALUES (:id, 'Existing entry', 'Keep this journal', now(), now())
+            RETURNING id
+        """), {"id": synthetic_user}).scalar_one()
+
     migrated = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
@@ -113,6 +135,13 @@ def postgres_engine():
     assert migrated.returncode == 0, (
         f"Postgres Alembic migration FAILED:\n{migrated.stdout}\n{migrated.stderr}"
     )
+    with engine.connect() as connection:
+        preserved = connection.execute(text("""
+            SELECT content, body_version, guided
+            FROM public.journal_entries WHERE id = :id
+        """), {"id": old_journal}).one()
+        assert preserved == ("Keep this journal", 1, None)
+
     checked = subprocess.run(
         [sys.executable, "-m", "alembic", "check"],
         cwd=BACKEND_DIR, env=env, capture_output=True, text=True, timeout=90,
@@ -128,7 +157,7 @@ def postgres_engine():
 def test_postgres_upgrade_schema_and_rls(postgres_engine):
     inspector = sa.inspect(postgres_engine)
     with postgres_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261025_07"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261026_08"
         for table in TABLES:
             assert inspector.has_table(table, schema="public"), table
             rls = conn.execute(text("""

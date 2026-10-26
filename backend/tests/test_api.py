@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261025_07"
+    assert revision == "20261026_08"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -997,5 +997,77 @@ def test_pr17_album_memory_owner_isolation_and_e05_place():
             assert session.scalar(
                 select(AlbumMemory).where(AlbumMemory.id == UUID(mid))
             ) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_guided_journal_roundtrip_version_and_owner_isolation():
+    """Structured guided fields survive server JSON serialization and updates."""
+    alice = AuthenticatedUser(user_id=uuid4(), email="alice@example.test")
+    bob = AuthenticatedUser(user_id=uuid4(), email="bob@example.test")
+    first_guided = {
+        "id": "onboarding_first_entry",
+        "version": 1,
+        "fields": {"cause": "trời mát", "hope": "nghỉ ngơi"},
+    }
+    app.dependency_overrides[get_current_user] = lambda: alice
+    try:
+        created = client.post("/api/v1/journals", json={
+            "content": "Một ngày yên bình",
+            "mood": "calm",
+            "guided": first_guided,
+        })
+        assert created.status_code == 201, created.text
+        data = created.json()
+        assert data["body_version"] == 1
+        assert data["guided"] == first_guided
+        assert data["mood"] == "calm"
+        ident = data["id"]
+        assert client.get(f"/api/v1/journals/{ident}").json()["guided"] == first_guided
+        assert client.get("/api/v1/journals").json()["items"][0]["guided"] == first_guided
+
+        # A no-op edit and title change must not invalidate AI body version.
+        unchanged = client.put(f"/api/v1/journals/{ident}", json={
+            "content": data["content"], "mood": "calm", "guided": first_guided,
+        })
+        assert unchanged.status_code == 200
+        assert unchanged.json()["body_version"] == 1
+        title_only = client.put(f"/api/v1/journals/{ident}", json={
+            "title": "New title"
+        })
+        assert title_only.json()["body_version"] == 1
+
+        # Mood is part of Flutter JournalContent and changes the bodyVersion.
+        changed = client.put(f"/api/v1/journals/{ident}", json={"mood": "happy"})
+        assert changed.json()["body_version"] == 2
+        guided_update = dict(first_guided, fields={"cause": "đã hoàn thành"})
+        changed = client.put(f"/api/v1/journals/{ident}", json={
+            "guided": guided_update
+        })
+        assert changed.json()["body_version"] == 3
+        changed = client.put(f"/api/v1/journals/{ident}", json={
+            "content": "Nội dung mới"
+        })
+        assert changed.json()["body_version"] == 4
+        assert changed.json()["guided"] == guided_update
+
+        # No client-controlled version, owner ID or arbitrary guided keys.
+        assert client.put(f"/api/v1/journals/{ident}", json={
+            "body_version": 99
+        }).status_code == 422
+        assert client.post("/api/v1/journals", json={
+            "content": "x",
+            "guided": {"id": "abc", "version": 1, "fields": {}, "extra": "bad"}
+        }).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: bob
+    try:
+        assert client.get(f"/api/v1/journals/{ident}").status_code == 404
+        assert client.put(f"/api/v1/journals/{ident}", json={
+            "guided": first_guided
+        }).status_code == 404
+        assert client.get("/api/v1/journals").json()["items"] == []
     finally:
         app.dependency_overrides.clear()
