@@ -22,5 +22,9 @@ class AppConfig {
       bool.fromEnvironment('GOOGLE_OAUTH_ENABLED');
   static const bool facebookOAuthEnabled =
       bool.fromEnvironment('FACEBOOK_OAUTH_ENABLED');
+  // Cloud journal requires backend migration 20261026_08 and an authenticated
+  // Supabase session. Never enabled by default for existing device journals.
+  static const bool journalCloudEnabled =
+      bool.fromEnvironment('JOURNAL_CLOUD_ENABLED');
   static const String oauthRedirectUrl = 'aijournal://auth-callback/';
 }

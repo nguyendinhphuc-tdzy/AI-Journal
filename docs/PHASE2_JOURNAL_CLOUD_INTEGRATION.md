@@ -1,0 +1,104 @@
+# Phase 2 — AI Journal Cloud Persistence (Draft, 2026-10-26)
+
+## Status and dependencies
+
+- Backend: Draft PR #26 (`feat/backend-journal-cloud-contract-20261026`)
+  stacked on Phase 1 PR #25 and Album backend PR #19.
+- Mobile: Draft PR #27 (`feat/flutter-journal-cloud-persistence-20261026`)
+  stacked on Auth/Facebook PR #24.
+- **Supabase shared database is currently at Alembic `20261025_07`.**
+  Phase 2 additionally requires `20261026_08`, which has NOT been applied
+  to the shared database in this PR. No automatic database changes.
+- Default `JOURNAL_CLOUD_ENABLED=false`: existing app remains local-only.
+- All guest sessions, fake-auth test sessions and accounts with existing
+  local Journal entries remain local-only even if the cloud flag is enabled.
+- Local drafts (`SharedPreferences`, scoped by user) are NEVER transmitted
+  by the repository. No existing local entries are silently uploaded or
+  deleted. Plan a separate explicit user-approved import experience.
+
+## Contract
+
+Flutter `JournalEntry` ↔ FastAPI `/api/v1/journals`:
+
+| Flutter | FastAPI / PostgreSQL | Notes |
+| --- | --- | --- |
+| `id: "cloud-42"` | `id: 42` integer | ID prefix prevents collisions with `local-...` |
+| `content.body` | `content` | Nonblank, validated server-side |
+| `content.mood?.name` | `mood` | Known six enum names; reject unknown values |
+| `content.guided.toJson()` | `guided` JSON | Snapshot `{id,version,fields}` preserved |
+| `bodyVersion` | `body_version` | Server-owned, starts at 1 |
+| `createdAt/updatedAt` | `created_at/updated_at` | Server timestamps in UTC |
+
+Body version increases if body text, mood or guided structure changes; it
+does not increase for a no-op or title/prompt-only edit. Only actual text
+changes count toward the completion streak. Clients cannot set
+`body_version` or `user_id`.
+
+API calls: `GET /journals` (100-row cursor pages), `GET /journals/{id}`,
+`POST /journals`, `PUT /journals/{id}`, `DELETE /journals/{id}`.
+Private endpoints demand a fresh Supabase Bearer access token before any HTTP
+request. Remote repository errors never silently return a local/mock diary.
+
+## Backend migration 08 — release guard
+
+Run the new backend branch in an isolated checkout. Verify the real
+Supabase project is still at `20261025_07`; test using real PostgreSQL 17
+CI and test data first, and ensure project credentials are only stored in
+locally ignored `.env`. `alembic current` and `alembic heads` must be
+reviewed **before** running `alembic upgrade head`.
+
+The migration adds `guided JSON NULL`, `body_version INTEGER NOT NULL
+DEFAULT 1` and a CHECK enforcing version >= 1. It does not drop or rewrite
+existing journal contents. Legacy journals receive version 1. Downgrade is
+intentionally disabled because it would lose guided values.
+
+After authorized migration, inspect the live version (`20261026_08`),
+columns and constraints, 9 private tables' RLS/grants and schema advisor
+results. Do NOT manually fake or edit `alembic_version`. Never commit
+PostgreSQL passwords or configure PostgreSQL access from Flutter.
+
+## Android emulator acceptance
+
+Start FastAPI locally from the backend Phase 2 branch and verify
+`GET http://127.0.0.1:8000/health`. For Android Emulator, use
+`--dart-define=API_BASE_URL=http://10.0.2.2:8000/api/v1`.
+A physical phone needs a different, reachable backend URL; do not assume
+`10.0.2.2` works there.
+
+Once the migration is verified, run Flutter with these `--dart-define`
+flags:
+
+- `AUTH_ENABLED=true`
+- `JOURNAL_CLOUD_ENABLED=true`
+- `SUPABASE_URL=https://rjwentsuqmwncpseakkt.supabase.co`
+- `SUPABASE_PUBLISHABLE_KEY=<publishable key>`
+- `API_BASE_URL=http://10.0.2.2:8000/api/v1`
+- `FACEBOOK_OAUTH_ENABLED=true` only if the Facebook Meta/Supabase
+  provider setup is ready for test users.
+
+**Mandatory test sequence:**
+
+1. Login to account A; new account, no local entries; write one
+   Guided Journal; verify server `guided` and version 1.
+2. Restart Android; log in as A; verify original journal reloads.
+3. Edit its text/mood/guided values; verify server version increments,
+   the same id is preserved and streak only follows writing.
+4. Interrupt backend before save; verify the unsent draft is still available
+   on device and no fabricated success is shown.
+5. Logout and log in as account B; verify B cannot read or mutate A's
+   journal (HTTP 404 for direct owned-resource URLs).
+6. Confirm guest mode never makes journal API calls and device entries
+   created before enabling Cloud remain on device.
+7. Test cursor pagination, Android process death and re-login.
+
+## Known limitations for follow-up PRs
+
+- No automatic guest/account local-to-cloud migration, offline sync queue,
+  edit conflict resolution or guaranteed exactly-once create retry.
+- Signed-in accounts with existing local entries intentionally remain local
+  until a deliberate import/sync design exists.
+- Drafts are device-only and are not cross-device synced.
+- A full end-to-end Android + running FastAPI + real Meta/Supabase Auth
+  session is still required before enabling Cloud in a release.
+- Both PRs must pass CI and be reviewed/merged in dependency order. No
+  direct merge to the default branch was performed.
