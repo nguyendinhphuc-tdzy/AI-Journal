@@ -14,6 +14,7 @@ class DataPolicy {
     required this.storage,
     required this.aiRequest,
     required this.policyUrl,
+    this.realLocalAi = false,
   });
 
   /// False while the copy describes a demo build, not an approved policy.
@@ -31,6 +32,9 @@ class DataPolicy {
   /// "Cách app dùng dữ liệu"; the link is hidden while null (never a fake).
   final Uri? policyUrl;
 
+  /// True only when a configured authenticated local Ollama provider exists.
+  final bool realLocalAi;
+
   /// The build's policy. Replace with the approved copy before release.
   static const current = DataPolicy(
     approved: false,
@@ -39,6 +43,19 @@ class DataPolicy {
         'Nơi lưu chính thức sẽ được ghi rõ ở đây trước khi phát hành.',
     aiRequest: 'Phản hồi trong bản thử nghiệm là mô phỏng: nội dung bạn viết '
         'không được gửi tới dịch vụ AI nào.',
+    policyUrl: null,
+  );
+
+  static const localOllama = DataPolicy(
+    approved: false,
+    version: 'local-ollama-demo-1',
+    realLocalAi: true,
+    storage: 'Nhật ký vẫn lưu trên thiết bị theo từng tài khoản. '
+        'Chưa có tính năng đồng bộ cloud.',
+    aiRequest: 'Khi bạn chọn dùng AI, nội dung nhật ký được gửi qua '
+        'FastAPI tới mô hình Ollama trên máy tính của nhóm để tạo câu hỏi '
+        'và phản chiếu. Đây không phải xử lý hoàn toàn trên điện thoại. '
+        'Chỉ gửi khi bạn yêu cầu và có phiên đăng nhập hợp lệ.',
     policyUrl: null,
   );
 
