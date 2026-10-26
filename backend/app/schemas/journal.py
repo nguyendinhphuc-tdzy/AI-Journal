@@ -4,6 +4,23 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+class GuidedContent(BaseModel):
+    """The Flutter guided-template snapshot, never regenerated on the server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=100)
+    version: int = Field(ge=1, le=100000)
+    fields: dict[str, str] = Field(max_length=40)
+
+    @field_validator("fields")
+    @classmethod
+    def validate_fields(cls, value: dict[str, str]) -> dict[str, str]:
+        if any(not k or len(k) > 100 or len(v) > 4000 for k, v in value.items()):
+            raise ValueError("Invalid guided fields")
+        return value
+
+
 class JournalCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -11,6 +28,7 @@ class JournalCreate(BaseModel):
     content: str = Field(min_length=1)
     prompt: str | None = Field(default=None, max_length=500)
     mood: str | None = Field(default=None, max_length=64)
+    guided: GuidedContent | None = None
 
     @field_validator("content")
     @classmethod
@@ -27,6 +45,7 @@ class JournalUpdate(BaseModel):
     content: str | None = Field(default=None, min_length=1)
     prompt: str | None = Field(default=None, max_length=500)
     mood: str | None = Field(default=None, max_length=64)
+    guided: GuidedContent | None = None
 
     @field_validator("title")
     @classmethod
@@ -51,6 +70,8 @@ class JournalRead(BaseModel):
     content: str
     prompt: str | None
     mood: str | None
+    guided: GuidedContent | None
+    body_version: int
     created_at: datetime
     updated_at: datetime
 
