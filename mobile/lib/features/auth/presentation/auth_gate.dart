@@ -3,6 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/data/app_data.dart';
+import '../../../core/network/api_client.dart';
+import '../../album/album_scope.dart';
+import '../../album/data/album_repository.dart';
+import '../../journal/data/api_ai_service.dart';
+import '../../onboarding/data/onboarding_scope.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../navigation/app_shell.dart';
 import '../../journal/data/journal_repository.dart';
@@ -196,19 +201,40 @@ class _LocalSessionHome extends StatefulWidget {
 }
 
 class _LocalSessionHomeState extends State<_LocalSessionHome> {
-  late final Future<({JournalRepository journals, OnboardingStore onboarding})>
-      _data = _prepare();
+  // Only real authenticated Supabase sessions can request remote AI.
+  // Never attach a network provider to guest or test fake-auth sessions.
+  late final ApiClient? _api = widget.auth is SupabaseAuthService
+      ? ApiClient(accessTokenProvider: () async =>
+          (widget.auth as SupabaseAuthService)
+              .client.auth.currentSession?.accessToken)
+      : null;
+  late final ApiAIService? _ai = _api == null ? null : ApiAIService(_api!);
 
-  Future<({JournalRepository journals, OnboardingStore onboarding})>
-      _prepare() async {
+  late final Future<({
+    JournalRepository journals,
+    AlbumRepository albums,
+    OnboardingStore onboarding
+  })> _data = _prepare();
+
+  Future<({
+    JournalRepository journals,
+    AlbumRepository albums,
+    OnboardingStore onboarding
+  })> _prepare() async {
     final journals = await LocalJournalRepository.open(userId: widget.userId);
-    // Account and guest modes both enter OB01 unless OB11 is already complete.
+    final albums = await LocalAlbumRepository.open(userId: widget.userId);
     final onboarding = await OnboardingStore.open(userId: widget.userId);
     if (widget.resetOnboarding) {
       await onboarding.reset();
       await journals.deleteDraft(FirstEntrySession.draftKey);
     }
-    return (journals: journals, onboarding: onboarding);
+    return (journals: journals, albums: albums, onboarding: onboarding);
+  }
+
+  @override
+  void dispose() {
+    _api?.close();
+    super.dispose();
   }
 
   @override
@@ -230,23 +256,36 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
 
           final data = snapshot.data!;
           final app = MaterialApp(
-            title: 'AI Diary',
+            title: 'Nhật ký AI',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
             home: data.onboarding.completed
                 ? const AppShell()
                 : OnboardingFlow(
                     store: data.onboarding,
-                    brandName: 'AI Diary',
+                    brandName: 'Nhật ký AI',
+                    // Only remote when the session is authenticated; onboarding
+                    // itself enforces the user's AI choice.
+                    reflections: _ai,
                     onComplete: () => setState(() {}),
                   ),
           );
-          return JournalScope(
-            repository: data.journals,
-            child: widget.auth != null
-                ? AuthScope(auth: widget.auth!, child: app)
-                : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: app),
+          final scoped = OnboardingScope(
+            store: data.onboarding,
+            child: JournalScope(
+              repository: data.journals,
+              child: AlbumScope(
+                repository: data.albums,
+                child: app,
+              ),
+            ),
           );
+          final session = widget.auth != null
+              ? AuthScope(auth: widget.auth!, child: scoped)
+              : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: scoped);
+          return _ai == null
+              ? session
+              : AiRemoteScope(service: _ai!, child: session);
         },
       );
 }
