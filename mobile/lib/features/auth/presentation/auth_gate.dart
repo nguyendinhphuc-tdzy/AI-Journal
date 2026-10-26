@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/data/app_data.dart';
+import '../../../core/config/app_config.dart';
 import '../../../core/network/api_client.dart';
 import '../../album/album_scope.dart';
 import '../../album/data/album_repository.dart';
@@ -11,6 +12,7 @@ import '../../album/data/album_settings.dart';
 import '../../album/data/album_unlocks.dart';
 import '../../album/data/memory_share.dart';
 import '../../journal/data/api_ai_service.dart';
+import '../../journal/data/remote_journal_repository.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../navigation/app_shell.dart';
@@ -231,7 +233,16 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
     AlbumRepository albums,
     OnboardingStore onboarding
   })> _prepare() async {
-    final journals = await LocalJournalRepository.open(userId: widget.userId);
+    final localJournals =
+        await LocalJournalRepository.open(userId: widget.userId);
+    // Existing signed-in device journals are never hidden or auto-uploaded:
+    // they continue using the local repository until a reviewed migration UI
+    // explicitly transfers them. Guest and fake-auth sessions stay local.
+    final hasDeviceEntries = (await localJournals.entries()).isNotEmpty;
+    final JournalRepository journals =
+        _api != null && AppConfig.journalCloudEnabled && !hasDeviceEntries
+            ? RemoteJournalRepository(client: _api, localDrafts: localJournals)
+            : localJournals;
     final albums = await LocalAlbumRepository.open(userId: widget.userId);
     final onboarding = await OnboardingStore.open(userId: widget.userId);
     if (widget.resetOnboarding) {
