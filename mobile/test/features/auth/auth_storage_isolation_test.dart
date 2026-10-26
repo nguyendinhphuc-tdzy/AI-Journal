@@ -2,6 +2,7 @@ import 'package:ai_diary/features/album/data/album_repository.dart';
 import 'package:ai_diary/features/auth/data/guest_mode_store.dart';
 import 'package:ai_diary/features/journal/data/journal_entry.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
+import 'package:ai_diary/features/onboarding/data/data_policy.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,6 +62,18 @@ void main() {
         userId: GuestModeStore.userId)).albums()), isEmpty);
     expect((await (await LocalAlbumRepository.open(
         userId: 'owner')).albums()).single.name, 'Owner album');
+  });
+
+  test('Real AI requires fresh consent under local Ollama disclosure', () async {
+    SharedPreferences.setMockInitialValues({});
+    final onboarding = await OnboardingStore.open(userId: 'owner');
+    await onboarding.saveAiChoice(enabled: true);
+    expect(onboarding.consentedToRemoteAi, isFalse);
+    await onboarding.saveAiChoice(
+        enabled: true, policyVersion: DataPolicy.localOllama.version);
+    expect(onboarding.consentedToRemoteAi, isTrue);
+    await onboarding.saveAiChoice(enabled: false);
+    expect(onboarding.consentedToRemoteAi, isFalse);
   });
 
 }
