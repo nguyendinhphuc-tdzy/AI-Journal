@@ -11,6 +11,7 @@ class _FakeAuth implements AuthService {
   String? lastPhone;
   String? lastOtp;
   int signupCalls = 0;
+  int facebookCalls = 0;
 
   @override
   String? get currentUserId => null;
@@ -36,6 +37,8 @@ class _FakeAuth implements AuthService {
   }
   @override
   Future<void> signInGoogle() async {}
+  @override
+  Future<void> signInFacebook() async { facebookCalls++; }
   @override
   Future<void> signOut() async {}
 }
@@ -88,4 +91,29 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.lastOtp, '123456');
   });
+  testWidgets('Facebook button is absent until OAuth is enabled',
+      (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(home: AuthScreen(auth: auth)));
+    expect(find.text('Tiếp tục bằng Facebook'), findsNothing);
+    expect(auth.facebookCalls, 0);
+  });
+
+  testWidgets('Facebook button invokes the AuthService once when enabled',
+      (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(
+      home: AuthScreen(auth: auth, facebookOAuthEnabled: true),
+    ));
+    final facebookButton = find.text('Tiếp tục bằng Facebook');
+    expect(facebookButton, findsOneWidget);
+    await tester.ensureVisible(facebookButton);
+    await tester.pumpAndSettle();
+    await tester.tap(facebookButton);
+    await tester.pumpAndSettle();
+    expect(auth.facebookCalls, 1);
+  });
+
 }
