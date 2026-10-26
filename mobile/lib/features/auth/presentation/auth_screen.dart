@@ -14,11 +14,15 @@ class AuthScreen extends StatefulWidget {
     required this.auth,
     this.onContinueAsGuest,
     this.initialError,
+    this.facebookOAuthEnabled = AppConfig.facebookOAuthEnabled,
   });
 
   final AuthService auth;
   final Future<void> Function()? onContinueAsGuest;
   final String? initialError;
+
+  /// Only show this login method if the app explicitly enables OAuth.
+  final bool facebookOAuthEnabled;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -342,6 +346,17 @@ class _AuthScreenState extends State<AuthScreen> {
                         label: const Text('Tiếp tục bằng Google'),
                       ),
                     ],
+                  ],
+                  if (emailSelected && widget.facebookOAuthEnabled) ...[
+                    const Divider(height: 28),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : () => _perform(() async {
+                        await widget.auth.signInFacebook();
+                        return null;
+                      }),
+                      icon: const Icon(Icons.facebook),
+                      label: const Text('Tiếp tục bằng Facebook'),
+                    ),
                   ],
                   if (widget.onContinueAsGuest != null) ...[
                     const Divider(height: 32),
