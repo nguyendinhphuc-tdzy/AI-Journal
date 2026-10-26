@@ -34,6 +34,8 @@ class PreflightSnapshot:
     rls_by_table: dict[str, bool]
     anon_select_by_table: dict[str, bool]
     authenticated_select_by_table: dict[str, bool]
+    anon_write_by_table: dict[str, bool]
+    authenticated_write_by_table: dict[str, bool]
 
 
 def blocking_findings(snapshot: PreflightSnapshot) -> list[str]:
@@ -56,6 +58,10 @@ def blocking_findings(snapshot: PreflightSnapshot) -> list[str]:
             issues.append(f"Anon can read private table: {table}.")
         if snapshot.authenticated_select_by_table.get(table) is not False:
             issues.append(f"Authenticated client can read private table directly: {table}.")
+        if snapshot.anon_write_by_table.get(table) is not False:
+            issues.append(f"Anon can write private table: {table}.")
+        if snapshot.authenticated_write_by_table.get(table) is not False:
+            issues.append(f"Authenticated client can write private table directly: {table}.")
     return issues
 
 
@@ -83,7 +89,13 @@ def load_snapshot(connection) -> PreflightSnapshot:
     rows = connection.execute(text("""
         SELECT c.relname AS name, c.relrowsecurity AS rls,
                has_table_privilege('anon', c.oid, 'SELECT') AS anon_can_select,
-               has_table_privilege('authenticated', c.oid, 'SELECT') AS auth_can_select
+               has_table_privilege('authenticated', c.oid, 'SELECT') AS auth_can_select,
+               (has_table_privilege('anon', c.oid, 'INSERT') OR
+                has_table_privilege('anon', c.oid, 'UPDATE') OR
+                has_table_privilege('anon', c.oid, 'DELETE')) AS anon_can_write,
+               (has_table_privilege('authenticated', c.oid, 'INSERT') OR
+                has_table_privilege('authenticated', c.oid, 'UPDATE') OR
+                has_table_privilege('authenticated', c.oid, 'DELETE')) AS auth_can_write
         FROM pg_class c
         JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='public' AND c.relkind='r'
@@ -98,6 +110,8 @@ def load_snapshot(connection) -> PreflightSnapshot:
         rls_by_table={v["name"]: v["rls"] for v in rows},
         anon_select_by_table={v["name"]: v["anon_can_select"] for v in rows},
         authenticated_select_by_table={v["name"]: v["auth_can_select"] for v in rows},
+        anon_write_by_table={v["name"]: v["anon_can_write"] for v in rows},
+        authenticated_write_by_table={v["name"]: v["auth_can_write"] for v in rows},
     )
 
 
