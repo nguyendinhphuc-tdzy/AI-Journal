@@ -57,6 +57,18 @@ void main() {
       expect((await journals.entries()).single.body, 'Có lẽ vì b.');
     });
 
+    test('local delete removes the entry but preserves unsent drafts', () async {
+      final journals = InMemoryJournalRepository();
+      final entry = await journals.create(_content({'cause': 'a'}));
+      await journals.saveDraft('edit', JournalDraft(
+        fields: const {'cause': 'unsaved'},
+        updatedAt: DateTime(2026, 10, 26),
+      ));
+      await journals.delete(entry.id);
+      expect(await journals.entries(), isEmpty);
+      expect((await journals.draft('edit'))!.fields['cause'], 'unsaved');
+    });
+
     test('drafts are never entries', () async {
       final journals = InMemoryJournalRepository();
       await journals.saveDraft(
