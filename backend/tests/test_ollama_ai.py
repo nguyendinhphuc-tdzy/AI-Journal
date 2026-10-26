@@ -168,3 +168,79 @@ def test_journal_input_length_and_blank_validation():
         AiTextRequest(content="   ")
     with pytest.raises(ValueError):
         AiTextRequest(content="x" * 8001)
+
+
+def test_prompts_address_reader_and_request_open_question():
+    received = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        received.append(payload)
+        question = {"question": "Điều gì giúp bạn thấy nhẹ lòng hơn?"}
+        reflection = _reflection()
+        output = question if len(received) == 1 else reflection
+        return httpx.Response(200, json={"message": {"content": json.dumps(output)}})
+
+    provider = _provider(handler=handler)
+    assert provider.go_deeper("Hôm nay làm được một việc nhỏ")
+    assert provider.reflect("Hôm nay có nhiều bài tập").emotion == "lo lắng"
+    for payload in received:
+        assert "xưng hô" in payload["messages"][0]["content"].lower()
+        prompt = payload["messages"][1]["content"].lower()
+        assert "không dùng ngôi 'tôi'" in prompt
+        assert "câu hỏi" in prompt
+        assert payload["think"] is False
+        assert payload["stream"] is False
+
+
+def test_ollama_http_timeout_504_and_invalid_schema_502(monkeypatch):
+    monkeypatch.setattr(ai_router, "verify_supabase_token", lambda _token: object())
+
+    def timeout_handler(request):
+        raise httpx.ReadTimeout("private content", request=request)
+
+    for provider, code in [
+        (_provider(handler=timeout_handler), 504),
+        (_provider({"emotion": "missing other fields"}), 502),
+    ]:
+        with TestClient(_app(provider)) as client:
+            res = client.post(
+                "/api/v1/ai/reflection",
+                json={"content": "private journal"},
+                headers={"Authorization": "Bearer test-only"},
+            )
+            assert res.status_code == code
+            assert "private journal" not in res.text
+            assert "private content" not in res.text
+
+
+def test_ollama_api_rejects_blank_and_oversized_input_before_inference(monkeypatch):
+    monkeypatch.setattr(ai_router, "verify_supabase_token", lambda _token: object())
+    invoked = []
+
+    def handler(request):
+        invoked.append(request)
+        return httpx.Response(200, json={"message": {"content": json.dumps(_reflection())}})
+
+    with TestClient(_app(_provider(handler=handler))) as client:
+        for content in ["  ", "x" * 8001]:
+            res = client.post(
+                "/api/v1/ai/reflection",
+                json={"content": content},
+                headers={"Authorization": "Bearer test-only"},
+            )
+            assert res.status_code == 422
+    assert invoked == []
+
+
+def test_ollama_missing_token_blocks_inference():
+    invoked = []
+
+    def handler(request):
+        invoked.append(request)
+        return httpx.Response(200, json={"message": {"content": json.dumps(_reflection())}})
+
+    with TestClient(_app(_provider(handler=handler))) as client:
+        res = client.post("/api/v1/ai/reflection", json={"content": "private"})
+    assert res.status_code == 401
+    assert invoked == []
