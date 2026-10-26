@@ -69,6 +69,20 @@ class ApiClient {
     return _decode(response);
   }
 
+  Future<void> deleteNoContent(
+    String path, {
+    bool requireAuth = false,
+  }) async {
+    final response = await _client.delete(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: await _headers(requireAuth: requireAuth),
+    );
+    // Private error bodies are never logged or copied into exceptions.
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw ApiException(response.statusCode);
+    }
+  }
+
   Map<String, dynamic> _decode(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       // Never include server response bodies: they can contain private text.
