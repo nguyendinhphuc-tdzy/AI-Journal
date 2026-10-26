@@ -1,29 +1,53 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'core/config/app_config.dart';
 import 'core/theme/app_theme.dart';
+import 'features/auth/data/auth_service.dart';
+import 'features/auth/presentation/auth_gate.dart';
 import 'features/album/album_scope.dart';
 import 'features/album/data/album_repository.dart';
-import 'features/journal/data/journal_repository.dart';
 import 'features/journal/data/api_ai_service.dart';
+import 'features/journal/data/journal_repository.dart';
 import 'features/journal/journal_scope.dart';
+import 'features/onboarding/data/onboarding_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
 import 'features/onboarding/onboarding_flow.dart';
 import 'features/onboarding/presentation/first_entry_session.dart';
 import 'navigation/app_shell.dart';
 
 const appName = 'Nhật ký AI';
-
-/// Opt in with `--dart-define=ONBOARDING=true`. OB11 now completes the flow;
-/// making onboarding the default launch is a separate decision.
 const _showOnboarding = bool.fromEnvironment('ONBOARDING');
-
-/// Development: `--dart-define=ONBOARDING_RESET=true` starts onboarding
-/// again at OB01 on every launch and hot restart (answers, progress and the
-/// OB07 draft are cleared; saved journal entries are kept).
 const _resetOnboarding = bool.fromEnvironment('ONBOARDING_RESET');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // An explicitly requested Auth flow or release build fails closed if the
+  // public URL/publishable key are missing. No local demo in release.
+  if (kReleaseMode || AppConfig.authEnabled || AppConfig.supabaseConfigured) {
+    if (!AppConfig.supabaseConfigured) {
+      runApp(const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: Text('Thiếu cấu hình Supabase Auth. Không thể đăng nhập.'),
+          ),
+        ),
+      ));
+      return;
+    }
+    await Supabase.initialize(
+      url: AppConfig.supabaseUrl,
+      anonKey: AppConfig.supabasePublishableKey,
+    );
+    runApp(AiDiaryApp(
+      auth: SupabaseAuthService(Supabase.instance.client),
+    ));
+    return;
+  }
+
+  // Preserve the original unscoped local demo and its existing data.
   final journals = await LocalJournalRepository.open();
   final albums = await LocalAlbumRepository.open();
   final onboarding =
@@ -32,23 +56,31 @@ Future<void> main() async {
     await onboarding!.reset();
     await journals.deleteDraft(FirstEntrySession.draftKey);
   }
-  runApp(
-      AiDiaryApp(journals: journals, albums: albums, onboarding: onboarding));
+  runApp(AiDiaryApp(
+    journals: journals,
+    albums: albums,
+    onboarding: onboarding,
+  ));
 }
 
 class AiDiaryApp extends StatefulWidget {
-  const AiDiaryApp({super.key, this.journals, this.albums, this.onboarding, this.ai});
+  const AiDiaryApp({
+    super.key,
+    this.journals,
+    this.albums,
+    this.onboarding,
+    this.ai,
+    this.auth,
+  });
 
-  /// The journal store; an in-memory one when not given (tests).
+  /// Injected fake auth in tests, real Supabase Auth in configured builds.
+  final AuthService? auth;
+
   final JournalRepository? journals;
-
-  /// The album store; an in-memory one when not given (tests).
   final AlbumRepository? albums;
-
-  /// When set and not completed, launch goes through onboarding.
   final OnboardingStore? onboarding;
 
-  /// Explicit authenticated AI service; absent in guest/device-only demo.
+  /// An explicit, authenticated AI service (not present for device-only demo).
   final ApiAIService? ai;
 
   @override
@@ -63,6 +95,15 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.auth != null) {
+      // AuthGate owns user-scoped Journal, Album, onboarding and AI service.
+      return AuthGate(
+        auth: widget.auth!,
+        showOnboarding: _showOnboarding,
+        resetOnboarding: _resetOnboarding,
+      );
+    }
+
     final onboarding = widget.onboarding;
     final app = JournalScope(
       repository: _journals,
@@ -77,14 +118,16 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
               : OnboardingFlow(
                   store: onboarding,
                   brandName: appName,
-                  // Done is saved: rebuild, and Home replaces the flow.
                   reflections: widget.ai,
                   onComplete: () => setState(() {}),
                 ),
         ),
       ),
     );
+    final scoped = onboarding == null
+        ? app
+        : OnboardingScope(store: onboarding, child: app);
     final ai = widget.ai;
-    return ai == null ? app : AiRemoteScope(service: ai, child: app);
+    return ai == null ? scoped : AiRemoteScope(service: ai, child: scoped);
   }
 }
