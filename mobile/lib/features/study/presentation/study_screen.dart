@@ -25,15 +25,19 @@ import '../../streak/streak_state.dart';
 /// is kept on this device ([StudyProgressStore]) and what the user writes
 /// goes into the journal ([StudySession]).
 class StudyScreen extends StatelessWidget {
-  const StudyScreen(
-      {super.key, this.progress = const LocalStudyProgressStore()});
+  const StudyScreen({super.key, this.progress});
 
   /// Where the challenge, lessons read and drafts are kept.
-  final StudyProgressStore progress;
+  final StudyProgressStore? progress;
 
   @override
-  Widget build(BuildContext context) =>
-      StudyTheme(child: _StudyOverview(progress: progress));
+  Widget build(BuildContext context) => StudyTheme(
+        child: _StudyOverview(
+          progress: progress ??
+              StudyProgressScope.maybeOf(context)?.repository ??
+              const LocalStudyProgressStore(),
+        ),
+      );
 }
 
 class _StudyOverview extends StatefulWidget {
