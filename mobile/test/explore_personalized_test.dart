@@ -1,23 +1,33 @@
+import 'dart:convert';
+
 import 'package:ai_diary/features/explore/presentation/explore_screen.dart';
+import 'package:ai_diary/features/explore/presentation/map_style.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:ai_diary/features/explore/presentation/widgets/map_overlay_parts.dart';
 import 'package:ai_diary/features/explore/presentation/widgets/nudaeng_map_marker.dart';
 import 'package:ai_diary/features/explore/presentation/widgets/place_sheets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// The land colour of a map style.
+String _background(String style) {
+  final layers = (jsonDecode(style) as Map)['layers'] as List;
+  return ((layers.first as Map)['paint'] as Map)['background-color'] as String;
+}
+
 void main() {
-  testWidgets('Explore uses the dark map style for the nighttime vibe',
-      (tester) async {
+  testWidgets('At night the vibe changes, the map stays light', (tester) async {
     await tester.pumpWidget(MaterialApp(
       home: ExploreScreen(clock: () => DateTime(2026, 10, 24, 22)),
     ));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Vibe ban đêm'), findsOneWidget);
-    expect(
-      tester.widget<MapLibreMap>(find.byType(MapLibreMap)).styleString,
-      'https://tiles.openfreemap.org/styles/dark',
-    );
+    final style =
+        tester.widget<MapLibreMap>(find.byType(MapLibreMap)).styleString;
+    // The map stays light at night: only the greeting changes.
+    expect(style, ExploreMapStyle.day);
+    expect(_background(style), '#EEF4F1');
   });
 
   testWidgets('Explore keeps the default light style after 5 AM',
@@ -28,10 +38,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Vibe ban ngày'), findsOneWidget);
-    expect(
-      tester.widget<MapLibreMap>(find.byType(MapLibreMap)).styleString,
-      'https://tiles.openfreemap.org/styles/liberty',
-    );
+    final style =
+        tester.widget<MapLibreMap>(find.byType(MapLibreMap)).styleString;
+    expect(style, ExploreMapStyle.day);
+    // The app's Background token.
+    expect(_background(style), '#EEF4F1');
   });
 
   testWidgets('Nudaeng GIF can be rasterized into a native map marker',
@@ -43,25 +54,23 @@ void main() {
   testWidgets('Explore saves a form entry as a local map pin', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: ExploreScreen()));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Save a new place'));
+    await tester.tap(find.byTooltip(ExploreScreen.saveLabel));
     await tester.pumpAndSettle();
-    expect(find.text('Save a new place'), findsOneWidget);
+    expect(find.text(PlaceSheetText.addTitle), findsOneWidget);
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(1), 'Tiệm bánh cô Hai');
-    await tester.tap(find.text('Study'));
-    await tester.tap(find.text('Yên tĩnh'));
+    await tester.tap(find.text('Học tập'));
+    await tester.tap(find.descendant(
+        of: find.byType(BottomSheet), matching: find.text('Yên tĩnh')));
     await tester.enterText(fields.at(2), 'Một buổi chiều thật bình yên.');
-    await tester.tap(find.bySemanticsLabel('Mood Loved it'));
-    final save = find.text('Lưu & Ghim lên bản đồ');
+    await tester.tap(find.bySemanticsLabel('Nudaeng Thích lắm'));
+    final save = find.text(PlaceSheetText.saveLabel);
     await tester.ensureVisible(save);
     await tester.pumpAndSettle();
     await tester.tap(save);
     await tester.pumpAndSettle();
     expect(find.text('Đã lưu cho bạn'), findsOneWidget);
-    await tester.tap(find.byTooltip('Filter places'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byWidgetPredicate((widget) =>
-        widget is CheckedPopupMenuItem<String> && widget.value == 'Yên tĩnh'));
+    await tester.tap(find.widgetWithText(MapMoodChip, 'Yên tĩnh'));
     await tester.pumpAndSettle();
     expect(
         find.textContaining('Đang xem: Yên tĩnh · 2 địa điểm'), findsOneWidget);
@@ -71,7 +80,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: ExploreScreen()));
     await tester.pumpAndSettle();
-    expect(find.text('Cộng đồng ẩn danh'), findsOneWidget);
+    expect(find.text(ExploreScreen.communityLabel), findsOneWidget);
     final toggle = find.byType(Switch);
     expect(tester.widget<Switch>(toggle).value, isFalse);
     await tester.tap(toggle);
@@ -83,7 +92,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: ExploreScreen()));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('Save a new place'));
+    await tester.tap(find.byTooltip(ExploreScreen.saveLabel));
     await tester.pumpAndSettle();
 
     final fields = find.byType(TextField);
@@ -99,7 +108,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.widget<Switch>(anonymousToggle).value, isTrue);
 
-    final save = find.text('Lưu & Ghim lên bản đồ');
+    final save = find.text(PlaceSheetText.saveLabel);
     await tester.ensureVisible(save);
     await tester.tap(save);
     await tester.pumpAndSettle();
@@ -135,9 +144,9 @@ void main() {
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
     expect(find.text('Bánh thơm và rất yên tĩnh.'), findsOneWidget);
-    await tester.tap(find.widgetWithText(ElevatedButton, 'Share'));
+    await tester.tap(find.text(PlaceSheetText.shareLabel));
     await tester.pumpAndSettle();
-    expect(find.text('Share is a mock in this version.'), findsOneWidget);
+    expect(find.text(PlaceSheetText.shareMock), findsOneWidget);
   });
   testWidgets('Nudaeng Post chooses a friend and inbox accepts a place',
       (tester) async {
@@ -163,21 +172,20 @@ void main() {
     expect(find.text('Gửi qua Nudaeng Post'), findsOneWidget);
     expect(
         tester
-            .widget<ElevatedButton>(
-                find.widgetWithText(ElevatedButton, 'Gửi thư'))
+            .widget<FilledButton>(
+                find.widgetWithText(FilledButton, PlaceSheetText.sendLabel))
             .onPressed,
         isNull);
     await tester.tap(find.text('Tường Vy'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Gửi thư'));
+    await tester.tap(find.text(PlaceSheetText.sendLabel));
     await tester.pumpAndSettle();
     expect(find.text('Gửi qua Nudaeng Post'), findsNothing);
     await tester.tap(find.text('Inbox'));
     await tester.pumpAndSettle();
     expect(find.text('Hòm thư của bạn'), findsOneWidget);
-    await tester.tap(find.text('Mở & Lưu vào bản đồ'));
+    await tester.tap(find.text(PlaceSheetText.openLabel));
     await tester.pumpAndSettle();
     expect(find.text('Hòm thư của bạn'), findsNothing);
   });
-
 }

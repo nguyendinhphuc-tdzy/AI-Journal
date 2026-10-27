@@ -8,6 +8,7 @@ import 'features/journal/journal_scope.dart';
 import 'features/onboarding/data/onboarding_store.dart';
 import 'features/onboarding/onboarding_flow.dart';
 import 'features/onboarding/presentation/first_entry_session.dart';
+import 'features/sound/app_sound.dart';
 import 'navigation/app_shell.dart';
 
 const appName = 'Nhật ký AI';
@@ -56,6 +57,13 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
       widget.journals ?? InMemoryJournalRepository();
   late final AlbumRepository _albums =
       widget.albums ?? InMemoryAlbumRepository();
+
+  @override
+  void initState() {
+    super.initState();
+    // The music, by the sound settings, from the first screen on.
+    AppSound.instance.start();
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -59,8 +59,14 @@ class ShareMemorySheet extends StatefulWidget {
       'Chưa có nội dung để chia sẻ. Viết mô tả hoặc chọn một đoạn từ ghi chú.';
   static const audienceLabel = 'Ai sẽ thấy bài này';
   static const audienceNone =
-      'Chưa có nhóm người xem nào. Tính năng chia sẻ chưa được kết nối nên '
-      'chưa chọn được ai sẽ thấy bài.';
+      'Bài chia sẻ chỉ bạn bè trên app thấy, trong 24 giờ. Bạn bè trên app '
+      'là bạn bè Facebook của bạn cũng dùng app này. Tính năng sẽ mở khi bạn '
+      'đăng nhập bằng Facebook.';
+
+  /// The audience sharing will have (planned, not selectable yet).
+  static const friendsLabel = 'Bạn bè trên app';
+  static const friendsDetail = 'Bạn bè Facebook cũng dùng app';
+  static const soonLabel = 'Sắp có';
   static const audienceFailed = 'Chưa tải được danh sách người xem.';
   static const retryLabel = 'Thử lại';
   static const placeLabel = 'Địa điểm';
@@ -94,7 +100,8 @@ class ShareMemorySheet extends StatefulWidget {
       'lại sẽ gỡ bài đó và thay bằng bài mới, hết hạn sau 24 giờ kể từ lúc '
       'chia sẻ lại.';
   static const publishLabel = 'Chia sẻ trong 24 giờ';
-  static const noService = 'Chưa chia sẻ được vì chưa có nhóm người xem.';
+  static const noService =
+      'Chưa chia sẻ được: cần đăng nhập Facebook để có bạn bè trên app.';
   static const unavailable =
       'Chưa kết nối được dịch vụ chia sẻ nên kỷ niệm chưa được chia sẻ. Nội '
       'dung bạn chọn vẫn còn.';
@@ -626,8 +633,38 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
       );
     }
     if (audiences.isEmpty) {
-      return const AlbumFormMessage(ShareMemorySheet.audienceNone,
-          icon: Icons.group_off_outlined);
+      // Who will see it once sign-in exists, shown but not selectable.
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Opacity(
+            opacity: .6,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              minTileHeight: 48,
+              enabled: false,
+              leading: const Icon(Icons.radio_button_unchecked_rounded,
+                  color: AppColors.textSecondary),
+              title: const Text(ShareMemorySheet.friendsLabel,
+                  style: AlbumFormText.bodyStrong),
+              subtitle: const Text(ShareMemorySheet.friendsDetail,
+                  style: AlbumFormText.note),
+              trailing: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: AppSpacing.xs),
+                decoration: const ShapeDecoration(
+                    color: AppColors.primaryLight, shape: StadiumBorder()),
+                child: Text(ShareMemorySheet.soonLabel,
+                    style: AlbumFormText.note
+                        .copyWith(color: AppColors.primaryAction)),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const AlbumFormMessage(ShareMemorySheet.audienceNone,
+              icon: Icons.people_outline_rounded),
+        ],
+      );
     }
     return Column(children: [
       for (final audience in audiences)

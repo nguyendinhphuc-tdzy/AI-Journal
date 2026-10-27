@@ -9,7 +9,7 @@ Widget app() => MaterialApp(
     );
 
 void main() {
-  testWidgets('Loading changes at 3 seconds and insight at 7 seconds',
+  testWidgets('Loading changes at 3 seconds; the quote stays until Tiếp tục',
       (tester) async {
     await tester.pumpWidget(app());
     expect(find.text('Hủy phân tích'), findsOneWidget);
@@ -24,11 +24,17 @@ void main() {
     await tester.tap(find.text('Lưu'));
     await tester.pump();
     expect(find.text('Đã lưu'), findsOneWidget);
-    await tester.pump(const Duration(milliseconds: 3499));
+    // However long it is read, the quote is never taken away.
+    await tester.pump(const Duration(seconds: 60));
     expect(find.text('Góc suy ngẫm'), findsNothing);
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(find.text('Góc suy ngẫm'), findsOneWidget);
+    expect(find.text('Theodore Roosevelt'), findsOneWidget);
+    // "Đã lưu" has left: 4 s once it is in, then it slides away (it floats
+    // over the bottom of the page meanwhile).
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Tiếp tục'));
     await tester.pumpAndSettle();
+    expect(find.text('Góc suy ngẫm'), findsOneWidget);
     expect(find.text('Theodore Roosevelt'), findsNothing);
     expect(find.text('Chúng mình nhận thấy rằng'), findsOneWidget);
     await tester.tap(find.descendant(

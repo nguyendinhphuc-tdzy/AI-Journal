@@ -259,7 +259,7 @@ void main() {
   });
 
   group('Creating', () {
-    testWidgets('new album appears, Nudaeng peeks once, shortcut to add',
+    testWidgets('new album appears with a glow, no mascot, shortcut to add',
         (tester) async {
       final albums = await _pump(tester);
       await tester.tap(find.text(_A01.createLabel));
@@ -275,23 +275,29 @@ void main() {
       expect(await albums.albums(), hasLength(1), reason: 'one album');
       expect(find.text('Đà Lạt'), findsOneWidget);
       expect(find.text(_A01.created), findsOneWidget);
-      expect(find.byType(FrameSequence), findsOneWidget);
-      // Behind the cover: its head rises above the cover's top edge.
-      final peek = tester.getRect(find.byType(FrameSequence));
-      final tile = tester.getRect(_tile('Đà Lạt'));
-      expect(peek.top, lessThan(tile.top + 12));
+      // No Nudaeng over the grid; the new tile is outlined, then not.
+      expect(find.byType(FrameSequence), findsNothing);
+      final glow = find.byKey(const ValueKey('album-new-glow'));
+      expect(glow, findsOneWidget);
+      Color outline() {
+        final box = tester.widget<DecoratedBox>(find
+            .descendant(of: glow, matching: find.byType(DecoratedBox))
+            .first);
+        return ((box.decoration as BoxDecoration).border as Border).top.color;
+      }
 
-      await tester.pump(const Duration(seconds: 2));
-      expect(find.byType(FrameSequence), findsOneWidget,
-          reason: 'stays still after playing');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(outline().a, greaterThan(.9), reason: 'glowing');
+      await tester.pump(_A01.newGlow);
+      expect(outline().a, 0, reason: 'faded away');
 
       await tester.tap(find.text(_A01.addMemoryLabel));
       await _settle(tester);
       expect(find.text(AlbumStartScreen.title), findsOneWidget);
       await tester.pageBack();
       await _settle(tester);
-      expect(find.byType(FrameSequence), findsNothing,
-          reason: 'plays once, for the new album');
+      expect(find.byKey(const ValueKey('album-new-glow')), findsNothing,
+          reason: 'once, for the new album');
     });
   });
 
