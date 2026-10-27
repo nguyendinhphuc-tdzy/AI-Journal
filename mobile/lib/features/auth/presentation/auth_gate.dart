@@ -6,6 +6,9 @@ import '../../../core/data/app_data.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/network/api_client.dart';
 import '../../album/album_scope.dart';
+import '../../album/data/album_pins.dart';
+import '../../album/presentation/album_pin_sheet.dart';
+import '../../study/data/study_progress.dart';
 import '../../album/data/album_repository.dart';
 import '../../album/data/memory_photos.dart';
 import '../../album/data/album_settings.dart';
@@ -298,14 +301,19 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
               repository: data.journals,
               child: AlbumScope(
                 repository: data.albums,
+                auth: PinAlbumAuth(LocalAlbumPins(userId: widget.userId)),
                 photos: DeviceMemoryPhotos.forUser(widget.userId),
                 child: app,
               ),
             ),
           );
+          final userScoped = StudyProgressScope(
+            repository: LocalStudyProgressStore(userId: widget.userId),
+            child: scoped,
+          );
           final session = widget.auth != null
-              ? AuthScope(auth: widget.auth!, child: scoped)
-              : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: scoped);
+              ? AuthScope(auth: widget.auth!, child: userScoped)
+              : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: userScoped);
           return _ai == null
               ? session
               : AiRemoteScope(service: _ai, child: session);
