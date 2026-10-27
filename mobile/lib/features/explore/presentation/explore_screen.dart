@@ -123,7 +123,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
   ];
   int _nextSavedPlaceId = 3;
   RemoteSavedPlacesRepository? _cloudPlaces;
-  bool _placesCloudReady = false;
   bool _hasUnreadMail = true;
   bool _showAnonymous = false;
 
@@ -169,7 +168,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
     // Authenticated cloud screens never display the three local demo pins.
     setState(() {
       _savedPlaces.clear();
-      _placesCloudReady = false;
     });
     _syncMarkers();
     _reloadSavedPlaces();
@@ -183,7 +181,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (!mounted || !identical(cloud, _cloudPlaces)) return;
       setState(() {
         _savedPlaces..clear()..addAll(items);
-        _placesCloudReady = true;
       });
       await _syncMarkers();
     } catch (_) {
