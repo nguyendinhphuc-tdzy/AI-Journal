@@ -120,6 +120,41 @@ void main() {
     api.close();
   });
 
+  test('Study attribution reaches the backend and returns in cloud entries',
+      () async {
+    const source = JournalSource(
+      kind: 'challenge',
+      id: 'gratitude',
+      label: 'Challenge · Nhiệm vụ 2',
+      task: 1,
+    );
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        return _json({
+          ..._serverEntry(),
+          'source': source.toJson(),
+        }, request.method == 'POST' ? 201 : 200);
+      }),
+    );
+    final local = await LocalJournalRepository.open(userId: 'study-owner');
+    final repo = RemoteJournalRepository(client: api, localDrafts: local);
+    final created = await repo.create(const JournalContent(
+      body: 'Đã hoàn thành bài tập',
+      source: source,
+    ));
+    expect(created.content.source, source);
+    final body = jsonDecode(requests.single.body) as Map<String, dynamic>;
+    expect(body['source'], source.toJson());
+    expect((await repo.entry(created.id))!.content.source, source);
+    expect(requests.every((e) => e.headers['authorization'] == 'Bearer jwt'),
+        isTrue);
+    repo.dispose();
+    api.close();
+  });
+
   test('missing Supabase JWT fails closed before transmitting private content',
       () async {
     var networkCalls = 0;
