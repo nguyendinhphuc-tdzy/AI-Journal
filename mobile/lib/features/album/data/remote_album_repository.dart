@@ -283,7 +283,10 @@ class CombinedAlbumRepository extends ChangeNotifier implements AlbumRepository 
 
   bool _cloud(String id) => id.startsWith('cloud-');
 
-  AlbumRepository _owner(String id) => _cloud(id) ? remote : local;
+  AlbumRepository _owner(String id) {
+    if (_cloud(id)) return remote;
+    return local;
+  }
 
   @override
   Future<List<Album>> albums() async {
