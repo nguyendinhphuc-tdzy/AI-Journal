@@ -363,7 +363,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
         final selectedPlace = saved;
         if (selectedPlace != null) {
           showSavedPlaceSheet(context, selectedPlace,
-              onShare: () => _showShareBottomSheet(selectedPlace));
+              onShare: () => _showShareBottomSheet(selectedPlace),
+              onDelete: _cloudPlaces == null
+                  ? null : () => _deleteCloudPlace(selectedPlace));
         }
         return;
       }
@@ -600,6 +602,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
       behavior: SnackBarBehavior.floating,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 116),
     ));
+
+  Future<void> _deleteCloudPlace(SavedPlace place) async {
+    final cloud = _cloudPlaces;
+    if (cloud == null) return;
+    try {
+      await cloud.delete(place.id);
+      if (!mounted) return;
+      setState(() => _savedPlaces.removeWhere((e) => e.id == place.id));
+      await _syncMarkers();
+      if (mounted) _toast('Đã xóa địa điểm khỏi tài khoản');
+    } catch (_) {
+      if (mounted) _toast('Chưa thể xóa địa điểm. Hãy thử lại.');
+    }
+  }
 
   Future<void> _showShareBottomSheet(SavedPlace place) async {
     if (_cloudPlaces != null) {
