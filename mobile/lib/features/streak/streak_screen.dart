@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_text.dart';
+import '../../core/widgets/app_ui.dart';
 import '../../navigation/app_shell.dart';
 import '../../navigation/custom_bottom_navigation.dart';
 import 'streak_state.dart';
@@ -17,6 +19,18 @@ class StreakScreen extends StatefulWidget {
           child: child,
         ),
       );
+
+  /// Back to Home under everything the entry opened (writer, reflection,
+  /// streak).
+  static void returnHome(BuildContext context) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.popUntil((route) => route.isFirst);
+    } else {
+      navigator
+          .pushReplacement(MaterialPageRoute(builder: (_) => const AppShell()));
+    }
+  }
 
   @override
   State<StreakScreen> createState() => _StreakScreenState();
@@ -45,13 +59,7 @@ class _StreakScreenState extends State<StreakScreen> {
 
   void _continue() {
     StreakState.shared.completeToday();
-    final navigator = Navigator.of(context);
-    if (navigator.canPop()) {
-      navigator.popUntil((route) => route.isFirst);
-    } else {
-      navigator
-          .pushReplacement(MaterialPageRoute(builder: (_) => const AppShell()));
-    }
+    StreakScreen.returnHome(context);
   }
 
   void _selectTab(int index) {
@@ -64,7 +72,6 @@ class _StreakScreenState extends State<StreakScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
     final todayIndex = DateTime.now().weekday % 7;
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -118,17 +125,15 @@ class _StreakScreenState extends State<StreakScreen> {
                           builder: (context, count, _) => Text(
                             'Chuỗi ${count.round()} ngày liên tiếp',
                             textAlign: TextAlign.center,
-                            style: textTheme.headlineLarge?.copyWith(
-                                color: AppColors.primaryDark,
-                                fontWeight: FontWeight.bold),
+                            style: AppText.pageTitle
+                                .copyWith(color: AppColors.primaryAction),
                           ),
                         ),
                         const SizedBox(height: 12),
-                        Text(
+                        const Text(
                             'Hãy suy ngẫm mỗi ngày để tâm trí luôn khỏe mạnh và bình yên nhé...',
                             textAlign: TextAlign.center,
-                            style: textTheme.bodyLarge?.copyWith(
-                                color: AppColors.textSecondary, height: 1.5)),
+                            style: AppText.bodySecondary),
                         const SizedBox(height: 28),
                         Row(
                             children: List.generate(7, (index) {
@@ -146,13 +151,14 @@ class _StreakScreenState extends State<StreakScreen> {
                               decoration: BoxDecoration(
                                   shape: BoxShape.circle,
                                   color: active
-                                      ? AppColors.primary
-                                      : AppColors.border),
+                                      ? AppColors.primaryAction
+                                      : AppColors.primaryLight),
                               child: Text(_days[index],
-                                  style: textTheme.labelLarge?.copyWith(
+                                  style: AppText.label.copyWith(
+                                      fontSize: 14,
                                       color: active
                                           ? AppColors.surface
-                                          : AppColors.textSecondary)),
+                                          : AppColors.textPrimary)),
                             ),
                           )));
                         })),
@@ -165,15 +171,7 @@ class _StreakScreenState extends State<StreakScreen> {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _continue,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryAction,
-                  foregroundColor: AppColors.surface,
-                  minimumSize: const Size.fromHeight(54),
-                ),
-                child: const Text('Tiếp tục'),
-              ),
+              child: AppPrimaryButton(label: 'Tiếp tục', onPressed: _continue),
             ),
           ]),
         ),

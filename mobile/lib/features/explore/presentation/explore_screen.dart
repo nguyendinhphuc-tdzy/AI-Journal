@@ -5,8 +5,14 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../data/explore_highlight.dart';
 import '../data/explore_places_repository.dart';
+import 'map_style.dart';
+import 'widgets/map_overlay_parts.dart';
 import 'widgets/nudaeng_map_marker.dart';
 import 'widgets/place_sheets.dart';
 import 'widgets/share_dialog.dart';
@@ -32,13 +38,30 @@ class ExploreScreen extends StatefulWidget {
   /// Shared memory pin passed from Album A10; cleared after A11/A12 revoke.
   final ExploreHighlight? highlight;
 
+  static const searchHint = 'Tìm địa điểm';
+  static const inboxTooltip = 'Mở hộp thư';
+  static const allMoods = 'Tất cả';
+  static const communityLabel = 'Cộng đồng';
+  static const saveLabel = 'Lưu nơi này';
+  static const pinHint = 'Chạm vào bản đồ để ghim tạm';
+  static const noResults = 'Không tìm thấy địa điểm';
+  static const searchFailed = 'Chưa tải được địa điểm. Bạn thử lại nhé.';
+  static const retryLabel = 'Thử lại';
+  static const sample = 'Địa điểm mẫu';
+  static const draftTitle = 'Ghim tạm';
+  static const draftDetail = 'Chưa lưu · Chạm chỗ khác để dời';
+  static const closePlaceTooltip = 'Đóng địa điểm';
+  static const removeDraftTooltip = 'Bỏ ghim tạm';
+  static const closePostTooltip = 'Đóng bài chia sẻ';
+  static const mapFailed =
+      'Không tải được bản đồ. Bạn kiểm tra kết nối mạng nhé.';
+  static const reloadMapLabel = 'Tải lại bản đồ';
+
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
 }
 
 class _ExploreScreenState extends State<ExploreScreen> {
-  static const _dayStyle = 'https://tiles.openfreemap.org/styles/liberty';
-  static const _nightStyle = 'https://tiles.openfreemap.org/styles/dark';
   // The requested ngu.gif asset is not part of this repository yet. Keep the
   // fallback local and replace this path once that approved asset is added.
   static const _nightMascotAsset = 'assets/images/loading.gif';
@@ -55,7 +78,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   bool _loadFailed = false;
   String? _searchError;
   String _query = '';
-  String _selectedMood = 'Tất cả';
+  String _selectedMood = ExploreScreen.allMoods;
   List<ExplorePlace> _places = [];
   ExplorePlace? _selected;
   LatLng? _draftPin;
@@ -101,6 +124,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
   bool _hasUnreadMail = true;
   bool _showAnonymous = false;
 
+  /// The pin hint is said until the first pin.
+  bool _pinnedOnce = false;
+
   /// Mock community posts deliberately contain no name, account or identifier.
   final List<Map<String, dynamic>> _anonymousPlaces = [
     {
@@ -126,8 +152,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
     // Use Android TextureView so Flutter overlays and tab clipping compose
     // correctly; the default SurfaceView uses a separate virtual display.
     MapLibreMap.useHybridComposition = true;
-    final hour = (widget.clock?.call() ?? DateTime.now()).hour;
-    _isNight = hour >= 18 || hour < 5;
+    _isNight =
+        ExploreMapStyle.isNightAt(widget.clock?.call() ?? DateTime.now());
     _search();
   }
 
@@ -202,7 +228,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (!mounted || version != _searchVersion) return;
       setState(() {
         _places = [];
-        _searchError = 'Could not load places. Try again.';
+        _searchError = ExploreScreen.searchFailed;
       });
       _syncMarkers();
     }
@@ -228,28 +254,51 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> _showAnonymousMessage(Map<String, dynamic> place) =>
       showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            ClipOval(
-                child: Image.asset('assets/images/loading.gif',
-                    height: 76, width: 76)),
-            const SizedBox(height: 14),
-            const Text('Trạm dừng ẩn danh',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Text(place['message'] as String, textAlign: TextAlign.center),
-          ]),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Đóng')),
-          ],
+        barrierColor: Colors.black.withValues(alpha: .35),
+        builder: (dialog) => Dialog(
+          backgroundColor: AppColors.surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.modal)),
+          insetPadding: const EdgeInsets.all(AppSpacing.lg),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: ClipOval(
+                        child: Image.asset('assets/images/loading.gif',
+                            height: 76, width: 76)),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Semantics(
+                    header: true,
+                    child: const Text('Trạm dừng ẩn danh',
+                        textAlign: TextAlign.center,
+                        style: AppText.sectionTitle),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(place['message'] as String,
+                      textAlign: TextAlign.center,
+                      style: AppText.bodySecondary),
+                  const SizedBox(height: AppSpacing.xl),
+                  AppSecondaryButton(
+                      label: 'Đóng',
+                      compact: true,
+                      onPressed: () => Navigator.pop(dialog)),
+                ],
+              ),
+            ),
+          ),
         ),
       );
 
-  List<SavedPlace> get _visibleSavedPlaces => _selectedMood == 'Tất cả'
+  List<SavedPlace> get _visibleSavedPlaces => _selectedMood ==
+          ExploreScreen.allMoods
       ? _savedPlaces
       : _savedPlaces.where((place) => place.moodTag == _selectedMood).toList();
 
@@ -305,8 +354,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (mounted && !_styleReady) setState(() => _loadFailed = true);
     });
   }
-
-  String get _mapStyle => _isNight ? _nightStyle : _dayStyle;
 
   String get _vibeLabel => _isNight ? 'Vibe ban đêm' : 'Vibe ban ngày';
 
@@ -426,6 +473,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       _draftPin = coordinate;
       _selected = null;
       _highlightCard = false;
+      _pinnedOnce = true;
     });
     _syncMarkers();
   }
@@ -475,17 +523,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
       });
       await _syncMarkers();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            draft.isAnonymousShare ? 'Đã thả trạm ẩn danh' : 'Đã lưu cho bạn'),
-      ));
+      _toast(draft.isAnonymousShare ? 'Đã thả trạm ẩn danh' : 'Đã lưu cho bạn');
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Chưa lấy được vị trí bản đồ. Hãy thử lại.')));
+        _toast('Chưa lấy được vị trí bản đồ. Bạn thử lại nhé.');
       }
     }
   }
+
+  /// A short message, above the floating "Cộng đồng" / "Lưu nơi này" row so
+  /// it never covers them.
+  void _toast(String text) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(text),
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 116),
+    ));
 
   Future<void> _showShareBottomSheet(SavedPlace place) async {
     final recipients =
@@ -505,18 +559,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Image.asset('assets/images/laixe.gif', height: 140),
           const SizedBox(height: 12),
-          const Text('Nudaeng đang giao thư...',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          Text('Nudaeng đang giao thư…',
+              style: AppText.label.copyWith(color: AppColors.surface)),
         ]),
       ),
     );
     await Future<void>.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content:
-            Text('Thư đã được gửi thành công tới ${recipients.join(', ')}!')));
+    _toast('Thư đã được gửi tới ${recipients.join(', ')}!');
   }
 
   Future<void> _showInbox() async {
@@ -539,8 +590,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       ));
     });
     _syncMarkers();
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã lưu vào bản đồ của bạn')));
+    _toast('Đã lưu vào bản đồ của bạn');
   }
 
   Future<void> _showPlace(ExplorePlace place) async {
@@ -571,221 +621,309 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
+  /// One line under the chips: the vibe, and either the pin hint (until
+  /// the first pin) or what the chosen mood shows. Nothing once both are
+  /// said.
+  String? get _status {
+    if (_selectedMood != ExploreScreen.allMoods) {
+      return '$_vibeLabel · Đang xem: $_selectedMood · '
+          '${_visibleSavedPlaces.length} địa điểm';
+    }
+    return _pinnedOnce ? null : '$_vibeLabel · ${ExploreScreen.pinHint}';
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
-        body: Stack(fit: StackFit.expand, children: [
-          MapLibreMap(
-            key: ValueKey(_generation),
-            styleString: _mapStyle,
-            initialCameraPosition: const CameraPosition(
-                target: LatLng(10.8231, 106.6297), zoom: 12),
-            onMapCreated: _created,
-            onStyleLoadedCallback: _styleLoaded,
-            trackCameraPosition: true,
-            onCameraMove: (position) {
-              _currentCameraPosition = position.target;
-            },
-            onMapClick: _pick,
-            onMapLongClick: _pick,
-            compassViewMargins: const math.Point(12, 100),
-            attributionButtonMargins: const math.Point(12, 8),
-          ),
-          SafeArea(
-              child: Padding(
-            padding: const EdgeInsets.all(12),
+  Widget build(BuildContext context) {
+    final highlight = _activeHighlight;
+    final showHighlight = _selected == null &&
+        _draftPin == null &&
+        _highlightCard &&
+        highlight != null;
+    final status = _status;
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: Stack(fit: StackFit.expand, children: [
+        MapLibreMap(
+          key: ValueKey(_generation),
+          styleString: ExploreMapStyle.day,
+          initialCameraPosition:
+              const CameraPosition(target: LatLng(10.8231, 106.6297), zoom: 12),
+          onMapCreated: _created,
+          onStyleLoadedCallback: _styleLoaded,
+          trackCameraPosition: true,
+          onCameraMove: (position) {
+            _currentCameraPosition = position.target;
+          },
+          onMapClick: _pick,
+          onMapLongClick: _pick,
+          compassViewMargins: const math.Point(16, 140),
+          attributionButtonMargins: const math.Point(16, 12),
+        ),
+        SafeArea(
+          child: Padding(
+            padding:
+                const EdgeInsets.fromLTRB(AppSpacing.md, 12, AppSpacing.md, 0),
             child: Column(children: [
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                    child: Material(
-                        color: Colors.white,
-                        elevation: 2,
-                        borderRadius: BorderRadius.circular(16),
-                        child: TextField(
-                            controller: _searchController,
-                            onChanged: _queryChanged,
-                            onTapOutside: (_) =>
-                                FocusManager.instance.primaryFocus?.unfocus(),
-                            decoration: const InputDecoration(
-                                hintText: 'Search places',
-                                prefixIcon: Icon(Icons.search),
-                                border: InputBorder.none,
-                                contentPadding:
-                                    EdgeInsets.symmetric(vertical: 14))))),
+              Row(children: [
+                Expanded(child: _buildSearch()),
                 const SizedBox(width: 12),
-                Material(
-                    color: Colors.white,
-                    elevation: 2,
-                    borderRadius: BorderRadius.circular(16),
-                    child: SizedBox(
-                        width: 52,
-                        height: 52,
-                        child: PopupMenuButton<String>(
-                            tooltip: 'Filter places',
-                            icon: const Icon(Icons.menu),
-                            position: PopupMenuPosition.under,
-                            onSelected: _filterPlacesByMood,
-                            itemBuilder: (_) => [
-                                  for (final mood in [
-                                    'Tất cả',
-                                    ...moodTags,
-                                  ])
-                                    CheckedPopupMenuItem(
-                                        value: mood,
-                                        checked: _selectedMood == mood,
-                                        child: Text(mood))
-                                ]))),
-                const SizedBox(width: 8),
-                Material(
-                  color: Colors.white,
-                  elevation: 2,
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    width: 52,
-                    height: 52,
-                    child: Stack(clipBehavior: Clip.none, children: [
-                      IconButton(
-                        tooltip: 'Open inbox',
-                        onPressed: _showInbox,
-                        icon: const Icon(Icons.mail_outline),
-                      ),
-                      if (_hasUnreadMail)
-                        const Positioned(
-                          top: 9,
-                          right: 10,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            child: SizedBox(width: 9, height: 9),
-                          ),
-                        ),
-                    ]),
+                _buildInbox(),
+              ]),
+              const SizedBox(height: 12),
+              _buildMoods(),
+              if (status != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: MapFloatingSurface(
+                    radius: 16,
+                    color: AppColors.surface.withValues(alpha: .94),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(
+                            _isNight
+                                ? Icons.nightlight_round
+                                : Icons.wb_sunny_outlined,
+                            size: 16,
+                            color: AppColors.warmAccent),
+                        const SizedBox(width: 6),
+                        Flexible(child: Text(status, style: AppText.meta)),
+                      ]),
+                    ),
                   ),
                 ),
-              ]),
-              const SizedBox(height: 8),
-              Material(
-                color: Colors.white.withValues(alpha: .94),
-                elevation: 1,
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(children: [
-                    const Icon(Icons.volunteer_activism_outlined, size: 20),
-                    const SizedBox(width: 8),
-                    const Expanded(child: Text('Cộng đồng ẩn danh')),
-                    Switch.adaptive(
-                      value: _showAnonymous,
-                      onChanged: _toggleAnonymous,
+              ],
+              if (_query.trim().isNotEmpty || _searchError != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Flexible(child: _buildResults()),
+              ],
+            ]),
+          ),
+        ),
+        if (_loadFailed) Center(child: _buildMapFailed()),
+        Positioned(
+          left: AppSpacing.md,
+          right: AppSpacing.md,
+          bottom: 44,
+          child: SafeArea(
+            top: false,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (showHighlight) ...[
+                MapInfoCard(
+                  icon: Icons.share_location_outlined,
+                  title: highlight.title,
+                  subtitle: highlight.subtitle,
+                  closeTooltip: ExploreScreen.closePostTooltip,
+                  onClose: () => setState(() => _highlightCard = false),
+                ),
+                const SizedBox(height: 12),
+              ],
+              if (_selected != null || _draftPin != null) ...[
+                MapInfoCard(
+                  icon: _selected != null
+                      ? Icons.place_outlined
+                      : Icons.push_pin_outlined,
+                  title: _selected?.label ?? ExploreScreen.draftTitle,
+                  subtitle: _selected != null
+                      ? '${_selected!.category} · ${ExploreScreen.sample}'
+                      : ExploreScreen.draftDetail,
+                  closeTooltip: _selected != null
+                      ? ExploreScreen.closePlaceTooltip
+                      : ExploreScreen.removeDraftTooltip,
+                  onClose: () {
+                    setState(() {
+                      if (_selected == null) _draftPin = null;
+                      _selected = null;
+                    });
+                    _syncMarkers();
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+              _buildActions(),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildSearch() => MapFloatingSurface(
+        child: TextField(
+          controller: _searchController,
+          onChanged: _queryChanged,
+          onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+          style: AppText.body,
+          textInputAction: TextInputAction.search,
+          decoration: const InputDecoration(
+            hintText: ExploreScreen.searchHint,
+            hintStyle: AppText.bodySecondary,
+            prefixIcon:
+                Icon(Icons.search_rounded, color: AppColors.textSecondary),
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+      );
+
+  Widget _buildInbox() => MapFloatingSurface(
+        child: SizedBox.square(
+          dimension: 52,
+          child: Stack(alignment: Alignment.center, children: [
+            IconButton(
+              tooltip: ExploreScreen.inboxTooltip,
+              onPressed: _showInbox,
+              icon: const Icon(Icons.mail_outline_rounded,
+                  color: AppColors.textPrimary),
+            ),
+            if (_hasUnreadMail)
+              Positioned(
+                top: 12,
+                right: 12,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryAction,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.surface, width: 2),
                     ),
-                  ]),
+                  ),
                 ),
               ),
-              const SizedBox(height: 8),
-              Card(
-                  child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Text(
-                          _selectedMood == 'Tất cả'
-                              ? '$_vibeLabel · Khám phá theo cảm xúc · Chạm/nhấn giữ để ghim tạm'
-                              : '$_vibeLabel · Đang xem: $_selectedMood · ${_visibleSavedPlaces.length} địa điểm',
-                          textAlign: TextAlign.center))),
-              if (_query.trim().isNotEmpty || _searchError != null)
-                Flexible(
-                    child: Card(
-                        child: ListView(shrinkWrap: true, children: [
-                  if (_searchError != null)
-                    ListTile(
-                        title: Text(_searchError!),
-                        trailing: IconButton(
-                            onPressed: _search,
-                            icon: const Icon(Icons.refresh))),
-                  if (_places.isEmpty && _searchError == null)
-                    const ListTile(title: Text('No places found')),
-                  for (final place in _places)
-                    ListTile(
-                        title: Text(place.label),
-                        subtitle: Text('${place.category} · Demo'),
-                        onTap: () => _showPlace(place)),
-                ]))),
-            ]),
-          )),
-          if (_loadFailed)
-            Center(
-                child: Card(
-                    child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                          const Text(
-                              'Map could not load. Check your Internet connection.'),
-                          TextButton(
-                              onPressed: _retryMap,
-                              child: const Text('Retry map')),
-                        ])))),
-          if (_selected == null &&
-              _draftPin == null &&
-              _highlightCard &&
-              _activeHighlight != null)
-            Positioned(
-                left: 12,
-                right: 12,
-                bottom: 40,
-                child: SafeArea(
-                    top: false,
-                    child: Card(
-                        child: ListTile(
-                      leading: const Icon(Icons.share_location_outlined),
-                      title: Text(_activeHighlight!.title),
-                      subtitle: Text(_activeHighlight!.subtitle),
-                      isThreeLine: true,
-                      trailing: IconButton(
-                          tooltip: 'Đóng bài chia sẻ',
-                          icon: const Icon(Icons.close),
-                          onPressed: () =>
-                              setState(() => _highlightCard = false)),
-                    )))),
-          if (_selected != null || _draftPin != null)
-            Positioned(
-                left: 12,
-                right: 12,
-                bottom: 96,
-                child: SafeArea(
-                    top: false,
-                    child: Card(
-                        child: ListTile(
-                      title: Text(_selected?.label ?? 'Temporary pin'),
-                      subtitle: Text(_selected != null
-                          ? '${_selected!.category} · Demo only'
-                          : '${_draftPin!.latitude.toStringAsFixed(5)}, ${_draftPin!.longitude.toStringAsFixed(5)}\nNot saved · Tap elsewhere to move'),
-                      isThreeLine: _selected == null,
-                      trailing: IconButton(
-                          tooltip: _selected == null
-                              ? 'Remove temporary pin'
-                              : 'Close place details',
-                          icon: const Icon(Icons.close),
-                          onPressed: () {
-                            setState(() {
-                              if (_selected == null) _draftPin = null;
-                              _selected = null;
-                            });
-                            _syncMarkers();
-                          }),
-                    )))),
-          Positioned(
-            right: 18,
-            bottom: 26,
-            child: FloatingActionButton(
-              heroTag: 'add-place',
-              tooltip: 'Save a new place',
-              backgroundColor: AppColors.primaryDark,
-              foregroundColor: Colors.white,
-              onPressed: _addPlace,
-              child: const Icon(Icons.add_location_alt),
+          ]),
+        ),
+      );
+
+  /// Every mood, as chips; the shadow needs a little room to show.
+  Widget _buildMoods() => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        child: Row(children: [
+          for (final (index, mood)
+              in [ExploreScreen.allMoods, ...moodTags].indexed) ...[
+            if (index > 0) const SizedBox(width: AppSpacing.sm),
+            MapMoodChip(
+              label: mood,
+              selected: _selectedMood == mood,
+              onTap: () => _filterPlacesByMood(
+                  _selectedMood == mood ? ExploreScreen.allMoods : mood),
             ),
-          ),
+          ],
         ]),
       );
+
+  Widget _buildResults() => MapFloatingSurface(
+        child: ListView(shrinkWrap: true, padding: EdgeInsets.zero, children: [
+          if (_searchError != null)
+            ListTile(
+              title: Text(_searchError!, style: AppText.body),
+              trailing: IconButton(
+                  tooltip: ExploreScreen.retryLabel,
+                  onPressed: _search,
+                  icon: const Icon(Icons.refresh_rounded,
+                      color: AppColors.primaryAction)),
+            ),
+          if (_places.isEmpty && _searchError == null)
+            const ListTile(
+                title: Text(ExploreScreen.noResults,
+                    style: AppText.bodySecondary)),
+          for (final place in _places)
+            ListTile(
+              leading: const Icon(Icons.place_outlined,
+                  color: AppColors.primaryAction),
+              title: Text(place.label, style: AppText.label),
+              subtitle: Text('${place.category} · ${ExploreScreen.sample}',
+                  style: AppText.meta),
+              onTap: () => _showPlace(place),
+            ),
+        ]),
+      );
+
+  Widget _buildMapFailed() => Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: MapFloatingSurface(
+          radius: 24,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.cloud_off_rounded,
+                  size: 32, color: AppColors.textSecondary),
+              const SizedBox(height: 12),
+              const Text(ExploreScreen.mapFailed,
+                  textAlign: TextAlign.center, style: AppText.body),
+              const SizedBox(height: AppSpacing.md),
+              AppSecondaryButton(
+                  label: ExploreScreen.reloadMapLabel,
+                  icon: Icons.refresh_rounded,
+                  compact: true,
+                  onPressed: _retryMap),
+            ]),
+          ),
+        ),
+      );
+
+  /// Community on the left, "Lưu nơi này" on the right; on a narrow screen
+  /// the save button keeps only its icon.
+  Widget _buildActions() => LayoutBuilder(builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 340;
+        return Row(children: [
+          MapFloatingSurface(
+            radius: 24,
+            child: Semantics(
+              label: 'Hiện trạm cộng đồng ẩn danh',
+              child: Padding(
+                padding: const EdgeInsets.only(left: 14, right: 6),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.volunteer_activism_outlined,
+                      size: 20, color: AppColors.primaryAction),
+                  const SizedBox(width: 6),
+                  Text(ExploreScreen.communityLabel,
+                      style: AppText.label.copyWith(fontSize: 14)),
+                  Switch(
+                    value: _showAnonymous,
+                    onChanged: _toggleAnonymous,
+                    activeTrackColor: AppColors.primaryAction,
+                    activeThumbColor: AppColors.surface,
+                    inactiveTrackColor: AppColors.background,
+                    inactiveThumbColor: AppColors.textSecondary,
+                    trackOutlineColor:
+                        const WidgetStatePropertyAll(AppColors.border),
+                    materialTapTargetSize: MaterialTapTargetSize.padded,
+                  ),
+                ]),
+              ),
+            ),
+          ),
+          const Spacer(),
+          Tooltip(
+            message: ExploreScreen.saveLabel,
+            child: DecoratedBox(
+              decoration: const ShapeDecoration(
+                  shape: StadiumBorder(), shadows: mapOverlayShadow),
+              child: FilledButton(
+                onPressed: _addPlace,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryAction,
+                  foregroundColor: AppColors.surface,
+                  minimumSize: const Size(52, 52),
+                  padding: EdgeInsets.symmetric(horizontal: narrow ? 0 : 20),
+                  shape: const StadiumBorder(),
+                  textStyle: AppText.label,
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.add_location_alt_outlined, size: 22),
+                  if (!narrow) ...[
+                    const SizedBox(width: AppSpacing.sm),
+                    const Text(ExploreScreen.saveLabel),
+                  ],
+                ]),
+              ),
+            ),
+          ),
+        ]);
+      });
 }

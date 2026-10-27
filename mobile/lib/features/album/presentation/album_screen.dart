@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../onboarding/presentation/frame_sequence.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../album_scope.dart';
 import '../data/album.dart';
 import '../data/album_repository.dart';
@@ -23,8 +23,8 @@ import 'album_routes.dart';
 ///   the album) and a long press open A03; a locked album asks A04 first.
 /// - A locked album shows a generic cover and no memory count; with
 ///   [Album.hideNameWhenLocked], "Album đã khóa" instead of its name.
-/// - After creating an album Nudaeng peeks from behind its cover once
-///   (1.6 s), then stays still until the user leaves the screen.
+/// - A new album fades in at the top with a soft teal glow (1.8 s) that
+///   fades away; no mascot over the grid.
 class AlbumScreen extends StatefulWidget {
   const AlbumScreen({super.key, this.onShare, this.onUnshare});
 
@@ -35,7 +35,8 @@ class AlbumScreen extends StatefulWidget {
   /// Posts taken off the map in A11 or A12: the shell drops them from E01.
   final ValueChanged<ShareRemoval>? onUnshare;
 
-  static const title = 'Album';
+  /// The tab's name in the bottom navigation.
+  static const title = 'Kỷ niệm';
   static const subtitle = 'Giữ lại những điều bạn muốn nhớ.';
   static const createLabel = 'Tạo album';
   static const emptyTitle = 'Chưa có album nào';
@@ -51,17 +52,8 @@ class AlbumScreen extends StatefulWidget {
   static String countLabel(int count) => '$count kỷ niệm';
   static const created = 'Đã tạo album';
 
-  static final peekFrames = [
-    for (var i = 1; i <= 8; i++)
-      'assets/Deimage/album-peek-frame-${i.toString().padLeft(2, '0')}.png',
-  ];
-
-  /// Source pace: 8 × 200 ms = 1.6 s.
-  static final peekDurations = [
-    for (var i = 0; i < 8; i++) const Duration(milliseconds: 200),
-  ];
-
-  static const peekAspectRatio = 404 / 371;
+  /// How long a new album's glow lasts, fade-in included.
+  static const newGlow = Duration(milliseconds: 1800);
   static const backdropAsset = AlbumBackdrop.figureAsset;
   static const emptyAsset = 'assets/Deimage/album-empty-nudaeng.png';
 
@@ -77,8 +69,8 @@ class _AlbumScreenState extends State<AlbumScreen> {
   var _failed = false;
   var _creating = false;
 
-  /// The album just created: it fades in and Nudaeng peeks from its cover.
-  String? _peekId;
+  /// The album just created: it fades in with a glow.
+  String? _newId;
 
   AlbumUnlocks get _unlocks => AlbumUnlocks.instance;
 
@@ -149,9 +141,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
   bool _isLocked(Album album) => album.locked && !_unlocks.isUnlocked(album.id);
 
-  /// Leaving the library ends the peek: it plays once, for the new album.
+  /// Leaving the library ends the glow: it is for the new album, once.
   Future<void> _leave(Future<void> Function() route) async {
-    if (_peekId != null) setState(() => _peekId = null);
+    if (_newId != null) setState(() => _newId = null);
     await route();
   }
 
@@ -169,7 +161,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
     final album = await AlbumRoutes.create(context);
     _creating = false;
     if (album == null || !mounted) return;
-    setState(() => _peekId = album.id);
+    setState(() => _newId = album.id);
     // Newest first: the new album is the first tile.
     if (_scroll.hasClients) {
       _scroll.animateTo(0,
@@ -183,6 +175,8 @@ class _AlbumScreenState extends State<AlbumScreen> {
         margin: EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg,
             _Dock.heightOf(context) - AppSpacing.sm),
         content: const Text(AlbumScreen.created),
+        // Leaves on its own, as every snack bar, though it has an action.
+        persist: false,
         action: SnackBarAction(
           label: AlbumScreen.addMemoryLabel,
           onPressed: () {
@@ -196,50 +190,51 @@ class _AlbumScreenState extends State<AlbumScreen> {
   Widget build(BuildContext context) {
     final albums = _albums;
     final firstLoad = albums == null;
-    // The large background Nudaeng only while the grid is short, and never
-    // next to the peeking one.
-    final showFigure = albums != null &&
-        albums.isNotEmpty &&
-        albums.length <= 2 &&
-        _peekId == null;
+    // The large background Nudaeng only while the grid is short.
+    final showFigure =
+        albums != null && albums.isNotEmpty && albums.length <= 2;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // The sky runs under the status bar; the library stays below it.
           AlbumBackdrop(showFigure: showFigure),
-          LayoutBuilder(
-            builder: (context, box) => CustomScrollView(
-              controller: _scroll,
-              slivers: [
-                const SliverToBoxAdapter(child: _Header()),
-                if (_failed && albums != null)
+          SafeArea(
+            bottom: false,
+            child: LayoutBuilder(
+              builder: (context, box) => CustomScrollView(
+                controller: _scroll,
+                slivers: [
+                  const SliverToBoxAdapter(child: _Header()),
+                  if (_failed && albums != null)
+                    SliverToBoxAdapter(
+                      child: _Notice(
+                          text: AlbumScreen.refreshFailed, onRetry: _load),
+                    ),
+                  if (firstLoad && _loading)
+                    const _SkeletonGrid()
+                  else if (firstLoad)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child:
+                          _Notice(text: AlbumScreen.loadFailed, onRetry: _load),
+                    )
+                  else if (albums.isEmpty)
+                    const SliverFillRemaining(
+                        hasScrollBody: false, child: _EmptyLibrary())
+                  else
+                    _Grid(
+                      albums: albums,
+                      width: box.maxWidth,
+                      newId: _newId,
+                      onOpen: _open,
+                      onSettings: _settings,
+                    ),
                   SliverToBoxAdapter(
-                    child: _Notice(
-                        text: AlbumScreen.refreshFailed, onRetry: _load),
-                  ),
-                if (firstLoad && _loading)
-                  const _SkeletonGrid()
-                else if (firstLoad)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child:
-                        _Notice(text: AlbumScreen.loadFailed, onRetry: _load),
-                  )
-                else if (albums.isEmpty)
-                  const SliverFillRemaining(
-                      hasScrollBody: false, child: _EmptyLibrary())
-                else
-                  _Grid(
-                    albums: albums,
-                    width: box.maxWidth,
-                    peekId: _peekId,
-                    onOpen: _open,
-                    onSettings: _settings,
-                  ),
-                SliverToBoxAdapter(
-                    child: SizedBox(height: _Dock.heightOf(context))),
-              ],
+                      child: SizedBox(height: _Dock.heightOf(context))),
+                ],
+              ),
             ),
           ),
           Positioned(
@@ -257,21 +252,13 @@ class _AlbumScreenState extends State<AlbumScreen> {
 class _Header extends StatelessWidget {
   const _Header();
 
+  // Same header as the other tabs (title = tab name, line under it).
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, AppSpacing.xl),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Semantics(
-              header: true,
-              child: const Text(AlbumScreen.title, style: _Text.title),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            const Text(AlbumScreen.subtitle, style: _Text.subtitle),
-          ],
-        ),
+  Widget build(BuildContext context) => const Padding(
+        padding: EdgeInsets.fromLTRB(
+            AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xl),
+        child: AppPageHeader(
+            title: AlbumScreen.title, subtitle: AlbumScreen.subtitle),
       );
 }
 
@@ -279,14 +266,14 @@ class _Grid extends StatelessWidget {
   const _Grid({
     required this.albums,
     required this.width,
-    required this.peekId,
+    required this.newId,
     required this.onOpen,
     required this.onSettings,
   });
 
   final List<Album> albums;
   final double width;
-  final String? peekId;
+  final String? newId;
   final ValueChanged<Album> onOpen;
   final ValueChanged<Album> onSettings;
 
@@ -315,7 +302,7 @@ class _Grid extends StatelessWidget {
                             width: tileWidth,
                             // Always shown as locked here, opened or not.
                             locked: albums[j].locked,
-                            peek: albums[j].id == peekId,
+                            isNew: albums[j].id == newId,
                             onOpen: () => onOpen(albums[j]),
                             onSettings: () => onSettings(albums[j]),
                           )
@@ -328,7 +315,6 @@ class _Grid extends StatelessWidget {
         ),
     ];
     return SliverPadding(
-      // Room above the first row for Nudaeng's head when it peeks.
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.md),
       sliver: SliverList.list(children: rows),
@@ -342,7 +328,7 @@ class _AlbumTile extends StatelessWidget {
     required this.album,
     required this.width,
     required this.locked,
-    required this.peek,
+    required this.isNew,
     required this.onOpen,
     required this.onSettings,
   });
@@ -350,7 +336,7 @@ class _AlbumTile extends StatelessWidget {
   final Album album;
   final double width;
   final bool locked;
-  final bool peek;
+  final bool isNew;
   final VoidCallback onOpen;
   final VoidCallback onSettings;
 
@@ -384,11 +370,7 @@ class _AlbumTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _CoverWithPeek(
-                  album: album,
-                  width: width - padding * 2,
-                  locked: locked,
-                  peek: peek),
+              AlbumCover(themeId: album.themeId, locked: locked),
               const SizedBox(height: AppSpacing.sm),
               Expanded(
                 child: Row(
@@ -452,62 +434,44 @@ class _AlbumTile extends StatelessWidget {
       ].join(', '),
       child: tile,
     );
-    if (!peek) return semantic;
-    // The new album fades into its place.
+    if (!isNew) return semantic;
+    // The new album fades into its place (200 ms) with a teal glow that
+    // holds, then fades away. Reduced motion: there at once, no glow.
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
-          : const Duration(milliseconds: 200),
-      builder: (context, opacity, child) =>
-          Opacity(opacity: opacity, child: child),
-      child: semantic,
-    );
-  }
-}
-
-/// The cover, with Nudaeng behind it on a new album: its head rises above
-/// the cover's top edge, the rest stays hidden behind the folder.
-class _CoverWithPeek extends StatelessWidget {
-  const _CoverWithPeek({
-    required this.album,
-    required this.width,
-    required this.locked,
-    required this.peek,
-  });
-
-  final Album album;
-
-  /// Cover width (known up front: the grid row measures intrinsic heights).
-  final double width;
-  final bool locked;
-  final bool peek;
-
-  @override
-  Widget build(BuildContext context) {
-    final cover = AlbumCover(themeId: album.themeId, locked: locked);
-    if (!peek) return cover;
-    final peekWidth = width * .56;
-    final peekHeight = peekWidth / AlbumScreen.peekAspectRatio;
-    // Eyes and nose show above the folder; the cut-off body stays behind.
-    final above = peekHeight * .58;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Positioned(
-          left: (width - peekWidth) / 2,
-          top: -above,
-          width: peekWidth,
-          height: peekHeight,
-          child: ExcludeSemantics(
-            child: FrameSequence(
-              frames: AlbumScreen.peekFrames,
-              durations: AlbumScreen.peekDurations,
+          : AlbumScreen.newGlow,
+      builder: (context, t, child) {
+        final opacity = (t * 9).clamp(0.0, 1.0);
+        final glow =
+            1 - Curves.easeIn.transform(((t - .35) / .65).clamp(0.0, 1.0));
+        final shape = BorderRadius.circular(radius);
+        return Opacity(
+          opacity: opacity,
+          // The glow under the tile, its outline over it.
+          child: DecoratedBox(
+            key: const ValueKey('album-new-glow'),
+            decoration: BoxDecoration(borderRadius: shape, boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: .35 * glow),
+                blurRadius: 18,
+              ),
+            ]),
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                borderRadius: shape,
+                border: Border.all(
+                    color: AppColors.primaryAction.withValues(alpha: glow),
+                    width: 2),
+              ),
+              child: child,
             ),
           ),
-        ),
-        cover,
-      ],
+        );
+      },
+      child: semantic,
     );
   }
 }
@@ -725,19 +689,6 @@ class _PressScaleState extends State<_PressScale> {
 }
 
 abstract final class _Text {
-  static const title = TextStyle(
-    fontFamily: 'Nunito',
-    fontSize: 28,
-    fontWeight: FontWeight.w700,
-    height: 1.25,
-    color: AppColors.textPrimary,
-  );
-  static const subtitle = TextStyle(
-    fontFamily: 'BeVietnamPro',
-    fontSize: 16,
-    height: 1.5,
-    color: AppColors.textPrimary,
-  );
   static const section = TextStyle(
     fontFamily: 'Nunito',
     fontSize: 20,

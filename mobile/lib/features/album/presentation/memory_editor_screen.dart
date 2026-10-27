@@ -4,7 +4,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_delete_dialog.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../../onboarding/presentation/frame_sequence.dart';
 import '../album_scope.dart';
 import '../data/album.dart';
@@ -34,10 +38,11 @@ enum _PhotoState { none, loading, ready, failed }
 /// - "Lưu kỷ niệm" sits above the keyboard. One save at a time: repeated
 ///   taps make one memory. Creating makes exactly one, editing keeps the id;
 ///   a failed save keeps everything on screen.
-/// - Nudaeng, never both at once and never over the photo or the text: ND08
-///   peeks below the photo once when a photo is ready (1.2 s), ND09 writes a
-///   few strokes in the header corner the first time the note is focused
-///   (1 s), then hides while the keyboard is open.
+/// - Nudaeng never over the photo or the text: ND09 writes a few strokes in
+///   the header corner the first time the note is focused (1 s), then hides
+///   while the keyboard is open. (ND08, the head turn below a new photo, was
+///   dropped on 27/10/2026: it added nothing.)
+/// - The photo's "…" opens the app's sheet: "Thay ảnh", "Xóa ảnh".
 class MemoryEditorScreen extends StatefulWidget {
   const MemoryEditorScreen({
     super.key,
@@ -92,15 +97,6 @@ class MemoryEditorScreen extends StatefulWidget {
   static const draftFailed = 'Chưa lưu được nháp';
   static const autosaveDelay = Duration(milliseconds: 800);
 
-  /// ND08: the supplied head-turn frames, Nudaeng looking at the photo.
-  static final placeFrames = [
-    for (var i = 1; i <= 6; i++)
-      'assets/Deimage/album-peek-frame-${i.toString().padLeft(2, '0')}.png',
-  ];
-  static final placeDurations = [
-    for (var i = 0; i < 6; i++) const Duration(milliseconds: 200),
-  ];
-
   /// ND09: the supplied writing pose with ink strokes appearing.
   static final writeFrames = [
     for (var i = 1; i <= 6; i++)
@@ -123,7 +119,7 @@ class MemoryEditorScreen extends StatefulWidget {
   State<MemoryEditorScreen> createState() => _MemoryEditorScreenState();
 }
 
-enum _Nudaeng { none, placing, writing }
+enum _Nudaeng { none, writing }
 
 class _MemoryEditorScreenState extends State<MemoryEditorScreen> {
   final _title = TextEditingController();
@@ -147,7 +143,9 @@ class _MemoryEditorScreenState extends State<MemoryEditorScreen> {
 
   var _nudaeng = _Nudaeng.none;
   var _wroteOnce = false;
-  var _placeRun = 0;
+
+  /// A new photo each time: it fades in afresh.
+  var _photoRun = 0;
   Timer? _nudaengTimer;
 
   /// Why the last photo source could not be used (access refused).
@@ -293,9 +291,11 @@ class _MemoryEditorScreenState extends State<MemoryEditorScreen> {
       if (!mounted) return;
       _pendingSource = null;
       _photoPath = kept;
-      setState(() => _photo = _PhotoState.ready);
+      setState(() {
+        _photo = _PhotoState.ready;
+        _photoRun++;
+      });
       _changed();
-      _placed();
     } catch (_) {
       if (mounted) setState(() => _photo = _PhotoState.failed);
     }
@@ -306,21 +306,6 @@ class _MemoryEditorScreenState extends State<MemoryEditorScreen> {
     _photoPath = null;
     setState(() => _photo = _PhotoState.none);
     _changed();
-  }
-
-  /// ND08, once per new photo, never while ND09 writes.
-  void _placed() {
-    if (_nudaeng != _Nudaeng.none || MediaQuery.disableAnimationsOf(context)) {
-      return;
-    }
-    final run = ++_placeRun;
-    setState(() => _nudaeng = _Nudaeng.placing);
-    _nudaengTimer?.cancel();
-    _nudaengTimer = Timer(const Duration(milliseconds: 1200), () {
-      if (mounted && run == _placeRun && _nudaeng == _Nudaeng.placing) {
-        setState(() => _nudaeng = _Nudaeng.none);
-      }
-    });
   }
 
   Future<void> _pickDate() async {
@@ -537,8 +522,7 @@ class _MemoryEditorScreenState extends State<MemoryEditorScreen> {
                 state: _photo,
                 path: _photoPath,
                 enabled: !_saving,
-                placing: _nudaeng == _Nudaeng.placing,
-                placeRun: _placeRun,
+                photoRun: _photoRun,
                 onAdd: _pickPhoto,
                 onRetry: _pendingSource == null ? _pickPhoto : _keepPhoto,
                 onRemove: _removePhoto,
@@ -580,8 +564,7 @@ class _PhotoSlot extends StatelessWidget {
     required this.state,
     required this.path,
     required this.enabled,
-    required this.placing,
-    required this.placeRun,
+    required this.photoRun,
     required this.onAdd,
     required this.onRetry,
     required this.onRemove,
@@ -590,8 +573,7 @@ class _PhotoSlot extends StatelessWidget {
   final _PhotoState state;
   final String? path;
   final bool enabled;
-  final bool placing;
-  final int placeRun;
+  final int photoRun;
   final VoidCallback onAdd;
   final VoidCallback onRetry;
   final VoidCallback onRemove;
@@ -608,10 +590,9 @@ class _PhotoSlot extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16),
               child: Stack(fit: StackFit.expand, children: [
-                // Settles onto the paper: a slight drop and turn (ND08).
                 // Placeholder to photo: a 180 ms fade in place, nothing moves.
                 TweenAnimationBuilder<double>(
-                  key: ValueKey(placeRun),
+                  key: ValueKey(photoRun),
                   tween: Tween(begin: 0, end: 1),
                   duration: MediaQuery.disableAnimationsOf(context)
                       ? Duration.zero
@@ -630,21 +611,11 @@ class _PhotoSlot extends StatelessWidget {
                   child: Material(
                     color: AppColors.surface.withValues(alpha: .92),
                     shape: const CircleBorder(),
-                    child: PopupMenuButton<String>(
-                      enabled: enabled,
+                    child: IconButton(
                       tooltip: 'Tùy chọn ảnh',
+                      onPressed: enabled ? () => _options(context) : null,
                       icon: const Icon(Icons.more_horiz_rounded,
                           color: AppColors.textPrimary),
-                      onSelected: (value) =>
-                          value == 'replace' ? onAdd() : onRemove(),
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(
-                            value: 'replace',
-                            child: Text(MemoryEditorScreen.replacePhotoLabel)),
-                        PopupMenuItem(
-                            value: 'remove',
-                            child: Text(MemoryEditorScreen.removePhotoLabel)),
-                      ],
                     ),
                   ),
                 ),
@@ -709,25 +680,85 @@ class _PhotoSlot extends StatelessWidget {
           ),
       },
     );
-    // ND08 below the photo's bottom-right edge, never over the photo.
-    return Stack(clipBehavior: Clip.none, children: [
-      slot,
-      if (placing)
-        Positioned(
-          right: 4,
-          bottom: -56,
-          width: 61,
-          height: 56,
-          child: ExcludeSemantics(
-            child: FrameSequence(
-              key: ValueKey(placeRun),
-              frames: MemoryEditorScreen.placeFrames,
-              durations: MemoryEditorScreen.placeDurations,
+    return slot;
+  }
+
+  /// "Thay ảnh" / "Xóa ảnh" in the app's sheet, as Home's actions; removing
+  /// in the delete colour. Nothing is lost until the memory is saved.
+  Future<void> _options(BuildContext context) async {
+    final choice = await showAppSheet<String>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Ảnh của kỷ niệm', style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.md),
+          _PhotoAction(
+            icon: Icons.photo_library_outlined,
+            label: MemoryEditorScreen.replacePhotoLabel,
+            onTap: () => Navigator.pop(sheet, 'replace'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _PhotoAction(
+            icon: Icons.delete_outline_rounded,
+            label: MemoryEditorScreen.removePhotoLabel,
+            color: AppDeleteDialog.destructive,
+            onTap: () => Navigator.pop(sheet, 'remove'),
+          ),
+        ],
+      ),
+    );
+    switch (choice) {
+      case 'replace':
+        onAdd();
+      case 'remove':
+        onRemove();
+    }
+  }
+}
+
+/// One action in the photo's sheet: an icon and its label on Background,
+/// 56 high.
+class _PhotoAction extends StatelessWidget {
+  const _PhotoAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.color = AppColors.primaryAction,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: AppColors.background,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(AppRadius.input))),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: Row(children: [
+                Icon(icon, color: color),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                    child: Text(label,
+                        style: AppText.body.copyWith(
+                            color: color == AppColors.primaryAction
+                                ? AppColors.textPrimary
+                                : color))),
+              ]),
             ),
           ),
         ),
-    ]);
-  }
+      );
 }
 
 class _SlotFrame extends StatelessWidget {

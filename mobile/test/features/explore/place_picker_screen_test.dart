@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/explore/data/place_lookup.dart';
+import 'package:ai_diary/features/explore/presentation/map_style.dart';
 import 'package:ai_diary/features/explore/presentation/place_picker_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -106,6 +107,12 @@ Future<void> _tapMap(WidgetTester tester, LatLng at) async {
 }
 
 void main() {
+  testWidgets('The same light map as Explore', (tester) async {
+    await _pump(tester);
+    expect(tester.widget<MapLibreMap>(find.byType(MapLibreMap)).styleString,
+        ExploreMapStyle.day);
+  });
+
   testWidgets('Map, search, centre pin and panel; nothing chosen yet',
       (tester) async {
     await _pump(tester);

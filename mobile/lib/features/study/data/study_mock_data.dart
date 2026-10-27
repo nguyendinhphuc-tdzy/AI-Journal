@@ -1,3 +1,8 @@
+import 'package:flutter/foundation.dart';
+
+import '../../journal/data/journal_entry.dart';
+import '../../journal/data/journal_repository.dart';
+
 /// User-requested demo content. No video source or production persistence is
 /// implied by these article fixtures. IDs are stable within the demo catalog.
 class StudyLesson {
@@ -109,6 +114,10 @@ const frameworkSteps = [
   'Tách điều bạn biết chắc khỏi điều bạn đang suy đoán.',
   'Chọn một bước nhỏ trong khả năng của bạn lúc này.'
 ];
+
+/// The writing template's name (was "Clear My Mind").
+const frameworkTitle = 'Gỡ rối suy nghĩ';
+
 const frameworkPrompt =
     'Điều gì đang làm tâm trí bạn bận rộn? Bạn biết chắc điều gì, đang suy đoán điều gì và có thể làm bước nhỏ nào?';
 const challengeId = 'gratitude-seven';
@@ -122,6 +131,84 @@ const challengePrompts = [
   'Một điều bạn muốn cảm ơn bản thân?'
 ];
 
+/// "Suy ngẫm sâu hơn": two questions that follow each piece of Study
+/// writing, asked one at a time after the first answer. Challenge tasks by
+/// index; lessons, the course practice and the template by source id.
+const _challengeFollowUps = [
+  [
+    'Khoảnh khắc đó diễn ra thế nào? Bạn nhớ rõ chi tiết nào nhất?',
+    'Điều nhỏ ấy cho bạn biết gì về những gì bạn đang cần lúc này?',
+  ],
+  [
+    'Người ấy đã làm gì, và lúc đó bạn cảm thấy thế nào?',
+    'Nếu được nói một câu với người ấy, bạn muốn nói gì?',
+  ],
+  [
+    'Điều gì khiến khoảnh khắc bình thường này trở nên đáng nhớ?',
+    'Bạn muốn có thêm những khoảnh khắc như vậy ở đâu trong ngày?',
+  ],
+  [
+    'Hôm nay bạn đã đối xử với cơ thể mình thế nào?',
+    'Một việc nhỏ nào bạn có thể làm ngày mai để chăm sóc cơ thể?',
+  ],
+  [
+    'Ở nơi đó, bạn nghe, thấy hay cảm nhận được điều gì?',
+    'Khi không thể đến đó, bạn có thể mang cảm giác ấy theo bằng cách nào?',
+  ],
+  [
+    'Điều gì đã giúp bạn nhận ra điều này?',
+    'Hiểu điều này rồi, bạn muốn đối xử với mình khác đi thế nào?',
+  ],
+  [
+    'Bạn đã vượt qua điều gì để làm được việc đó?',
+    'Sau bảy ngày viết, bạn muốn giữ lại thói quen nào?',
+  ],
+];
+
+const _followUps = {
+  'gratitude-notice': [
+    'Chi tiết nào trong khoảnh khắc đó khiến bạn muốn dừng lại?',
+    'Khoảnh khắc ấy cho bạn biết điều gì đang nâng đỡ bạn?',
+  ],
+  'gratitude-thanks': [
+    'Hành động ấy có ý nghĩa gì với bạn, vào đúng lúc đó?',
+    'Nếu muốn gửi lời cảm ơn này đi, bạn sẽ nói thế nào?',
+  ],
+  'gratitude-carry': [
+    'Một bước nhỏ, rõ ràng nào giúp bạn giữ điều đó cho ngày mai?',
+    'Nếu ngày mai khác dự định, bạn muốn nhắc mình điều gì?',
+  ],
+  'small-progress': [
+    'Việc nhỏ đó đã giúp ngày của bạn nhẹ hơn thế nào?',
+    'Bạn muốn nói gì với chính mình khi nhìn lại những việc này?',
+  ],
+  'gratitude-course': [
+    'Vì sao khoảnh khắc ấy có ý nghĩa với bạn?',
+    'Bạn muốn mang điều gì từ khoảnh khắc ấy sang ngày mai?',
+  ],
+  'clear-my-mind': [
+    'Trong những điều đang suy đoán, điều nào làm bạn lo nhất? Có điều gì '
+        'cho thấy nó có thể khác đi không?',
+    'Nếu bước nhỏ ấy diễn ra suôn sẻ, bạn sẽ cảm thấy thế nào?',
+  ],
+};
+
+/// For anything without its own questions.
+const _generalFollowUps = [
+  'Điều gì khiến điều bạn vừa viết quan trọng với bạn?',
+  'Bạn muốn mang điều gì từ đây sang ngày mai?',
+];
+
+List<String> studyFollowUps(StudyWritingContext source) {
+  final task = source.taskIndex;
+  if (source.challenge == challengeId &&
+      task != null &&
+      task < _challengeFollowUps.length) {
+    return _challengeFollowUps[task];
+  }
+  return _followUps[source.sourceId] ?? _generalFollowUps;
+}
+
 class StudyWritingContext {
   const StudyWritingContext(
       {required this.kind,
@@ -134,46 +221,92 @@ class StudyWritingContext {
   final int? taskIndex;
 }
 
-class StudyMockEntry {
-  const StudyMockEntry(
+/// A piece of Study writing as the Study screens show it: the journal entry
+/// it was saved as, with the prompt it answered.
+class StudyEntry {
+  const StudyEntry(
       {required this.id,
       required this.content,
       required this.prompt,
       required this.source});
+
+  /// The journal entry's id.
   final String id;
   final String content;
   final String prompt;
   final StudyWritingContext source;
 }
 
-/// Deliberately session-only. A stable task association prevents duplicate
-/// entries if the same save callback is retried in this UI demo.
-class StudyMockSession {
-  final Map<String, StudyMockEntry> _entries = {};
-  final Map<String, String> _taskEntries = {};
+/// Study writing goes into the journal, as entries with a [JournalSource],
+/// so it is listed in "Nhật ký của bạn" with the rest. A challenge task
+/// keeps one entry: saving it again (e.g. a retried save) returns the same.
+/// [taskEntries] (task → journal id) is kept with the Study progress.
+class StudySession {
+  StudySession({JournalRepository? journals, Map<int, String>? taskEntries})
+      : journals = journals ?? InMemoryJournalRepository(),
+        taskEntries = taskEntries ?? {};
 
-  StudyMockEntry save(
-      String content, String prompt, StudyWritingContext source) {
-    final taskKey = source.challenge != null && source.taskIndex != null
-        ? '${source.challenge}/${source.taskIndex}'
-        : null;
-    final existingId = _taskEntries[taskKey];
-    if (existingId != null) return _entries[existingId]!;
-    final entry = StudyMockEntry(
-        id: 'study-entry-${_entries.length + 1}',
-        content: content,
-        prompt: prompt,
-        source: source);
-    _entries[entry.id] = entry;
-    if (taskKey != null) _taskEntries[taskKey] = entry.id;
-    return entry;
+  JournalRepository journals;
+  final Map<int, String> taskEntries;
+  final Map<int, StudyEntry> _tasks = {};
+
+  /// Called when [taskEntries] changed, to keep it.
+  VoidCallback? onChanged;
+
+  Future<StudyEntry> save(
+      String content, String prompt, StudyWritingContext source,
+      {required String label}) async {
+    final task = source.challenge == challengeId ? source.taskIndex : null;
+    final existing = task == null ? null : _tasks[task];
+    if (existing != null) return existing;
+    final entry = await journals.create(JournalContent(
+      body: content,
+      source: JournalSource(
+          kind: source.kind,
+          id: source.challenge ?? source.sourceId,
+          task: task,
+          label: label),
+    ));
+    final saved = StudyEntry(
+        id: entry.id, content: content, prompt: prompt, source: source);
+    if (task != null) {
+      _tasks[task] = saved;
+      taskEntries[task] = entry.id;
+      onChanged?.call();
+    }
+    return saved;
   }
 
-  StudyMockEntry? entryForTask(int task) =>
-      _entries[_taskEntries['$challengeId/$task']];
+  /// Reads the tasks' entries back from the journal. One deleted there is
+  /// forgotten here; its task stays done.
+  Future<void> load() async {
+    final gone = <int>[];
+    for (final MapEntry(key: task, value: id) in taskEntries.entries) {
+      final entry = await journals.entry(id);
+      if (entry == null || task >= challengePrompts.length) {
+        gone.add(task);
+        continue;
+      }
+      _tasks[task] = StudyEntry(
+        id: id,
+        content: entry.body,
+        prompt: challengePrompts[task],
+        source: StudyWritingContext(
+            kind: 'challenge',
+            sourceId: 'task-${task + 1}',
+            challenge: challengeId,
+            taskIndex: task),
+      );
+    }
+    if (gone.isEmpty) return;
+    for (final task in gone) {
+      taskEntries.remove(task);
+    }
+    onChanged?.call();
+  }
 
-  List<StudyMockEntry> get challengeEntries => _entries.values
-      .where((entry) => entry.source.challenge == challengeId)
-      .toList()
-    ..sort((a, b) => a.source.taskIndex!.compareTo(b.source.taskIndex!));
+  StudyEntry? entryForTask(int task) => _tasks[task];
+
+  List<StudyEntry> get challengeEntries =>
+      [for (final task in _tasks.keys.toList()..sort()) _tasks[task]!];
 }

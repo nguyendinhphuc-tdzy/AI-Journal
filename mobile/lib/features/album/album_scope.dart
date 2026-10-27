@@ -5,9 +5,10 @@ import 'data/album_repository.dart';
 import 'data/album_sharing.dart';
 import 'data/memory_photos.dart';
 import 'data/memory_share.dart';
+import 'presentation/album_pin_sheet.dart';
 
-/// Hands the app's [AlbumRepository] and device [AlbumAuth] to the Album
-/// screens.
+/// Hands the app's [AlbumRepository] and the albums' PIN lock ([AlbumAuth])
+/// to the Album screens.
 class AlbumScope extends InheritedWidget {
   const AlbumScope({
     super.key,
@@ -21,7 +22,7 @@ class AlbumScope extends InheritedWidget {
 
   final AlbumRepository repository;
 
-  /// Device authentication; the real one when not given.
+  /// The albums' PINs; the app's PIN pad when not given.
   final AlbumAuth? auth;
   final AlbumSharing sharing;
 
@@ -33,7 +34,7 @@ class AlbumScope extends InheritedWidget {
 
   /// Screens built without a scope (e.g. in isolation) get an in-memory one.
   static final _fallback = InMemoryAlbumRepository();
-  static final _deviceAuth = DeviceAlbumAuth();
+  static final _pinAuth = PinAlbumAuth();
   static final _devicePhotos = DeviceMemoryPhotos();
 
   static AlbumScope? _scope(BuildContext context) =>
@@ -43,7 +44,7 @@ class AlbumScope extends InheritedWidget {
       _scope(context)?.repository ?? _fallback;
 
   static AlbumAuth authOf(BuildContext context) =>
-      _scope(context)?.auth ?? _deviceAuth;
+      _scope(context)?.auth ?? _pinAuth;
 
   static MemoryPhotos photosOf(BuildContext context) =>
       _scope(context)?.photos ?? _devicePhotos;

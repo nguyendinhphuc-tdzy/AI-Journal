@@ -17,23 +17,26 @@ class StreakState extends ValueNotifier<int> {
     return DateTime.utc(now.year, now.month, now.day);
   }
 
+  /// Whether today already counts: its first entry was celebrated. The
+  /// streak screen shows for that entry only, not for later ones.
+  bool get completedToday => !_lastCompletedDay.isBefore(_today);
+
   int get nextCount {
     final gap = _today.difference(_lastCompletedDay).inDays;
     if (gap <= 0) return value;
     return gap == 1 ? value + 1 : 1;
   }
 
-  /// Existing session-only demo counter must not leak between accounts
-  /// or between authenticated and guest sessions. Backend B06 remains the
-  /// future source of truth once integrated.
-  void resetForNewLocalSession() {
-    _lastCompletedDay = _today.subtract(const Duration(days: 1));
-    value = 0;
-  }
-
   void completeToday() {
     final updatedCount = nextCount;
     _lastCompletedDay = _today;
     value = updatedCount;
+  }
+
+  /// Back to the starting state (yesterday done), for tests sharing [shared].
+  @visibleForTesting
+  void reset({int count = 2}) {
+    _lastCompletedDay = _today.subtract(const Duration(days: 1));
+    value = count;
   }
 }

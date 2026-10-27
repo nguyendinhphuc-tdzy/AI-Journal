@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../auth/presentation/auth_gate.dart';
-import '../journal/data/api_ai_service.dart';
-import '../onboarding/data/onboarding_scope.dart';
+import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_text.dart';
+import '../../core/widgets/app_ui.dart';
 import '../onboarding/data/onboarding_store.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
-import '../onboarding/data/journaling_experience.dart';
-import '../onboarding/data/data_policy.dart';
+import '../home/data/home_scene_settings.dart';
+import '../sound/app_sound.dart';
+import '../sound/data/sound_settings.dart';
 import 'data/writing_preferences.dart';
 import 'widgets/setting_editor.dart';
 
@@ -24,6 +26,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   int _selectedIcon = 0;
   late Future<OnboardingStore> _onboarding;
   late Future<WritingPreferences> _preferences;
+  late Future<HomeSceneSettings> _scene;
+  late Future<SoundSettings> _sound;
   bool _editing = false;
 
   @override
@@ -31,13 +35,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.initState();
     _onboarding = OnboardingStore.open();
     _preferences = WritingPreferences.open();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final scoped = OnboardingScope.maybeOf(context);
-    if (scoped != null) _onboarding = Future.value(scoped);
+    _scene = HomeSceneSettings.open();
+    _sound = SoundSettings.open();
   }
 
   Future<void> _edit(String item) async {
@@ -46,12 +45,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final store = await _onboarding;
       final prefs = await _preferences;
+      final scene = await _scene;
+      final sound = await _sound;
       if (!mounted) return;
       String initial;
       Map<String, String>? options;
       String? note;
       String? Function(String)? validate;
       double Function(String)? previewSize;
+      ValueChanged<String>? onPreview;
       Future<void> Function(String) save;
       switch (item) {
         case 'what do friends call you?':
@@ -68,37 +70,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           };
           save =
               (value) => store.saveGoal(JournalGoal.values.asNameMap()[value]);
-        case 'journaling experience':
-          initial = store.experience?.name ?? 'unknown';
-          options = {
-            'unknown': 'Chưa thiết lập',
-            for (final experience in JournalingExperience.options)
-              experience.name: experience.label
-          };
-          save = (value) =>
-              store.saveExperience(JournalingExperience.values.byName(value));
-        case 'ai reflections':
-          final aiActive = AiRemoteScope.maybeOf(context) == null
-              ? store.aiEnabled == true
-              : store.consentedToRemoteAi;
-          initial = aiActive ? 'on' : 'off';
-          final aiPolicy = AiRemoteScope.maybeOf(context) == null
-              ? DataPolicy.current
-              : DataPolicy.localOllama;
-          options = {
-            'off': 'Không dùng AI',
-            'on': aiPolicy.realLocalAi
-                ? 'Dùng AI local qua backend'
-                : 'Dùng phản hồi AI mô phỏng'
-          };
-          note = '${aiPolicy.aiRequest}\n${DataPolicy.choiceNote}';
-          save = (value) => store.saveAiChoice(
-              enabled: value == 'on',
-              policyVersion: aiPolicy.version);
-        case 'paper':
-          initial = prefs.paper ? 'paper' : 'plain';
-          options = {'paper': 'Nền giấy', 'plain': 'Nền trắng'};
-          save = (value) => prefs.savePaper(value == 'paper');
         case 'text size':
           initial = prefs.textSize.toString();
           options = {
@@ -108,6 +79,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
           note = 'Áp dụng cho nội dung bạn viết trong Nhật ký hôm nay.';
           previewSize = double.parse;
           save = (value) => prefs.saveTextSize(double.parse(value));
+        case 'scene':
+          initial = scene.scene.name;
+          options = {
+            for (final value in HomeScene.values) value.name: value.label
+          };
+          note = 'Cảnh ở đầu thẻ Khoảnh khắc suy ngẫm trên Trang chủ.';
+          save = (value) => scene.saveScene(HomeScene.values.byName(value));
+        case 'dynamic theme':
+          initial = scene.effect.name;
+          options = {
+            for (final value in SceneEffect.values) value.name: value.label
+          };
+          note = 'Rơi trong khung cảnh trên Trang chủ. Tự tắt khi máy bật '
+              'giảm chuyển động.';
+          save = (value) => scene.saveEffect(SceneEffect.values.byName(value));
+        case 'background music':
+          initial = sound.music.name;
+          options = {
+            for (final track in MusicTrack.values) track.name: track.label
+          };
+          note = 'Phát nhỏ khi bạn dùng app; tự dừng khi thoát ra ngoài. '
+              'Chạm để nghe thử.';
+          onPreview = (value) =>
+              AppSound.instance.previewMusic(MusicTrack.values.byName(value));
+          save = (value) => sound.saveMusic(MusicTrack.values.byName(value));
+        case 'music volume':
+          initial = sound.musicLevel.name;
+          options = {
+            for (final level in SoundLevel.values)
+              if (level != SoundLevel.off) level.name: level.label
+          };
+          save =
+              (value) => sound.saveMusicLevel(SoundLevel.values.byName(value));
+        case 'pen sound':
+          initial = sound.pen.name;
+          options = {for (final pen in PenSound.values) pen.name: pen.label};
+          note = 'Nghe khi bạn viết nhật ký. Chạm để nghe thử.';
+          onPreview = (value) =>
+              AppSound.instance.previewPen(PenSound.values.byName(value));
+          save = (value) => sound.savePen(PenSound.values.byName(value));
+        case 'interface sounds':
+          initial = sound.effects.name;
+          options = {
+            for (final level in SoundLevel.values) level.name: level.label
+          };
+          note = 'Tiếng bút, lật trang, lưu bài và những khoảnh khắc nhỏ '
+              'khác. Trên iPhone, im khi máy đang ở chế độ im lặng.';
+          save = (value) => sound.saveEffects(SoundLevel.values.byName(value));
         case 'haptic':
           initial = prefs.haptic ? 'on' : 'off';
           options = {'off': 'Tắt', 'on': 'Bật'};
@@ -121,9 +140,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : 'Tính năng này chưa được hỗ trợ trong phiên bản hiện tại.')));
           return;
       }
-      final changed = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
+      final changed = await showAppSheet<bool>(context,
           builder: (_) => SettingEditor(
               title: _settingsLabel(item),
               initial: initial,
@@ -131,7 +148,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               note: note,
               validate: validate,
               previewSize: previewSize,
+              onPreview: onPreview,
               save: save));
+      // A preview (e.g. another music) gives way to what is saved.
+      await AppSound.instance.refresh();
       if (!mounted || changed != true) return;
       await prefs.feedback();
       if (!mounted) return;
@@ -147,24 +167,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Widget _buildPreferences() => FutureBuilder<WritingPreferences>(
-        future: _preferences,
+  Widget _buildPreferences() =>
+      FutureBuilder<(WritingPreferences, HomeSceneSettings, SoundSettings)>(
+        future: (_preferences, _scene, _sound).wait,
         builder: (context, snapshot) {
-          final prefs = snapshot.data;
-          return _buildSettingsGroup('TÙY CHỈNH', const [
+          final prefs = snapshot.data?.$1;
+          final scene = snapshot.data?.$2;
+          final sound = snapshot.data?.$3;
+          return _buildSettingsGroup('Tùy chỉnh', const [
             'dynamic theme',
             'scene',
-            'paper',
             'handwriting',
             'text size',
             'background music',
-            'pencil sound',
+            'music volume',
+            'pen sound',
+            'interface sounds',
             'haptic',
           ], values: {
-            'paper':
-                prefs == null ? '—' : (prefs.paper ? 'Nền giấy' : 'Nền trắng'),
-            'text size': prefs == null ? '—' : '${prefs.textSize.toInt()} px',
-            'haptic': prefs == null ? '—' : (prefs.haptic ? 'Bật' : 'Tắt'),
+            'dynamic theme': scene?.effect.label ?? 'Đang tải…',
+            'scene': scene?.scene.label ?? 'Đang tải…',
+            'text size':
+                prefs == null ? 'Đang tải…' : '${prefs.textSize.toInt()} px',
+            'background music': sound?.music.label ?? 'Đang tải…',
+            'music volume': sound?.musicLevel.label ?? 'Đang tải…',
+            'pen sound': sound?.pen.label ?? 'Đang tải…',
+            'interface sounds': sound?.effects.label ?? 'Đang tải…',
+            'haptic':
+                prefs == null ? 'Đang tải…' : (prefs.haptic ? 'Bật' : 'Tắt'),
           });
         },
       );
@@ -175,15 +205,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return Column(children: [
-            _buildGroupTitle('CÀI ĐẶT CHUNG'),
+            _buildGroupTitle('Cài đặt chung'),
             const Text('Không tải được thông tin của bạn.',
-                textAlign: TextAlign.center),
+                style: AppText.body),
             TextButton(
               onPressed: () => setState(() {
-                final scoped = OnboardingScope.maybeOf(context);
-                _onboarding = scoped == null
-                    ? OnboardingStore.open()
-                    : Future.value(scoped);
+                _onboarding = OnboardingStore.open();
               }),
               child: const Text('Thử lại'),
             ),
@@ -192,13 +219,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final store = snapshot.data;
         final loading = store == null;
         final reminders = store?.reminders;
-        final experience = store?.experience?.label;
-        return _buildSettingsGroup('CÀI ĐẶT CHUNG', const [
+        return _buildSettingsGroup('Cài đặt chung', const [
           'who says plus',
           'what do friends call you?',
           'pick your inspirations path',
-          'journaling experience',
-          'ai reflections',
           'daily reminders',
           'language',
         ], values: {
@@ -209,18 +233,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : 'Chưa đặt biệt danh'),
           'pick your inspirations path':
               loading ? 'Đang tải…' : store.goal?.label ?? 'Chưa chọn mục tiêu',
-          'journaling experience': loading
-              ? 'Đang tải…'
-              : (experience == null || experience.isEmpty
-                  ? 'Chưa thiết lập'
-                  : experience),
-          'ai reflections': loading
-              ? 'Đang tải…'
-              : switch (store.aiEnabled) {
-                  true => 'Đã chọn dùng AI',
-                  false => 'Đã chọn không dùng AI',
-                  null => 'Chưa thiết lập',
-                },
           'daily reminders': loading
               ? 'Đang tải…'
               : (reminders!.isEmpty
@@ -229,6 +241,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       .map(
                           (entry) => '${entry.key.label}: ${entry.value.label}')
                       .join('\n')),
+          'language': 'Tiếng Việt',
         });
       },
     );
@@ -239,172 +252,166 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: Column(
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: IconButton(
+        child: Column(children: [
+          // Fixed, like the top of other screens opened over a tab: Close
+          // stays in reach however far the settings scroll.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 12),
+            child: AppPageHeader(
+              title: 'Hồ sơ',
+              subtitle: 'Thông tin và tùy chỉnh của bạn',
+              trailing: [
+                AppIconAction(
+                  icon: Icons.close_rounded,
                   tooltip: 'Đóng',
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  color: AppColors.textPrimary,
                 ),
-              ),
+              ],
             ),
-            if (AuthScope.maybeOf(context) case final auth?)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.logout),
-                  label: const Text('Đăng xuất'),
-                  onPressed: () async {
-                    try {
-                      await auth.signOut();
-                    } catch (_) {
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Không thể đăng xuất. Thử lại.')),
-                      );
-                    }
-                  },
-                ),
-              ),
-            if (GuestScope.maybeOf(context) case final guest?)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.person_add_alt_1_outlined),
-                  label: const Text('Đăng nhập / Tạo tài khoản'),
-                  onPressed: () async {
-                    final discard = await showDialog<bool>(
-                      context: context,
-                      builder: (dialogContext) => AlertDialog(
-                        title: const Text('Rời chế độ khách?'),
-                        content: const Text(
-                          'Nhật ký, bản nháp và album của khách trên thiết bị '
-                          'sẽ bị xóa, không chuyển sang tài khoản mới.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(dialogContext, false),
-                            child: const Text('Hủy'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.pop(dialogContext, true),
-                            child: const Text('Xóa dữ liệu và tiếp tục'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (discard != true || !context.mounted) return;
-                    try {
-                      await guest.onLeaveGuest();
-                    } catch (_) {
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                        content: Text('Chưa thể xóa dữ liệu khách. Thử lại.'),
-                      ));
-                    }
-                  },
-                ),
-              ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 40),
-                children: [
-                  _buildGeneralSettings(),
-                  _buildPreferences(),
-                  _buildSettingsGroup(
-                      'BẢO MẬT',
-                      const [
-                        'lock with passcode',
-                        'lock with face id',
-                      ],
-                      strikethrough: true),
-                  _buildSettingsGroup('THÔNG TIN', const [
-                    'notes for you',
-                    'rate app',
-                    'contact support',
-                  ]),
-                  _buildIconGroup('BIỂU TƯỢNG ỨNG DỤNG', 0, const [
-                    (Icons.auto_stories_outlined, Color(0xFFD6E9E4)),
-                    (Icons.pets_outlined, Color(0xFFF1E4CE)),
-                    (Icons.local_florist_outlined, Color(0xFFECDDE4)),
-                    (Icons.wb_sunny_outlined, Color(0xFFE4E5F1)),
-                  ]),
-                  _buildIconGroup('BIỂU TƯỢNG ĐẶC BIỆT', 4, const [
-                    (Icons.nightlight_round, Color(0xFFD7DFE8)),
-                    (Icons.favorite_border, Color(0xFFECCFCB)),
-                    (Icons.forest_outlined, Color(0xFFDDE5D1)),
-                    (Icons.star_outline, Color(0xFFF1E6BF)),
-                  ]),
-                ],
-              ),
+          ),
+          // Where the fixed header ends and the settings scroll under it.
+          const Divider(height: 1, color: AppColors.border),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg, 0, AppSpacing.lg, 40),
+              children: [
+                _buildGeneralSettings(),
+                _buildPreferences(),
+                _buildSettingsGroup(
+                    'Bảo mật',
+                    const [
+                      'lock with passcode',
+                      'lock with face id',
+                    ],
+                    comingSoon: true),
+                _buildSettingsGroup('Thông tin', const [
+                  'notes for you',
+                  'rate app',
+                  'contact support',
+                ]),
+                _buildIconGroup('Biểu tượng ứng dụng', 0, const [
+                  (Icons.auto_stories_outlined, Color(0xFFD6E9E4)),
+                  (Icons.pets_outlined, Color(0xFFF1E4CE)),
+                  (Icons.local_florist_outlined, Color(0xFFECDDE4)),
+                  (Icons.wb_sunny_outlined, Color(0xFFE4E5F1)),
+                ]),
+                _buildIconGroup('Biểu tượng đặc biệt', 4, const [
+                  (Icons.nightlight_round, Color(0xFFD7DFE8)),
+                  (Icons.favorite_border, Color(0xFFECCFCB)),
+                  (Icons.forest_outlined, Color(0xFFDDE5D1)),
+                  (Icons.star_outline, Color(0xFFF1E6BF)),
+                ]),
+              ],
             ),
-          ],
-        ),
+          ),
+        ]),
       ),
     );
   }
 
   Widget _buildGroupTitle(String title) {
     return Padding(
-      padding: const EdgeInsets.only(top: 32, bottom: 16),
-      child: Text(
-        title,
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: AppColors.textSecondary,
-              fontSize: 12,
-              letterSpacing: 1.6,
-              fontWeight: FontWeight.w500,
-            ),
+      padding: const EdgeInsets.only(
+          top: AppSpacing.xxl, bottom: AppSpacing.sm, left: AppSpacing.xs),
+      child: Semantics(
+        header: true,
+        child: Text(title,
+            style: AppText.label.copyWith(color: AppColors.textSecondary)),
       ),
     );
   }
 
+  /// One card per group; each setting is a row with its current value under
+  /// the name. Settings not built yet say "Sắp có" and look disabled.
   Widget _buildSettingsGroup(String title, List<String> items,
-      {bool strikethrough = false, Map<String, String> values = const {}}) {
+      {bool comingSoon = false, Map<String, String> values = const {}}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildGroupTitle(title),
-        for (final item in items)
-          InkWell(
-            key: ValueKey('setting-item-$item'),
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _edit(item),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-              child: Column(children: [
-                Text(
-                  _settingsLabel(item),
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w400,
-                        height: 1.4,
-                        decoration:
-                            strikethrough ? TextDecoration.lineThrough : null,
-                      ),
-                ),
-                if (values[item] case final value?) ...[
-                  const SizedBox(height: 6),
-                  Text(value,
-                      key: ValueKey('setting-value-$item'),
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textSecondary,
-                            height: 1.4,
-                          )),
-                ],
-              ]),
-            ),
-          ),
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Column(children: [
+            for (var index = 0; index < items.length; index++) ...[
+              if (index > 0)
+                const Divider(
+                    height: 1,
+                    indent: AppSpacing.md + _iconTile + 14,
+                    color: AppColors.border),
+              _buildSettingRow(items[index], values[items[index]], comingSoon),
+            ],
+          ]),
+        ),
       ],
+    );
+  }
+
+  Widget _buildSettingRow(String item, String? value, bool comingSoon) {
+    return InkWell(
+      key: ValueKey('setting-item-$item'),
+      onTap: () => _edit(item),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 64),
+        child: Padding(
+          padding:
+              const EdgeInsets.fromLTRB(AppSpacing.md, 12, AppSpacing.sm, 12),
+          child: Row(children: [
+            // The setting's icon on a soft tile; muted when not built yet.
+            Container(
+              width: _iconTile,
+              height: _iconTile,
+              decoration: BoxDecoration(
+                color:
+                    comingSoon ? AppColors.background : AppColors.primaryLight,
+                borderRadius:
+                    const BorderRadius.all(Radius.circular(AppRadius.small)),
+              ),
+              child: Icon(_settingIcon(item),
+                  size: 20,
+                  color: comingSoon
+                      ? AppColors.textSecondary
+                      : AppColors.primaryAction),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _settingsLabel(item),
+                    style: AppText.body.copyWith(
+                        color: comingSoon
+                            ? AppColors.textSecondary
+                            : AppColors.textPrimary),
+                  ),
+                  if (value != null) ...[
+                    const SizedBox(height: 2),
+                    Text(value,
+                        key: ValueKey('setting-value-$item'),
+                        style: AppText.meta),
+                  ],
+                ],
+              ),
+            ),
+            if (comingSoon)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                margin: const EdgeInsets.only(right: AppSpacing.sm),
+                decoration: const ShapeDecoration(
+                    color: AppColors.background,
+                    shape: StadiumBorder(
+                        side: BorderSide(color: AppColors.border))),
+                child: const Text('Sắp có', style: AppText.meta),
+              )
+            else
+              const Icon(Icons.chevron_right_rounded,
+                  color: AppColors.textSecondary),
+          ]),
+        ),
+      ),
     );
   }
 
@@ -412,17 +419,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'who says plus' => 'Gói Nudaeng Plus',
         'what do friends call you?' => 'Bạn bè gọi bạn là gì?',
         'pick your inspirations path' => 'Chọn con đường truyền cảm hứng',
-        'journaling experience' => 'Trải nghiệm viết nhật ký',
-        'ai reflections' => 'AI Chiêm nghiệm',
         'daily reminders' => 'Nhắc nhở mỗi ngày',
         'language' => 'Ngôn ngữ',
         'dynamic theme' => 'Giao diện động',
         'scene' => 'Khung cảnh',
-        'paper' => 'Nền giấy',
         'handwriting' => 'Nét chữ',
         'text size' => 'Cỡ chữ',
         'background music' => 'Nhạc nền',
-        'pencil sound' => 'Tiếng bút chì',
+        'music volume' => 'Âm lượng nhạc',
+        'pen sound' => 'Tiếng bút',
+        'interface sounds' => 'Âm thanh giao diện',
         'haptic' => 'Rung phản hồi',
         'lock with passcode' => 'Khóa bằng mật mã',
         'lock with face id' => 'Khóa bằng Face ID',
@@ -432,64 +438,96 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _ => item,
       };
 
+  /// Size of the icon tile at the start of each setting row.
+  static const _iconTile = 40.0;
+
+  IconData _settingIcon(String item) => switch (item) {
+        'who says plus' => Icons.workspace_premium_outlined,
+        'what do friends call you?' => Icons.badge_outlined,
+        'pick your inspirations path' => Icons.explore_outlined,
+        'daily reminders' => Icons.notifications_none_rounded,
+        'language' => Icons.translate_rounded,
+        'dynamic theme' => Icons.auto_awesome_outlined,
+        'scene' => Icons.landscape_outlined,
+        'handwriting' => Icons.draw_outlined,
+        'text size' => Icons.format_size_rounded,
+        'background music' => Icons.music_note_outlined,
+        'music volume' => Icons.volume_up_outlined,
+        'pen sound' => Icons.edit_outlined,
+        'interface sounds' => Icons.touch_app_outlined,
+        'haptic' => Icons.vibration_rounded,
+        'lock with passcode' => Icons.pin_outlined,
+        'lock with face id' => Icons.face_outlined,
+        'notes for you' => Icons.mail_outline_rounded,
+        'rate app' => Icons.star_outline_rounded,
+        'contact support' => Icons.support_agent_outlined,
+        _ => Icons.tune_rounded,
+      };
+
   Widget _buildIconGroup(
       String title, int startIndex, List<(IconData, Color)> icons) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _buildGroupTitle(title),
-        const Padding(
-          padding: EdgeInsets.only(bottom: 12),
-          child: Text('Chỉ xem trước; chưa đổi icon ngoài màn hình chính.',
-              textAlign: TextAlign.center),
-        ),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 16,
-          runSpacing: 16,
-          children: [
-            for (var index = 0; index < icons.length; index++)
-              Semantics(
-                button: true,
-                selected: _selectedIcon == startIndex + index,
-                label: '${title.toLowerCase()} ${index + 1}',
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Material(
-                      color: icons[index].$2,
-                      borderRadius: BorderRadius.circular(18),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        key: ValueKey('app-icon-${startIndex + index}'),
-                        onTap: () {
-                          setState(() => _selectedIcon = startIndex + index);
-                        },
-                        child: SizedBox(
-                          width: 64,
-                          height: 64,
-                          child: Icon(icons[index].$1,
-                              size: 30, color: AppColors.textPrimary),
-                        ),
+        AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Chỉ xem trước; chưa đổi icon ngoài màn hình chính.',
+                  style: AppText.meta),
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.md,
+                children: [
+                  for (var index = 0; index < icons.length; index++)
+                    Semantics(
+                      button: true,
+                      selected: _selectedIcon == startIndex + index,
+                      label: '${title.toLowerCase()} ${index + 1}',
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Material(
+                            color: icons[index].$2,
+                            borderRadius: BorderRadius.circular(18),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              key: ValueKey('app-icon-${startIndex + index}'),
+                              onTap: () {
+                                setState(
+                                    () => _selectedIcon = startIndex + index);
+                              },
+                              child: SizedBox(
+                                width: 64,
+                                height: 64,
+                                child: Icon(icons[index].$1,
+                                    size: 30, color: AppColors.textPrimary),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: 6,
+                            width: 6,
+                            child: _selectedIcon == startIndex + index
+                                ? const DecoratedBox(
+                                    key: ValueKey('selected-icon-dot'),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primaryAction,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      height: 6,
-                      width: 6,
-                      child: _selectedIcon == startIndex + index
-                          ? const DecoratedBox(
-                              key: ValueKey('selected-icon-dot'),
-                              decoration: BoxDecoration(
-                                color: AppColors.textSecondary,
-                                shape: BoxShape.circle,
-                              ),
-                            )
-                          : null,
-                    ),
-                  ],
-                ),
+                ],
               ),
-          ],
+            ],
+          ),
         ),
       ],
     );

@@ -31,12 +31,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Trâm'), findsOneWidget);
     expect(find.text(JournalGoal.sortThoughts.label), findsOneWidget);
-    expect(find.text(JournalingExperience.occasional.label), findsOneWidget);
+    // Writing experience and the AI choice are onboarding answers only.
+    expect(find.text(JournalingExperience.occasional.label), findsNothing);
     final scrollable = find.descendant(
         of: find.byType(ProfileScreen), matching: find.byType(Scrollable));
     await tester.scrollUntilVisible(find.text('Nhắc nhở mỗi ngày'), 100,
         scrollable: scrollable);
-    expect(find.text('Đã chọn không dùng AI'), findsOneWidget);
+    expect(find.text('Đã chọn không dùng AI'), findsNothing);
     expect(find.text('buổi sáng: 07:30\nbuổi tối: 21:15'), findsOneWidget);
     await tester.tap(find.byTooltip('Đóng'));
     await tester.pumpAndSettle();
@@ -54,7 +55,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Chưa đặt biệt danh'), findsOneWidget);
     expect(find.text('Chưa chọn mục tiêu'), findsOneWidget);
-    expect(find.text('Chưa thiết lập'), findsWidgets);
+    for (final removed in [
+      'Trải nghiệm viết nhật ký',
+      'AI Chiêm nghiệm',
+      'Nền giấy',
+    ]) {
+      expect(find.text(removed), findsNothing);
+    }
     await tester.scrollUntilVisible(find.text('Nhắc nhở mỗi ngày'), 100);
     expect(find.text('Chưa có lịch nhắc đã lưu'), findsOneWidget);
     expect(store.aiEnabled, isNull);
@@ -78,18 +85,30 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Ảnh đại diện hồ sơ'));
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
-      expect(find.text('CÀI ĐẶT CHUNG'), findsOneWidget);
+      expect(find.text('Hồ sơ'), findsOneWidget);
+      expect(find.text('Cài đặt chung'), findsOneWidget);
       expect(find.text('Gói Nudaeng Plus'), findsOneWidget);
-      expect(tester.widget<Text>(find.text('Gói Nudaeng Plus')).textAlign,
-          TextAlign.center);
+      // Left-aligned rows in a card, as elsewhere in the app: every name
+      // starts at one edge, after its icon, in the left half.
+      final nameLeft = tester.getTopLeft(find.text('Gói Nudaeng Plus')).dx;
+      expect(
+          nameLeft, lessThan(tester.getCenter(find.byType(ProfileScreen)).dx));
+      expect(tester.getTopLeft(find.text('Bạn bè gọi bạn là gì?')).dx,
+          closeTo(nameLeft, .01));
       expect(tester.takeException(), isNull);
       final scrollable = find.descendant(
           of: find.byType(ProfileScreen), matching: find.byType(Scrollable));
       await tester.scrollUntilVisible(find.text('Khóa bằng mật mã'), 150,
           scrollable: scrollable);
+      // Not built yet: said with "Sắp có", never a struck-through name.
       expect(
           tester.widget<Text>(find.text('Khóa bằng mật mã')).style!.decoration,
-          TextDecoration.lineThrough);
+          isNot(TextDecoration.lineThrough));
+      expect(
+          find.descendant(
+              of: find.byKey(const ValueKey('setting-item-lock with passcode')),
+              matching: find.text('Sắp có')),
+          findsOneWidget);
       await tester.scrollUntilVisible(
           find.byKey(const ValueKey('app-icon-1')), 150,
           scrollable: scrollable);
