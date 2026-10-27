@@ -48,9 +48,14 @@ bool _matches(String kept, String pin) {
 
 /// On this device, via shared_preferences.
 class LocalAlbumPins implements AlbumPins {
-  const LocalAlbumPins();
+  const LocalAlbumPins({this.userId});
 
-  static String _key(String albumId) => 'album.pin.$albumId';
+  /// Signed-in accounts never read another account's PIN on this device.
+  /// The null account preserves pre-auth demo compatibility.
+  final String? userId;
+  String _key(String albumId) => userId == null
+      ? 'album.pin.$albumId'
+      : 'album.pin.$userId.$albumId';
 
   @override
   Future<bool> has(String albumId) async =>
