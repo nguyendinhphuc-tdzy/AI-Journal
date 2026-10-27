@@ -304,7 +304,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => AiReflectionScreen(
+        builder: (_) => AIReflectionScreen(
           journalContent: _entryText,
           remote: AiRemoteScope.maybeOf(context),
         ),
