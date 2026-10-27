@@ -7,6 +7,7 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/explore_highlight.dart';
 import '../data/explore_places_repository.dart';
+import '../data/geo_search_repository.dart';
 import 'widgets/nudaeng_map_marker.dart';
 import 'widgets/place_sheets.dart';
 import 'widgets/share_dialog.dart';
@@ -128,7 +129,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
     MapLibreMap.useHybridComposition = true;
     final hour = (widget.clock?.call() ?? DateTime.now()).hour;
     _isNight = hour >= 18 || hour < 5;
-    _search();
+    // Resolve authenticated SearchScope only after the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _search();
+    });
   }
 
   @override
@@ -190,7 +194,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> _search() async {
     final version = ++_searchVersion;
     try {
-      final results = await widget.placesRepository.search(_query, null);
+      final repo = widget.placesRepository is MockExplorePlacesRepository
+          ? (GeoSearchScope.maybeOf(context)?.explore ?? widget.placesRepository)
+          : widget.placesRepository;
+      final results = repo is NearbyExploreSearch
+          ? await repo.searchNear(
+              _query,
+              latitude: _currentCameraPosition.latitude,
+              longitude: _currentCameraPosition.longitude,
+            )
+          : await repo.search(_query, null);
       if (!mounted || version != _searchVersion) return;
       setState(() {
         _places = results;
@@ -571,6 +584,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
+  bool get _isDemoSearch => widget.placesRepository is MockExplorePlacesRepository &&
+      GeoSearchScope.maybeOf(context) == null;
+
   @override
   Widget build(BuildContext context) => Scaffold(
         backgroundColor: AppColors.background,
@@ -707,7 +723,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   for (final place in _places)
                     ListTile(
                         title: Text(place.label),
-                        subtitle: Text('${place.category} · Demo'),
+                        subtitle: Text(_isDemoSearch
+                            ? '${place.category} · Demo'
+                            : place.category),
                         onTap: () => _showPlace(place)),
                 ]))),
             ]),
@@ -758,7 +776,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                         child: ListTile(
                       title: Text(_selected?.label ?? 'Temporary pin'),
                       subtitle: Text(_selected != null
-                          ? '${_selected!.category} · Demo only'
+                          ? (_isDemoSearch
+                              ? '${_selected!.category} · Demo only'
+                              : _selected!.category)
                           : '${_draftPin!.latitude.toStringAsFixed(5)}, ${_draftPin!.longitude.toStringAsFixed(5)}\nNot saved · Tap elsewhere to move'),
                       isThreeLine: _selected == null,
                       trailing: IconButton(
