@@ -10,6 +10,8 @@ import '../../album/data/album_pins.dart';
 import '../../album/presentation/album_pin_sheet.dart';
 import '../../study/data/study_progress.dart';
 import '../../album/data/album_repository.dart';
+import '../../album/data/remote_album_repository.dart';
+import '../../explore/data/remote_saved_places_repository.dart';
 import '../../album/data/memory_photos.dart';
 import '../../album/data/album_settings.dart';
 import '../../album/data/album_unlocks.dart';
@@ -247,7 +249,14 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
     if (api != null && AppConfig.journalCloudEnabled && !hasDeviceEntries) {
       journals = RemoteJournalRepository(client: api, localDrafts: localJournals);
     }
-    final albums = await LocalAlbumRepository.open(userId: widget.userId);
+    final localAlbums = await LocalAlbumRepository.open(userId: widget.userId);
+    // Same preserve-existing-data policy as Journal Cloud: no hidden local
+    // albums or implicit transfer of device-only photos.
+    AlbumRepository albums = localAlbums;
+    if (api != null && AppConfig.albumCloudEnabled &&
+        (await localAlbums.albums()).isEmpty) {
+      albums = RemoteAlbumRepository(client: api, localDrafts: localAlbums);
+    }
     final onboarding = await OnboardingStore.open(userId: widget.userId);
     if (widget.resetOnboarding) {
       await onboarding.reset();
@@ -314,9 +323,15 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           final session = widget.auth != null
               ? AuthScope(auth: widget.auth!, child: userScoped)
               : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: userScoped);
+          final privatePlaces = _api != null && AppConfig.placesCloudEnabled
+              ? SavedPlacesScope(
+                  repository: RemoteSavedPlacesRepository(_api),
+                  child: session,
+                )
+              : session;
           return _ai == null
-              ? session
-              : AiRemoteScope(service: _ai, child: session);
+              ? privatePlaces
+              : AiRemoteScope(service: _ai, child: privatePlaces);
         },
       );
 }
