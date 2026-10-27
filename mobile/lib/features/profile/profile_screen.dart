@@ -299,35 +299,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   (Icons.local_florist_outlined, Color(0xFFECDDE4)),
                   (Icons.wb_sunny_outlined, Color(0xFFE4E5F1)),
                 ]),
-                // Only authenticated accounts have a real sign-out action.
-                // This restores AuthGate navigation after PR29 replaced the
-                // old profile without its logout button.
-                if (AuthScope.maybeOf(context) case final auth?) ...[
-                  const SizedBox(height: AppSpacing.lg),
-                  Center(
-                    child: TextButton.icon(
-                      onPressed: _signingOut ? null : () async {
-                        final messenger = ScaffoldMessenger.of(context);
-                        setState(() => _signingOut = true);
-                        try {
-                          await auth.signOut();
-                        } catch (_) {
-                          if (mounted) {
-                            messenger.showSnackBar(
-                              const SnackBar(content: Text(
-                                'Không thể đăng xuất. Hãy thử lại.',
-                              )),
-                            );
-                          }
-                        } finally {
-                          if (mounted) setState(() => _signingOut = false);
-                        }
-                      },
-                      icon: const Icon(Icons.logout),
-                      label: const Text('Đăng xuất'),
-                    ),
-                  ),
-                ],
                 _buildIconGroup('Biểu tượng đặc biệt', 4, const [
                   (Icons.nightlight_round, Color(0xFFD7DFE8)),
                   (Icons.favorite_border, Color(0xFFECCFCB)),
@@ -337,6 +308,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           ),
+          // Keep logout outside the lazy ListView so it is visible and
+          // reachable immediately on narrow Android displays.
+          if (AuthScope.maybeOf(context) case final auth?)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: _signingOut ? null : () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      setState(() => _signingOut = true);
+                      try {
+                        await auth.signOut();
+                      } catch (_) {
+                        if (mounted) {
+                          messenger.showSnackBar(const SnackBar(
+                            content: Text('Không thể đăng xuất. Hãy thử lại.'),
+                          ));
+                        }
+                      } finally {
+                        if (mounted) setState(() => _signingOut = false);
+                      }
+                    },
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Đăng xuất'),
+                  ),
+                ),
+              ),
+            ),
         ]),
       ),
     );
