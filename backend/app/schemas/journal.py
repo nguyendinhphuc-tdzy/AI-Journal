@@ -21,6 +21,17 @@ class GuidedContent(BaseModel):
         return value
 
 
+class JournalSource(BaseModel):
+    """Attribution of journal text from PR29 Study screens."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(pattern=r"^(challenge|course|lesson|framework)$")
+    id: str = Field(min_length=1, max_length=100)
+    label: str = Field(min_length=1, max_length=160)
+    task: int | None = Field(default=None, ge=0, le=1000)
+
+
 class JournalCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -29,6 +40,7 @@ class JournalCreate(BaseModel):
     prompt: str | None = Field(default=None, max_length=500)
     mood: str | None = Field(default=None, max_length=64)
     guided: GuidedContent | None = None
+    source: JournalSource | None = None
 
     @field_validator("content")
     @classmethod
@@ -46,6 +58,7 @@ class JournalUpdate(BaseModel):
     prompt: str | None = Field(default=None, max_length=500)
     mood: str | None = Field(default=None, max_length=64)
     guided: GuidedContent | None = None
+    source: JournalSource | None = None
 
     @field_validator("title")
     @classmethod
@@ -71,6 +84,7 @@ class JournalRead(BaseModel):
     prompt: str | None
     mood: str | None
     guided: GuidedContent | None
+    source: JournalSource | None
     body_version: int
     created_at: datetime
     updated_at: datetime
