@@ -21,10 +21,10 @@ Push-Location $Backend
 try {
   # Read-only revision gate: a mismatched schema must not serve journals.
   $Revision = (& $Python -m alembic current | Out-String)
-  if ($LASTEXITCODE -ne 0 -or $Revision -notmatch "(?m)^20261026_08(\s|\()") {
-    throw "Journal Cloud requires Alembic 20261026_08. Check your backend DATABASE_URL and migration branch; do NOT rerun migrations."
+  if ($LASTEXITCODE -ne 0 -or $Revision -notmatch "(?m)^20261028_09(\s|\()") {
+    throw "Journal Cloud requires Alembic 20261028_09. Check your backend DATABASE_URL and migration branch; do NOT rerun migrations."
   }
-  Write-Host "Journal Cloud schema confirmed at 20261026_08."
+  Write-Host "Journal Cloud schema confirmed at 20261028_09."
   Write-Host "FastAPI: http://127.0.0.1:$Port"
   Write-Host "Android Emulator API_BASE_URL: http://10.0.2.2:$Port/api/v1"
   # Loopback host is deliberate: do not expose personal Journal APIs on LAN.
