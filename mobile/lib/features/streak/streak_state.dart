@@ -34,6 +34,9 @@ class StreakState extends ValueNotifier<int> {
   }
 
   /// Back to the starting state (yesterday done), for tests sharing [shared].
+  /// Do not carry a user's mock streak across a real auth identity switch.
+  void resetForNewLocalSession() => reset();
+
   @visibleForTesting
   void reset({int count = 2}) {
     _lastCompletedDay = _today.subtract(const Duration(days: 1));
