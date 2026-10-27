@@ -38,7 +38,7 @@ The fields below are **local Android Emulator launch config**, never committed w
 
 Existing `mobile/.env.journal-cloud.json` is intentionally Git-ignored and its key must never be copied to chat or committed. Release must use HTTPS. Guest/fake auth sessions never see a cloud repository.
 
-Because the existing app has photo-only local albums, **remote Album is currently selected only when no user-scoped local albums exist**. This is a preservation gate, not an album import, not bidirectional sync, and not permission to delete local data. A full hybrid/import flow for users with existing device albums is a separate review step.
+When `ALBUM_CLOUD_ENABLED` is on, **CombinedAlbumRepository displays existing local albums alongside remote albums**. Old `local-*` IDs keep their device-only data and support photos; new albums are created on FastAPI as `cloud-*` and currently support note-only memories. All operations are routed by album ID. This is not bidirectional sync or an upload/import of device photos; a separate reviewed import UX and private object storage remain future work.
 
 ## Limitations before production
 
