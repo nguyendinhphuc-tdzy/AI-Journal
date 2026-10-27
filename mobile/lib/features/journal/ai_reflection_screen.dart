@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/data/app_data.dart';
+import 'data/api_ai_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
@@ -12,9 +13,12 @@ import '../streak/streak_state.dart';
 enum _ReflectionStage { loading, quote, insight }
 
 class AIReflectionScreen extends StatefulWidget {
-  const AIReflectionScreen({super.key, required this.journalContent});
+  const AIReflectionScreen({super.key, required this.journalContent, this.remote});
 
   final String journalContent;
+
+  /// Real backend AI service when authenticated and opted in.
+  final ApiAIService? remote;
 
   @override
   State<AIReflectionScreen> createState() => _AIReflectionScreenState();
@@ -26,6 +30,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   bool _quoteSaved = false;
   bool? _helpful;
   bool _openingStreak = false;
+  AiAnalysis? _analysis;
+  bool _aiFailed = false;
+  int _aiRequest = 0;
 
   void _saveQuote() {
     if (_quoteSaved) return;
@@ -71,12 +78,47 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.remote != null) {
+      _loadRemote();
+      return;
+    }
     // The pause while the entry is read. The quote then stays until the
     // reader moves on (Tiếp tục): never taken away mid-read.
     Future<void>.delayed(const Duration(seconds: 3), () {
       if (!mounted || _stage != _ReflectionStage.loading) return;
       setState(() => _stage = _ReflectionStage.quote);
     });
+  }
+
+  Future<void> _loadRemote() async {
+    final remote = widget.remote;
+    if (remote == null) return;
+    final request = ++_aiRequest;
+    setState(() {
+      _stage = _ReflectionStage.loading;
+      _aiFailed = false;
+      _analysis = null;
+    });
+    try {
+      final analysis = await remote.analyze(widget.journalContent);
+      if (!mounted || request != _aiRequest) return;
+      setState(() {
+        _analysis = analysis;
+        _stage = _ReflectionStage.insight;
+      });
+    } catch (_) {
+      if (!mounted || request != _aiRequest) return;
+      setState(() {
+        _aiFailed = true;
+        _stage = _ReflectionStage.insight;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _aiRequest++;
+    super.dispose();
   }
 
   void _showInsight() {
@@ -231,8 +273,12 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 Semantics(
                   header: true,
-                  child: const Text('Né tránh chuyện học hành',
-                      style: AppText.pageTitle),
+                  child: Text(
+                    widget.remote == null
+                        ? 'Né tránh chuyện học hành'
+                        : (_analysis?.emotion ?? 'Phản hồi AI'),
+                    style: AppText.pageTitle,
+                  ),
                 ),
                 const SizedBox(height: AppSpacing.xl),
                 Container(
@@ -256,8 +302,35 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                         : widget.journalContent,
                     style: AppText.body.copyWith(height: 1.7),
                   )
-                else ...[
-                  // Mock insight for the prototype; replace with the API response.
+                else if (widget.remote != null) ...[
+                  if (_aiFailed || _analysis == null) ...[
+                    const Text(
+                      'Phản hồi AI chưa sẵn sàng. Bạn có thể thử lại; '
+                      'chúng mình sẽ không hiển thị phân tích mô phỏng thay cho AI thật.',
+                      style: AppText.body,
+                    ),
+                    const SizedBox(height: 16),
+                    AppSecondaryButton(
+                      onPressed: _loadRemote,
+                      label: 'Thử lại AI',
+                    ),
+                  ] else ...[
+                    Text(_analysis!.reflection, style: AppText.body.copyWith(height: 1.7)),
+                    const SizedBox(height: 32),
+                    _buildSectionTitle(Icons.push_pin_outlined, 'Chúng mình nhận thấy rằng'),
+                    const SizedBox(height: 12),
+                    Text(_analysis!.observation, style: AppText.body.copyWith(height: 1.7)),
+                    const SizedBox(height: 28),
+                    _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
+                    const SizedBox(height: 12),
+                    Text(_analysis!.emotion, style: AppText.body.copyWith(height: 1.7)),
+                    const SizedBox(height: 28),
+                    _buildSectionTitle(Icons.question_answer_outlined, 'Một câu hỏi cho bạn'),
+                    const SizedBox(height: 12),
+                    Text(_analysis!.question, style: AppText.body.copyWith(height: 1.7)),
+                  ],
+                ] else ...[
+                  // Device-only preview; authenticated AI never shows this text.
                   Text(
                     'Có lẽ chuyện học hành đang trở thành một gánh nặng trong lòng bạn. '
                     'Ngay cả khi nghĩ về nó, bạn cũng có thể cảm thấy áp lực, bối rối, '
