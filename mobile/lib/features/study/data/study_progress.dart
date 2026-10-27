@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/widgets.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Where the user is in Study, kept on this device so leaving the app loses
@@ -97,9 +99,14 @@ abstract interface class StudyProgressStore {
 
 /// On this device, via shared_preferences.
 class LocalStudyProgressStore implements StudyProgressStore {
-  const LocalStudyProgressStore();
+  const LocalStudyProgressStore({this.userId});
 
-  static const _key = 'study.progress';
+  /// Null retains the original local-only demo key. Real auth and guest
+  /// sessions always pass their own user IDs, never importing other users'
+  /// unscoped Study drafts without an explicit reviewed migration.
+  final String? userId;
+
+  String get _key => userId == null ? 'study.progress' : 'study.progress.$userId';
 
   @override
   Future<StudyProgress?> load() async {
