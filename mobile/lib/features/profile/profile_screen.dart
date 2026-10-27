@@ -307,12 +307,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Center(
                     child: TextButton.icon(
                       onPressed: _signingOut ? null : () async {
+                        final messenger = ScaffoldMessenger.of(context);
                         setState(() => _signingOut = true);
                         try {
                           await auth.signOut();
                         } catch (_) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            messenger.showSnackBar(
                               const SnackBar(content: Text(
                                 'Không thể đăng xuất. Hãy thử lại.',
                               )),
