@@ -250,12 +250,12 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
       journals = RemoteJournalRepository(client: api, localDrafts: localJournals);
     }
     final localAlbums = await LocalAlbumRepository.open(userId: widget.userId);
-    // Same preserve-existing-data policy as Journal Cloud: no hidden local
-    // albums or implicit transfer of device-only photos.
+    // Existing local/photo albums remain visible alongside new cloud albums.
+    // They are never uploaded or re-assigned to the cloud.
     AlbumRepository albums = localAlbums;
-    if (api != null && AppConfig.albumCloudEnabled &&
-        (await localAlbums.albums()).isEmpty) {
-      albums = RemoteAlbumRepository(client: api, localDrafts: localAlbums);
+    if (api != null && AppConfig.albumCloudEnabled) {
+      final remote = RemoteAlbumRepository(client: api, localDrafts: localAlbums);
+      albums = CombinedAlbumRepository(local: localAlbums, remote: remote);
     }
     final onboarding = await OnboardingStore.open(userId: widget.userId);
     if (widget.resetOnboarding) {
