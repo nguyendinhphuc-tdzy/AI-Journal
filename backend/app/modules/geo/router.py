@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.config import Settings, get_settings
-from app.modules.geo.service import geoapify_search
+from app.modules.geo.service import geoapify_search, geoapify_poi_search
 from app.schemas.place import Latitude, Longitude
 
 
@@ -58,6 +58,7 @@ class GeoResult(BaseModel):
     formatted_address: str | None
     latitude: Latitude
     longitude: Longitude
+    category: str | None = None
 
 
 class GeoResults(BaseModel):
@@ -87,7 +88,40 @@ async def search_locations(
         raise HTTPException(
             status_code=503, detail="Place search is not configured"
         )
-    items = await geoapify_search(
-        client, api_key, query=q.strip(), limit=limit, lat=lat, lon=lon
-    )
-    return GeoResults(items=items)
+    # Always support addresses; named POIs additionally require a map center.
+    # All providers are fixed-origin and the key never leaves FastAPI.
+    # Errors are not turned into fabricated empty results.
+    cleaned = q.strip()
+    addresses: list[dict] = []
+    pois: list[dict] = []
+    failures: list[HTTPException] = []
+    try:
+        addresses = await geoapify_search(
+            client, api_key, query=cleaned, limit=limit, lat=lat, lon=lon
+        )
+    except HTTPException as exc:
+        failures.append(exc)
+
+    if lat is not None and lon is not None and len(cleaned) >= 3:
+        try:
+            pois = await geoapify_poi_search(
+                client, api_key, query=cleaned, limit=limit, lat=lat, lon=lon
+            )
+        except HTTPException as exc:
+            failures.append(exc)
+
+    if failures and not (addresses or pois):
+        raise failures[0]
+
+    # Prefer named nearby POIs. Remove duplicate provider IDs without
+    # suppressing different addresses sharing the same human-readable name.
+    combined = []
+    seen = set()
+    for item in [*pois, *addresses]:
+        if item["external_place_id"] in seen:
+            continue
+        seen.add(item["external_place_id"])
+        combined.append(item)
+        if len(combined) >= limit:
+            break
+    return GeoResults(items=combined)
