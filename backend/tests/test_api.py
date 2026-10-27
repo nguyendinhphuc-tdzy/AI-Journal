@@ -538,9 +538,25 @@ def test_geoapify_search_normalizes_response_without_exposing_key():
 
     def fake_provider(request):
         calls.append(request)
-        assert request.url.path == "/v1/geocode/autocomplete"
         assert request.url.params["bias"] == "proximity:106.6297,10.8231"
         assert request.url.params["limit"] == "5"
+        assert request.url.params["lang"] == "vi"
+        if request.url.path == "/v2/places":
+            assert request.url.params["categories"] == "catering.cafe"
+            assert request.url.params["filter"] == "circle:106.6297,10.8231,20000"
+            assert request.url.params.get("name") is None
+            return httpx.Response(200, json={
+                "features": [{
+                    "properties": {
+                        "place_id": "poi-456",
+                        "name": "Quán cà phê thật",
+                        "formatted": "Quận 1, Việt Nam",
+                        "lat": 10.823, "lon": 106.63,
+                        "categories": ["catering.cafe"],
+                    },
+                }]
+            })
+        assert request.url.path == "/v1/geocode/autocomplete"
         return httpx.Response(200, json={
             "type": "FeatureCollection",
             "features": [{
@@ -571,12 +587,18 @@ def test_geoapify_search_normalizes_response_without_exposing_key():
         })
         assert response.status_code == 200, response.text
         assert response.json() == {"items": [{
+            "provider": "geoapify", "external_place_id": "poi-456",
+            "label": "Quán cà phê thật", "formatted_address": "Quận 1, Việt Nam",
+            "latitude": 10.823, "longitude": 106.63,
+            "category": "catering.cafe",
+        }, {
             "provider": "geoapify", "external_place_id": "place-123",
             "label": "Reading café", "formatted_address": "Example, Vietnam",
-            "latitude": 10.8231, "longitude": 106.6297
+            "latitude": 10.8231, "longitude": 106.6297,
+            "category": None,
         }]}
         assert "test-secret-key" not in response.text
-        assert len(calls) == 1
+        assert len(calls) == 2
     finally:
         app.dependency_overrides.clear()
 
