@@ -7,6 +7,7 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../data/place_lookup.dart';
+import '../data/geo_search_repository.dart';
 
 /// E05: choose and confirm a place, for a memory (A06) or a share (A10).
 ///
@@ -193,6 +194,11 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
   // Candidate.
 
   /// A point without a name yet: look it up.
+  PlaceLookup get _searchLookup =>
+      widget.lookup is MockPlaceLookup
+          ? (GeoSearchScope.maybeOf(context)?.picker ?? widget.lookup)
+          : widget.lookup;
+
   Future<void> _pin(LatLng at, PlaceSource source) async {
     final request = ++_nameRequest;
     _name.clear();
@@ -206,7 +212,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     _Naming outcome;
     PlaceCandidate? named;
     try {
-      named = await widget.lookup.nameAt(at.latitude, at.longitude);
+      named = await _searchLookup.nameAt(at.latitude, at.longitude);
       outcome = named != null && named.named ? _Naming.idle : _Naming.empty;
     } catch (_) {
       outcome = _Naming.failed;
@@ -259,7 +265,15 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     final query = _search.text.trim();
     if (query.isEmpty) return;
     try {
-      final results = await widget.lookup.search(query);
+      final lookup = _searchLookup;
+      final center = _map?.cameraPosition?.target ?? PlacePickerScreen.start;
+      final results = lookup is NearbyPlaceLookup
+          ? await lookup.searchNear(
+              query,
+              latitude: center.latitude,
+              longitude: center.longitude,
+            )
+          : await lookup.search(query);
       // An older response never replaces a newer query's.
       if (!mounted || run != _searchVersion) return;
       setState(() {
