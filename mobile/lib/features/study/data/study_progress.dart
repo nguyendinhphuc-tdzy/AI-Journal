@@ -139,3 +139,23 @@ class InMemoryStudyProgressStore implements StudyProgressStore {
   Future<void> save(StudyProgress progress) async =>
       kept = StudyProgress.fromJson(progress.toJson());
 }
+
+
+/// A different identity gets a different on-device Study progress store.
+/// This is never a Supabase table; account sync is a later contract.
+class StudyProgressScope extends InheritedWidget {
+  const StudyProgressScope({
+    super.key,
+    required this.repository,
+    required super.child,
+  });
+
+  final StudyProgressStore repository;
+
+  static StudyProgressScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<StudyProgressScope>();
+
+  @override
+  bool updateShouldNotify(StudyProgressScope old) =>
+      repository != old.repository;
+}
