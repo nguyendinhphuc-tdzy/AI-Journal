@@ -90,6 +90,29 @@ void main() {
     api.close();
   });
 
+  test('combined library preserves existing local albums alongside cloud', () async {
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        if (request.method == 'GET') return _response([_album()]);
+        return _response(_album(), 201);
+      }),
+    );
+    final local = await LocalAlbumRepository.open(userId: 'preserved-user');
+    final deviceAlbum = await local.create(name: 'Ảnh cũ trên máy');
+    final remote = RemoteAlbumRepository(client: api, localDrafts: local);
+    final repo = CombinedAlbumRepository(local: local, remote: remote);
+    final albums = await repo.albums();
+    expect(albums.map((x) => x.id), containsAll([
+      deviceAlbum.id, 'cloud-$_albumId',
+    ]));
+    expect((await repo.album(deviceAlbum.id))!.name, 'Ảnh cũ trên máy');
+    await repo.create(name: 'Album mới');
+    expect((await local.albums()).map((x) => x.id), contains(deviceAlbum.id));
+    repo.dispose();
+    api.close();
+  });
+
   test('photo-only or attached photo refuses network before data loss', () async {
     var count = 0;
     final api = ApiClient(
