@@ -264,3 +264,99 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
   @override
   Future<void> deleteMemoryDraft(String key) => localDrafts.deleteMemoryDraft(key);
 }
+
+
+/// Explicit dual-source view: existing local Albums (including device photos)
+/// remain usable while new cloud Albums are persisted remotely. No implicit
+/// migration or background upload occurs. Existing IDs stay disjoint.
+class CombinedAlbumRepository extends ChangeNotifier implements AlbumRepository {
+  CombinedAlbumRepository({
+    required this.local,
+    required this.remote,
+  }) {
+    local.addListener(notifyListeners);
+    remote.addListener(notifyListeners);
+  }
+
+  final LocalAlbumRepository local;
+  final RemoteAlbumRepository remote;
+
+  bool _cloud(String id) => id.startsWith('cloud-');
+
+  AlbumRepository _owner(String id) => _cloud(id) ? remote : local;
+
+  @override
+  Future<List<Album>> albums() async {
+    // Fail visibly if remote state is unavailable; no partial cloud
+    // response masquerades as the complete private album library.
+    final values = await Future.wait([local.albums(), remote.albums()]);
+    final all = [...values[0], ...values[1]];
+    all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return all;
+  }
+
+  @override
+  Future<Album?> album(String id) => _owner(id).album(id);
+
+  /// New Albums are cloud-only after explicit opt-in.
+  @override
+  Future<Album> create({
+    required String name,
+    String themeId = Album.defaultTheme,
+    bool locked = false,
+  }) => remote.create(name: name, themeId: themeId, locked: locked);
+
+  @override
+  Future<Album> update(Album album) => _owner(album.id).update(album);
+
+  @override
+  Future<Album> updateSettings(String id, {
+    required String name,
+    required String themeId,
+    required bool locked,
+  }) => _owner(id).updateSettings(
+        id, name: name, themeId: themeId, locked: locked,
+      );
+
+  @override
+  Future<List<Memory>> memories(String albumId) =>
+      _owner(albumId).memories(albumId);
+
+  @override
+  Future<Memory?> memory(String albumId, String memoryId) =>
+      _owner(albumId).memory(albumId, memoryId);
+
+  @override
+  Future<Memory> createMemory(String albumId, MemoryContent content) =>
+      _owner(albumId).createMemory(albumId, content);
+
+  @override
+  Future<Memory> updateMemory(
+    String albumId, String memoryId, MemoryContent content,
+  ) => _owner(albumId).updateMemory(albumId, memoryId, content);
+
+  @override
+  Future<void> deleteMemory(String albumId, String memoryId) =>
+      _owner(albumId).deleteMemory(albumId, memoryId);
+
+  @override
+  Future<void> deleteAlbum(String albumId) =>
+      _owner(albumId).deleteAlbum(albumId);
+
+  // Drafts always stay local, per account, regardless of album ID.
+  @override
+  Future<MemoryDraft?> memoryDraft(String key) => local.memoryDraft(key);
+  @override
+  Future<void> saveMemoryDraft(String key, MemoryDraft draft) =>
+      local.saveMemoryDraft(key, draft);
+  @override
+  Future<void> deleteMemoryDraft(String key) => local.deleteMemoryDraft(key);
+
+  @override
+  void dispose() {
+    local.removeListener(notifyListeners);
+    remote.removeListener(notifyListeners);
+    remote.dispose();
+    super.dispose();
+  }
+}
