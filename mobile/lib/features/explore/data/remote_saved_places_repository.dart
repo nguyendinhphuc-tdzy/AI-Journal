@@ -156,7 +156,19 @@ class RemoteSavedPlacesRepository {
     } catch (_) {
       throw PartiallySavedPlace(id);
     }
-    return _convert(saved);
+    // Avoid a third network request after both writes succeeded: a transient
+    // read failure must not look like a failed create and cause duplicates.
+    return SavedPlace(
+      id: '$_prefix$id',
+      name: draft.name.trim(),
+      latitude: latitude,
+      longitude: longitude,
+      category: draft.category,
+      moodTag: draft.moodTag,
+      note: draft.note,
+      moodLabel: draft.moodLabel,
+      moodAsset: _asset(draft.moodLabel),
+    );
   }
 
   Future<void> delete(String id) async => client.deleteNoContent(
