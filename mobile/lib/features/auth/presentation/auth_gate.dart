@@ -6,6 +6,7 @@ import '../../../core/data/app_data.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/network/api_client.dart';
 import '../../album/album_scope.dart';
+import '../../explore/data/geo_search_repository.dart';
 import '../../album/data/album_repository.dart';
 import '../../album/data/memory_photos.dart';
 import '../../album/data/album_settings.dart';
@@ -306,9 +307,14 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           final session = widget.auth != null
               ? AuthScope(auth: widget.auth!, child: scoped)
               : GuestScope(onLeaveGuest: widget.onLeaveGuest!, child: scoped);
-          return _ai == null
+          // Authenticated Geoapify search is deliberately unavailable to
+          // guests and fake auth; no provider key lives in Flutter.
+          final geoSession = _api == null
               ? session
-              : AiRemoteScope(service: _ai, child: session);
+              : GeoSearchScope(client: _api, child: session);
+          return _ai == null
+              ? geoSession
+              : AiRemoteScope(service: _ai, child: geoSession);
         },
       );
 }
