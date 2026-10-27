@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_ui.dart';
 import '../onboarding/data/onboarding_store.dart';
+import '../auth/presentation/auth_gate.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
 import '../home/data/home_scene_settings.dart';
@@ -29,6 +30,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late Future<HomeSceneSettings> _scene;
   late Future<SoundSettings> _sound;
   bool _editing = false;
+  bool _signingOut = false;
 
   @override
   void initState() {
@@ -297,6 +299,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   (Icons.local_florist_outlined, Color(0xFFECDDE4)),
                   (Icons.wb_sunny_outlined, Color(0xFFE4E5F1)),
                 ]),
+                // Only authenticated accounts have a real sign-out action.
+                // This restores AuthGate navigation after PR29 replaced the
+                // old profile without its logout button.
+                if (AuthScope.maybeOf(context) case final auth?) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: _signingOut ? null : () async {
+                        setState(() => _signingOut = true);
+                        try {
+                          await auth.signOut();
+                        } catch (_) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text(
+                                'Không thể đăng xuất. Hãy thử lại.',
+                              )),
+                            );
+                          }
+                        } finally {
+                          if (mounted) setState(() => _signingOut = false);
+                        }
+                      },
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Đăng xuất'),
+                    ),
+                  ),
+                ],
                 _buildIconGroup('Biểu tượng đặc biệt', 4, const [
                   (Icons.nightlight_round, Color(0xFFD7DFE8)),
                   (Icons.favorite_border, Color(0xFFECCFCB)),
