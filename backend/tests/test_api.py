@@ -1071,3 +1071,46 @@ def test_guided_journal_roundtrip_version_and_owner_isolation():
         assert client.get("/api/v1/journals").json()["items"] == []
     finally:
         app.dependency_overrides.clear()
+
+
+def test_study_journal_source_roundtrip_and_rejects_invalid_metadata():
+    """Study attribution survives cloud fetch/list/update without client-owned IDs."""
+    alice = AuthenticatedUser(user_id=uuid4(), email="study-source@example.test")
+    source = {
+        "kind": "challenge",
+        "id": "gratitude",
+        "label": "Challenge · Nhiệm vụ 2",
+        "task": 1,
+    }
+    app.dependency_overrides[get_current_user] = lambda: alice
+    try:
+        response = client.post("/api/v1/journals", json={
+            "content": "Tôi đã hoàn thành một nhiệm vụ", "source": source,
+        })
+        assert response.status_code == 201, response.text
+        journal = response.json()
+        journal_id = journal["id"]
+        assert journal["body_version"] == 1
+        assert journal["source"] == source
+        assert client.get(f"/api/v1/journals/{journal_id}").json()["source"] == source
+        assert any(item["source"] == source for item in
+                   client.get("/api/v1/journals").json()["items"])
+        unchanged = client.put(f"/api/v1/journals/{journal_id}", json={
+            "source": source,
+        })
+        assert unchanged.status_code == 200
+        assert unchanged.json()["body_version"] == 1
+        cleared = client.put(f"/api/v1/journals/{journal_id}", json={
+            "source": None,
+        })
+        assert cleared.status_code == 200
+        assert cleared.json()["body_version"] == 2
+        assert cleared.json()["source"] is None
+        assert client.post("/api/v1/journals", json={
+            "content": "x", "source": dict(source, kind="arbitrary"),
+        }).status_code == 422
+        assert client.put(f"/api/v1/journals/{journal_id}", json={
+            "source": dict(source, extra="not permitted"),
+        }).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
