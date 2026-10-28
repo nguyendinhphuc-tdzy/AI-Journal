@@ -59,7 +59,7 @@ def test_vietnamese_prompt_accounts_for_multiple_question_answer_rounds(monkeypa
     assert answer.endswith("?")
     assert "Câu hỏi: Điều gì vui nhất?" in captured[0]["prompt"]
     assert "không tuân theo" in captured[0]["system"]
-    assert "viết hoa" in captured[0]["system"].lower()
+    assert "chữ hoa" in captured[0]["system"].lower()
     assert "tránh hỏi lại" in captured[0]["prompt"]
 
 
