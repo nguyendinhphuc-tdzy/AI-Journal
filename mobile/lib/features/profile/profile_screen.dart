@@ -6,17 +6,38 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_ui.dart';
 import '../onboarding/data/onboarding_store.dart';
-import '../auth/presentation/auth_gate.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
+import '../explore/data/place_mood.dart';
 import '../home/data/home_scene_settings.dart';
+import '../social/data/friends_account.dart';
+import '../social/data/friend_space.dart';
+import '../social/presentation/facebook_login_screen.dart';
 import '../sound/app_sound.dart';
 import '../sound/data/sound_settings.dart';
 import 'data/writing_preferences.dart';
 import 'widgets/setting_editor.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({super.key, FriendsAccount? friends})
+      : _friends = friends;
+
+  final FriendsAccount? _friends;
+
+  /// Facebook login for friends on the app (simulated for now).
+  FriendsAccount get friends => _friends ?? MockFriendsAccount.instance;
+
+  static const accountTitle = 'Tài khoản';
+  static const facebookLabel = 'Facebook';
+  static const facebookOff = 'Chưa kết nối · để chia sẻ với bạn bè trên app';
+  static String facebookOn(int count) =>
+      'Đã kết nối · $count bạn bè trên app (bản thử)';
+  static const disconnectTitle = 'Ngắt kết nối Facebook?';
+  static const disconnectBody =
+      'Space của bạn sẽ được làm trống và bạn không chia sẻ được bài 24 giờ '
+      'cho đến khi đăng nhập lại. Kỷ niệm của bạn vẫn ở nguyên.';
+  static const disconnectLabel = 'Ngắt kết nối';
+  static const keepLabel = 'Giữ kết nối';
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -30,7 +51,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late Future<HomeSceneSettings> _scene;
   late Future<SoundSettings> _sound;
   bool _editing = false;
-  bool _signingOut = false;
 
   @override
   void initState() {
@@ -86,7 +106,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           options = {
             for (final value in HomeScene.values) value.name: value.label
           };
-          note = 'Cảnh ở đầu thẻ Khoảnh khắc suy ngẫm trên Trang chủ.';
+          note = 'Cảnh ở đầu thẻ Một chút cho bản thân trên Trang chủ.';
           save = (value) => scene.saveScene(HomeScene.values.byName(value));
         case 'dynamic theme':
           initial = scene.effect.name;
@@ -179,7 +199,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           return _buildSettingsGroup('Tùy chỉnh', const [
             'dynamic theme',
             'scene',
-            'handwriting',
             'text size',
             'background music',
             'music volume',
@@ -220,13 +239,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
         final store = snapshot.data;
         final loading = store == null;
-        final reminders = store?.reminders;
+        // Only settings that open something; the rest (Plus, reminders,
+        // language) come back once they work.
         return _buildSettingsGroup('Cài đặt chung', const [
-          'who says plus',
           'what do friends call you?',
           'pick your inspirations path',
-          'daily reminders',
-          'language',
         ], values: {
           'what do friends call you?': loading
               ? 'Đang tải…'
@@ -235,15 +252,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : 'Chưa đặt biệt danh'),
           'pick your inspirations path':
               loading ? 'Đang tải…' : store.goal?.label ?? 'Chưa chọn mục tiêu',
-          'daily reminders': loading
-              ? 'Đang tải…'
-              : (reminders!.isEmpty
-                  ? 'Chưa có lịch nhắc đã lưu'
-                  : reminders.entries
-                      .map(
-                          (entry) => '${entry.key.label}: ${entry.value.label}')
-                      .join('\n')),
-          'language': 'Tiếng Việt',
         });
       },
     );
@@ -279,68 +287,108 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.lg, 0, AppSpacing.lg, 40),
               children: [
+                _buildAccount(),
                 _buildGeneralSettings(),
                 _buildPreferences(),
-                _buildSettingsGroup(
-                    'Bảo mật',
-                    const [
-                      'lock with passcode',
-                      'lock with face id',
-                    ],
-                    comingSoon: true),
-                _buildSettingsGroup('Thông tin', const [
-                  'notes for you',
-                  'rate app',
-                  'contact support',
-                ]),
-                _buildIconGroup('Biểu tượng ứng dụng', 0, const [
-                  (Icons.auto_stories_outlined, Color(0xFFD6E9E4)),
-                  (Icons.pets_outlined, Color(0xFFF1E4CE)),
-                  (Icons.local_florist_outlined, Color(0xFFECDDE4)),
-                  (Icons.wb_sunny_outlined, Color(0xFFE4E5F1)),
-                ]),
-                _buildIconGroup('Biểu tượng đặc biệt', 4, const [
-                  (Icons.nightlight_round, Color(0xFFD7DFE8)),
-                  (Icons.favorite_border, Color(0xFFECCFCB)),
-                  (Icons.forest_outlined, Color(0xFFDDE5D1)),
-                  (Icons.star_outline, Color(0xFFF1E6BF)),
-                ]),
+                _buildIconGroup(),
               ],
             ),
           ),
-          // Keep logout outside the lazy ListView so it is visible and
-          // reachable immediately on narrow Android displays.
-          if (AuthScope.maybeOf(context) case final auth?)
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                child: Center(
-                  child: TextButton.icon(
-                    onPressed: _signingOut ? null : () async {
-                      final messenger = ScaffoldMessenger.of(context);
-                      setState(() => _signingOut = true);
-                      try {
-                        await auth.signOut();
-                      } catch (_) {
-                        if (mounted) {
-                          messenger.showSnackBar(const SnackBar(
-                            content: Text('Không thể đăng xuất. Hãy thử lại.'),
-                          ));
-                        }
-                      } finally {
-                        if (mounted) setState(() => _signingOut = false);
-                      }
-                    },
-                    icon: const Icon(Icons.logout),
-                    label: const Text('Đăng xuất'),
+        ]),
+      ),
+    );
+  }
+
+  /// Facebook: connected or not; a tap connects, or asks before
+  /// disconnecting.
+  Widget _buildAccount() => ValueListenableBuilder<FriendsSession?>(
+        valueListenable: widget.friends.session,
+        builder: (context, session, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildGroupTitle(ProfileScreen.accountTitle),
+            AppCard(
+              padding: EdgeInsets.zero,
+              child: InkWell(
+                key: const ValueKey('setting-item-facebook'),
+                onTap: () => session == null
+                    ? openFacebookLogin(context, widget.friends)
+                    : _disconnect(),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 64),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.md, 12, AppSpacing.sm, 12),
+                    child: Row(children: [
+                      Container(
+                        width: _iconTile,
+                        height: _iconTile,
+                        decoration: BoxDecoration(
+                          color: facebookBlue.withValues(alpha: .1),
+                          borderRadius: const BorderRadius.all(
+                              Radius.circular(AppRadius.small)),
+                        ),
+                        child: const Icon(Icons.facebook_rounded,
+                            size: 22, color: facebookBlue),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(ProfileScreen.facebookLabel,
+                                style: AppText.body),
+                            const SizedBox(height: 2),
+                            Text(
+                                session == null
+                                    ? ProfileScreen.facebookOff
+                                    : ProfileScreen.facebookOn(
+                                        session.friends.length),
+                                style: AppText.meta),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded,
+                          color: AppColors.textSecondary),
+                    ]),
                   ),
                 ),
               ),
             ),
-        ]),
+          ],
+        ),
+      );
+
+  Future<void> _disconnect() async {
+    final confirmed = await showAppSheet<bool>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(ProfileScreen.disconnectTitle,
+              style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(ProfileScreen.disconnectBody,
+              style: AppText.bodySecondary),
+          const SizedBox(height: AppSpacing.lg),
+          AppPrimaryButton(
+              label: ProfileScreen.keepLabel,
+              compact: true,
+              onPressed: () => Navigator.pop(sheet, false)),
+          const SizedBox(height: AppSpacing.sm),
+          AppSecondaryButton(
+              label: ProfileScreen.disconnectLabel,
+              compact: true,
+              onPressed: () => Navigator.pop(sheet, true)),
+        ],
       ),
     );
+    if (confirmed == true) {
+      await widget.friends.disconnect();
+      // Signed out: the space goes too (it was made of Facebook friends).
+      await FriendSpace.instance.clear();
+    }
   }
 
   Widget _buildGroupTitle(String title) {
@@ -496,72 +544,94 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _ => Icons.tune_rounded,
       };
 
-  Widget _buildIconGroup(
-      String title, int startIndex, List<(IconData, Color)> icons) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _buildGroupTitle(title),
-        AppCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text('Chỉ xem trước; chưa đổi icon ngoài màn hình chính.',
-                  style: AppText.meta),
-              const SizedBox(height: AppSpacing.md),
-              Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.md,
-                children: [
-                  for (var index = 0; index < icons.length; index++)
-                    Semantics(
-                      button: true,
-                      selected: _selectedIcon == startIndex + index,
-                      label: '${title.toLowerCase()} ${index + 1}',
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Material(
-                            color: icons[index].$2,
-                            borderRadius: BorderRadius.circular(18),
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              key: ValueKey('app-icon-${startIndex + index}'),
-                              onTap: () {
-                                setState(
-                                    () => _selectedIcon = startIndex + index);
-                              },
-                              child: SizedBox(
-                                width: 64,
-                                height: 64,
-                                child: Icon(icons[index].$1,
-                                    size: 30, color: AppColors.textPrimary),
+  /// Three Nudaeng app icons to pick from. Only a preview here: the icon on
+  /// the home screen does not change yet.
+  static const appIcons = [
+    ('Nudaeng vui vẻ', PlaceMood.happy, Color(0xFFF1E4CE)),
+    ('Nudaeng bình yên', PlaceMood.peaceful, Color(0xFFD6E9E4)),
+    ('Nudaeng háo hức', PlaceMood.excited, Color(0xFFE4E5F1)),
+  ];
+
+  Widget _buildIconGroup() => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildGroupTitle('Biểu tượng ứng dụng'),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text('Chỉ xem trước; chưa đổi icon ngoài màn hình chính.',
+                    style: AppText.meta),
+                const SizedBox(height: AppSpacing.md),
+                Wrap(
+                  spacing: AppSpacing.md,
+                  runSpacing: AppSpacing.md,
+                  children: [
+                    for (final (index, (name, mood, tint)) in appIcons.indexed)
+                      Semantics(
+                        button: true,
+                        selected: _selectedIcon == index,
+                        label: name,
+                        excludeSemantics: true,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Material(
+                              color: tint,
+                              clipBehavior: Clip.antiAlias,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                                side: BorderSide(
+                                    color: _selectedIcon == index
+                                        ? AppColors.primaryAction
+                                        : Colors.transparent,
+                                    width: 2),
+                              ),
+                              child: InkWell(
+                                key: ValueKey('app-icon-$index'),
+                                onTap: () =>
+                                    setState(() => _selectedIcon = index),
+                                child: SizedBox.square(
+                                  dimension: 72,
+                                  // Head and shoulders, as on a launcher.
+                                  child: Image.asset(mood.asset,
+                                      fit: BoxFit.cover,
+                                      alignment: const Alignment(0, -.6),
+                                      cacheWidth: 220),
+                                ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            height: 6,
-                            width: 6,
-                            child: _selectedIcon == startIndex + index
-                                ? const DecoratedBox(
-                                    key: ValueKey('selected-icon-dot'),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.primaryAction,
-                                      shape: BoxShape.circle,
-                                    ),
-                                  )
-                                : null,
-                          ),
-                        ],
+                            const SizedBox(height: 6),
+                            Text(name.replaceFirst('Nudaeng ', ''),
+                                style: AppText.meta.copyWith(
+                                    color: _selectedIcon == index
+                                        ? AppColors.primaryAction
+                                        : AppColors.textSecondary,
+                                    fontWeight: _selectedIcon == index
+                                        ? FontWeight.w600
+                                        : null)),
+                            const SizedBox(height: 4),
+                            SizedBox(
+                              height: 6,
+                              width: 6,
+                              child: _selectedIcon == index
+                                  ? const DecoratedBox(
+                                      key: ValueKey('selected-icon-dot'),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primaryAction,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    )
+                                  : null,
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
-    );
-  }
+        ],
+      );
 }

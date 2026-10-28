@@ -25,6 +25,12 @@ import 'album_routes.dart';
 ///   [Album.hideNameWhenLocked], "Album đã khóa" instead of its name.
 /// - A new album fades in at the top with a soft teal glow (1.8 s) that
 ///   fades away; no mascot over the grid.
+/// - No album yet: one group, close together and centred a little above the
+///   middle (it scrolls when space is short): the first page of a scrapbook
+///   (two small framed drawings, a sky and a flower, never anything like a
+///   user's photo; two strips of tape; Nudaeng hugging a photo in the
+///   corner), an invitation, and "Tạo album đầu tiên" right under it. The
+///   docked "Tạo album" is not shown then.
 class AlbumScreen extends StatefulWidget {
   const AlbumScreen({super.key, this.onShare, this.onUnshare});
 
@@ -39,9 +45,10 @@ class AlbumScreen extends StatefulWidget {
   static const title = 'Kỷ niệm';
   static const subtitle = 'Giữ lại những điều bạn muốn nhớ.';
   static const createLabel = 'Tạo album';
-  static const emptyTitle = 'Chưa có album nào';
+  static const emptyTitle = 'Những điều nhỏ, đáng nhớ';
   static const emptyBody =
-      'Tạo một album để giữ ảnh và những dòng ghi chú bạn muốn nhớ.';
+      'Gom ảnh và vài dòng kể lại thành một cuốn album của bạn.';
+  static const firstCreateLabel = 'Tạo album đầu tiên';
   static const loadFailed = 'Chưa tải được album.';
   static const refreshFailed = 'Chưa cập nhật được danh sách album.';
   static const retryLabel = 'Thử lại';
@@ -55,7 +62,7 @@ class AlbumScreen extends StatefulWidget {
   /// How long a new album's glow lasts, fade-in included.
   static const newGlow = Duration(milliseconds: 1800);
   static const backdropAsset = AlbumBackdrop.figureAsset;
-  static const emptyAsset = 'assets/Deimage/album-empty-nudaeng.png';
+  static const emptyAsset = 'assets/images/scrapbook/nudaeng-hugging-photo.png';
 
   @override
   State<AlbumScreen> createState() => _AlbumScreenState();
@@ -221,8 +228,15 @@ class _AlbumScreenState extends State<AlbumScreen> {
                           _Notice(text: AlbumScreen.loadFailed, onRetry: _load),
                     )
                   else if (albums.isEmpty)
-                    const SliverFillRemaining(
-                        hasScrollBody: false, child: _EmptyLibrary())
+                    // As tall as it needs (scrolls when short), at least most
+                    // of the screen so it sits near the middle.
+                    SliverToBoxAdapter(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                            minHeight: math.max(0, box.maxHeight - 120)),
+                        child: _EmptyLibrary(onCreate: _create),
+                      ),
+                    )
                   else
                     _Grid(
                       albums: albums,
@@ -231,18 +245,21 @@ class _AlbumScreenState extends State<AlbumScreen> {
                       onOpen: _open,
                       onSettings: _settings,
                     ),
-                  SliverToBoxAdapter(
-                      child: SizedBox(height: _Dock.heightOf(context))),
+                  if (albums?.isEmpty != true)
+                    SliverToBoxAdapter(
+                        child: SizedBox(height: _Dock.heightOf(context))),
                 ],
               ),
             ),
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _Dock(onCreate: _create),
-          ),
+          // Empty: the button is in the invitation, close to its words.
+          if (albums?.isEmpty != true)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _Dock(onCreate: _create),
+            ),
         ],
       ),
     );
@@ -476,43 +493,243 @@ class _AlbumTile extends StatelessWidget {
   }
 }
 
-/// No album yet: Nudaeng holding an empty notebook over a sheet of paper.
+/// No album yet: the first page of a scrapbook, an invitation and the
+/// button to start, as one group.
 class _EmptyLibrary extends StatelessWidget {
-  const _EmptyLibrary();
+  const _EmptyLibrary({required this.onCreate});
+
+  final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.md),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ExcludeSemantics(
-              child: SizedBox(
-                height: 150,
-                child: Image.asset(AlbumScreen.emptyAsset,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-              ),
-            ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: const Column(children: [
-                Text(AlbumScreen.emptyTitle,
-                    textAlign: TextAlign.center, style: _Text.section),
-                SizedBox(height: AppSpacing.sm),
-                Text(AlbumScreen.emptyBody,
+  Widget build(BuildContext context) => Align(
+        // A little above the middle: close to the title, never far apart.
+        alignment: const Alignment(0, -.35),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xl),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ExcludeSemantics(child: _FirstPage()),
+                const SizedBox(height: AppSpacing.xl),
+                const Text(AlbumScreen.emptyTitle,
+                    textAlign: TextAlign.center, style: _Text.invite),
+                const SizedBox(height: AppSpacing.sm),
+                const Text(AlbumScreen.emptyBody,
                     textAlign: TextAlign.center, style: _Text.body),
-              ]),
+                const SizedBox(height: AppSpacing.lg),
+                _PressScale(
+                  child: AppPrimaryButton(
+                    label: AlbumScreen.firstCreateLabel,
+                    icon: Icons.add_rounded,
+                    onPressed: onCreate,
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
+}
+
+/// A sheet of ivory paper with two small framed drawings set off from each
+/// other, a strip of tape on each, and Nudaeng hugging a photo in the
+/// corner. Drawings only: nothing that could pass for the user's photos.
+class _FirstPage extends StatelessWidget {
+  const _FirstPage();
+
+  static const paper = Color(0xFFFBF8F1);
+  static const height = 196.0;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 300,
+        height: height,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: paper,
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.textPrimary.withValues(alpha: .12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Positioned(
+            left: 28,
+            top: 22,
+            child: _Frame(
+                angle: -.07,
+                tape: 'assets/images/scrapbook/tape-mint.png',
+                painter: _SkyDrawing()),
+          ),
+          const Positioned(
+            left: 142,
+            top: 56,
+            child: _Frame(
+                angle: .06,
+                tape: 'assets/images/scrapbook/tape-cream-stripe.png',
+                painter: _FlowerDrawing()),
+          ),
+          Positioned(
+            right: -14,
+            bottom: -18,
+            child: Image.asset(AlbumScreen.emptyAsset,
+                width: 92,
+                cacheWidth: 300,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          ),
+        ]),
+      );
+}
+
+/// A small white photo frame around a drawing, turned a little, with a strip
+/// of tape over its top edge.
+class _Frame extends StatelessWidget {
+  const _Frame(
+      {required this.angle, required this.tape, required this.painter});
+
+  final double angle;
+  final String tape;
+  final CustomPainter painter;
+
+  @override
+  Widget build(BuildContext context) => Transform.rotate(
+        angle: angle,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(6, 6, 6, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(3),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.textPrimary.withValues(alpha: .14),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: CustomPaint(size: const Size(104, 84), painter: painter),
+            ),
+          ),
+          Positioned(
+            top: -14,
+            left: 24,
+            child: Image.asset(tape, width: 70, cacheWidth: 240),
+          ),
+        ]),
+      );
+}
+
+/// A drawn sky: sun, a cloud and two soft hills.
+class _SkyDrawing extends CustomPainter {
+  const _SkyDrawing();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFCFE6EC), AppColors.primaryLight],
+        ).createShader(Offset.zero & size),
+    );
+    canvas.drawCircle(Offset(w * .76, h * .28), h * .13,
+        Paint()..color = const Color(0xFFF2C66D));
+    final cloud = Paint()..color = Colors.white.withValues(alpha: .95);
+    for (final (x, y, r) in [
+      (.26, .30, .09),
+      (.36, .26, .11),
+      (.46, .31, .08)
+    ]) {
+      canvas.drawCircle(Offset(w * x, h * y), h * r, cloud);
+    }
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, h * .78)
+        ..quadraticBezierTo(w * .3, h * .52, w * .62, h * .76)
+        ..lineTo(w * .62, h)
+        ..lineTo(0, h)
+        ..close(),
+      Paint()..color = AppColors.softAccent,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(w * .35, h)
+        ..quadraticBezierTo(w * .7, h * .5, w, h * .72)
+        ..lineTo(w, h)
+        ..close(),
+      Paint()..color = AppColors.primary.withValues(alpha: .75),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SkyDrawing old) => false;
+}
+
+/// A drawn flower on a stem with two leaves.
+class _FlowerDrawing extends CustomPainter {
+  const _FlowerDrawing();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    canvas.drawRect(
+        Offset.zero & size, Paint()..color = const Color(0xFFF6EFE2));
+    final green = Paint()
+      ..color = AppColors.positive
+      ..strokeWidth = 2.4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final centre = Offset(w * .5, h * .36);
+    canvas.drawPath(
+        Path()
+          ..moveTo(w * .5, h)
+          ..quadraticBezierTo(w * .44, h * .66, centre.dx, centre.dy),
+        green);
+    final leaf = Paint()..color = AppColors.softAccent;
+    canvas.save();
+    canvas.translate(w * .46, h * .72);
+    canvas.rotate(-.6);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(-9, 0), width: 18, height: 8),
+        leaf);
+    canvas.restore();
+    canvas.save();
+    canvas.translate(w * .48, h * .6);
+    canvas.rotate(.5);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(9, 0), width: 18, height: 8),
+        leaf);
+    canvas.restore();
+    final petal = Paint()..color = const Color(0xFFE9B7B0);
+    for (var i = 0; i < 5; i++) {
+      final a = i * 2 * math.pi / 5 - math.pi / 2;
+      canvas.drawCircle(
+          centre + Offset(math.cos(a), math.sin(a)) * h * .12, h * .085, petal);
+    }
+    canvas.drawCircle(
+        centre, h * .07, Paint()..color = const Color(0xFFF2C66D));
+  }
+
+  @override
+  bool shouldRepaint(_FlowerDrawing old) => false;
 }
 
 /// A message on paper with "Thử lại".
@@ -689,9 +906,9 @@ class _PressScaleState extends State<_PressScale> {
 }
 
 abstract final class _Text {
-  static const section = TextStyle(
+  static const invite = TextStyle(
     fontFamily: 'Nunito',
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: FontWeight.w700,
     height: 1.3,
     color: AppColors.textPrimary,

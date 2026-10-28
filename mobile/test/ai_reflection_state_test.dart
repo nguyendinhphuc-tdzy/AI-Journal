@@ -36,17 +36,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Góc suy ngẫm'), findsOneWidget);
     expect(find.text('Theodore Roosevelt'), findsNothing);
-    expect(find.text('Chúng mình nhận thấy rằng'), findsOneWidget);
+    expect(find.text('Điều chúng mình nhận thấy'), findsOneWidget);
     await tester.tap(find.descendant(
       of: find.byKey(const ValueKey('reflection-insight')),
       matching: find.widgetWithText(TextButton, 'Nhật ký'),
     ));
     await tester.pumpAndSettle();
     expect(find.text('My original entry.'), findsOneWidget);
-    expect(find.text('Chúng mình nhận thấy rằng'), findsNothing);
+    expect(find.text('Điều chúng mình nhận thấy'), findsNothing);
     await tester.tap(find.text('Phân tích'));
     await tester.pumpAndSettle();
-    expect(find.text('Chúng mình nhận thấy rằng'), findsOneWidget);
+    expect(find.text('Điều chúng mình nhận thấy'), findsOneWidget);
     await tester.tap(find.byWidgetPredicate(
         (widget) => widget is IconButton && widget.tooltip == 'Hữu ích'));
     await tester.pump();

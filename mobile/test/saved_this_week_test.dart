@@ -54,14 +54,14 @@ void main() {
       expect(tester.getTopLeft(find.byType(NavigationBar)), navigationPosition);
       await tester.scrollUntilVisible(
         find.text(
-            'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
+            'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'),
         150,
         scrollable:
             find.descendant(of: list, matching: find.byType(Scrollable)),
       );
       expect(
           find.text(
-              'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
+              'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'),
           findsOneWidget);
       expect(tester.getTopLeft(find.byType(NavigationBar)), navigationPosition);
       // Home keeps the newest; the older insight is one tap away.
@@ -93,7 +93,7 @@ void main() {
       expect(savedThisWeekItems.value.single['type'], 'insight');
       expect(
           find.text(
-              'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
+              'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'),
           findsNothing);
       expect(find.text('Đã bỏ lưu trích dẫn'), findsOneWidget);
       expect(tester.takeException(), isNull);

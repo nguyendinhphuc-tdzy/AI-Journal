@@ -10,7 +10,7 @@ import 'data/sound_settings.dart';
 /// recordings under `assets/sounds/`, picked at random so a repeated sound
 /// does not repeat exactly. Sources and licences: `assets/sounds/CREDITS.md`.
 enum SoundCue {
-  /// Opening an entry written before.
+  /// Opening an entry written before; turning a page of an album.
   pageTurn(['page_turn_1.wav', 'page_turn_2.wav']),
 
   /// Opening the list of every entry.

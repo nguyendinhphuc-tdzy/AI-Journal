@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../journal/data/journal_entry.dart';
-import '../journal/data/api_ai_service.dart';
 import '../journal/data/reflection_service.dart';
 import '../journal/journal_scope.dart';
 import '../reminders/data/reminder_service.dart';
+import '../social/data/friends_account.dart';
 import 'data/data_policy.dart';
 import 'data/journal_goal.dart';
 import 'data/journaling_experience.dart';
 import 'data/onboarding_store.dart';
+import 'data/sign_in_service.dart';
 import 'presentation/falling_petals.dart';
 import 'presentation/first_entry_session.dart';
 import 'presentation/first_reflection.dart';
@@ -22,13 +23,15 @@ import 'presentation/onboarding_preparing_screen.dart';
 import 'presentation/onboarding_purpose_screen.dart';
 import 'presentation/onboarding_ready_screen.dart';
 import 'presentation/onboarding_reminder_screen.dart';
+import 'presentation/onboarding_sign_in_screen.dart';
 import 'presentation/onboarding_welcome_screen.dart';
 
 /// Onboarding entry (OB01 → OB11 → Home). Resumes at the saved route and
 /// saves every route change, so closing the app mid-way picks up there.
 ///
-/// OB01 → OB02 plays a wind transition: the OB01 petals are carried off, a
-/// gust of petals crosses the screen and OB02 appears part by part.
+/// OB01 → sign-in plays a wind transition: the OB01 petals are carried off,
+/// a gust of petals crosses the screen and the sign-in appears part by
+/// part. Signed in, or "Để sau", onboarding goes on to OB02.
 class OnboardingFlow extends StatefulWidget {
   const OnboardingFlow({
     super.key,
@@ -37,7 +40,15 @@ class OnboardingFlow extends StatefulWidget {
     this.reflections,
     this.reminders,
     this.onComplete,
+    this.signIn,
+    this.friends,
   });
+
+  /// The account (OB01b); a simulated one when not given.
+  final SignInService? signIn;
+
+  /// Facebook friends on the app, connected when signing in with Facebook.
+  final FriendsAccount? friends;
 
   final OnboardingStore store;
 
@@ -131,16 +142,16 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   void _start() {
     if (_gust.isAnimating || _step != OnboardingStep.welcome) return;
     if (MediaQuery.disableAnimationsOf(context)) {
-      _goTo(OnboardingStep.nickname);
+      _goTo(OnboardingStep.signIn);
       return;
     }
-    widget.store.saveStep(OnboardingStep.nickname);
+    widget.store.saveStep(OnboardingStep.signIn);
     _gust.forward(from: 0);
   }
 
   void _onGust() {
     if (_step == OnboardingStep.welcome && _gust.value >= _switchAt) {
-      setState(() => _step = OnboardingStep.nickname);
+      setState(() => _step = OnboardingStep.signIn);
     }
   }
 
@@ -177,10 +188,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// has one) for the next requests, then OB07. Sends nothing.
   Future<void> _saveAiChoice(bool enabled) async {
     await widget.store.saveAiChoice(
-        enabled: enabled,
-        policyVersion: widget.reflections is ApiAIService
-            ? DataPolicy.localOllama.version
-            : DataPolicy.current.version);
+        enabled: enabled, policyVersion: DataPolicy.current.version);
     // AI off from now on: stop waiting; a late response is ignored.
     if (!enabled) _reflection.cancel();
     if (mounted) _goTo(OnboardingStep.firstEntry);
@@ -258,6 +266,12 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                 onStart: _start,
                 gust: _gust,
               ),
+            OnboardingStep.signIn => OnboardingSignInScreen(
+                service: widget.signIn ?? MockSignInService.instance,
+                friends: widget.friends,
+                onBack: _back,
+                onDone: () => _goTo(OnboardingStep.nickname),
+              ),
             OnboardingStep.nickname => OnboardingNicknameScreen(
                 initialValue: _nicknameDraft,
                 onChanged: (value) => _nicknameDraft = value,
@@ -284,9 +298,6 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                 onContinue: () => _goTo(OnboardingStep.aiAndData),
               ),
             OnboardingStep.aiAndData => OnboardingAiDataScreen(
-                policy: widget.reflections is ApiAIService
-                    ? DataPolicy.localOllama
-                    : DataPolicy.current,
                 onBack: _back,
                 onChoose: _saveAiChoice,
               ),

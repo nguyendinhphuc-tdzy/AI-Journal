@@ -5,15 +5,13 @@ import 'dart:convert';
 ///
 /// Only what helps find a place: land, parks, water, buildings, roads,
 /// street and area names. No shops or icons, so Nudaeng's pins stand out.
-/// One light style, mint on Background, for every map in the app (Explore,
-/// the place picker) at any hour. A darker night style was dropped on
-/// 28/10/2026: it was hard to read.
+/// One light style for every map in the app (Explore, the place picker) at
+/// any hour: ivory land, light green parks, light blue water, major roads
+/// clearly above minor ones, names dark enough to read; no texture over
+/// the map. A darker night style was dropped on 28/10/2026: it was hard to
+/// read.
 abstract final class ExploreMapStyle {
   static final day = _style(_Palette.day);
-
-  /// Night from 18:00 to 05:00: only Explore's "Vibe ban đêm" greeting and
-  /// its night markers change; the map stays light.
-  static bool isNightAt(DateTime time) => time.hour >= 18 || time.hour < 5;
 
   static const _tiles = 'https://tiles.openfreemap.org/planet';
   static const _glyphs =
@@ -101,11 +99,11 @@ abstract final class ExploreMapStyle {
               p.minorCasing, 0, 14,
               minzoom: 12.5),
           ..._road('secondary', ['secondary', 'tertiary'], p.major,
-              p.majorCasing, 0.6, 16),
+              p.majorCasing, 0.8, 18),
+          ..._road('primary', ['primary', 'trunk'], p.primary, p.primaryCasing,
+              1.4, 22),
           ..._road(
-              'primary', ['primary', 'trunk'], p.major, p.majorCasing, 1, 18),
-          ..._road(
-              'motorway', ['motorway'], p.motorway, p.motorwayCasing, 1.2, 20),
+              'motorway', ['motorway'], p.motorway, p.motorwayCasing, 1.6, 24),
           {
             'id': 'water_name',
             'type': 'symbol',
@@ -137,7 +135,7 @@ abstract final class ExploreMapStyle {
               'symbol-placement': 'line',
               'text-field': _name,
               'text-font': ['Noto Sans Regular'],
-              'text-size': 12,
+              'text-size': 12.5,
               'text-rotation-alignment': 'map',
             },
             'paint': _halo(p.roadLabel, p),
@@ -231,7 +229,7 @@ abstract final class ExploreMapStyle {
   static Map<String, Object> _halo(String colour, _Palette p) => {
         'text-color': colour,
         'text-halo-color': p.halo,
-        'text-halo-width': 1.2,
+        'text-halo-width': 1.4,
       };
 }
 
@@ -251,6 +249,8 @@ class _Palette {
     required this.minorCasing,
     required this.major,
     required this.majorCasing,
+    required this.primary,
+    required this.primaryCasing,
     required this.motorway,
     required this.motorwayCasing,
     required this.waterLabel,
@@ -271,6 +271,8 @@ class _Palette {
   final String minorCasing;
   final String major;
   final String majorCasing;
+  final String primary;
+  final String primaryCasing;
   final String motorway;
   final String motorwayCasing;
   final String waterLabel;
@@ -280,22 +282,24 @@ class _Palette {
 
   static const day = _Palette(
     name: 'day',
-    land: '#EEF4F1',
-    residential: '#E8EFEB',
-    park: '#D5E7DD',
-    water: '#B4D1C8',
-    aeroway: '#E1E8E4',
-    building: '#E2E9E5',
-    buildingLine: '#D8DEDA',
+    land: '#F7F4EC',
+    residential: '#F2EEE4',
+    park: '#D3E8CF',
+    water: '#BCD9E8',
+    aeroway: '#ECE8DF',
+    building: '#ECE6DA',
+    buildingLine: '#DED6C7',
     minor: '#FFFFFF',
-    minorCasing: '#DCE3DF',
-    major: '#FAFBF8',
-    majorCasing: '#C8D4CE',
-    motorway: '#F4EBDA',
-    motorwayCasing: '#D8CBB2',
-    waterLabel: '#3F7A7B',
-    roadLabel: '#6F7467',
-    placeLabel: '#4A5046',
-    halo: '#FAFBF8',
+    minorCasing: '#E4DED2',
+    major: '#FFFFFF',
+    majorCasing: '#CFC6B5',
+    primary: '#FFF7E6',
+    primaryCasing: '#D8C49C',
+    motorway: '#F8E4B8',
+    motorwayCasing: '#CFB27A',
+    waterLabel: '#3A6C8C',
+    roadLabel: '#4D5248',
+    placeLabel: '#2E332D',
+    halo: '#FFFFFF',
   );
 }

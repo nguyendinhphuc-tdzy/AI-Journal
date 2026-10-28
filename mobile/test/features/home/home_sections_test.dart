@@ -12,7 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const _quote =
-    'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.';
+    'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.';
 
 /// Entries written at the given times, as the repository stores them.
 Map<String, Object> _seed(List<(String, DateTime)> entries) => {
