@@ -1235,3 +1235,33 @@ def test_private_friend_request_accept_and_remove():
         assert client.get("/api/v1/friends").json() == []
     finally:
         app.dependency_overrides.clear()
+
+
+def test_friend_discovery_opt_in_and_block_privacy():
+    from app.core.database import SessionLocal
+    from app.models.user_profile import UserProfile
+    a = AuthenticatedUser(user_id=uuid4(), email="discover-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="discover-b@example.com")
+    with SessionLocal() as db:
+        db.add(UserProfile(user_id=b.user_id, display_name="Lan Anh", discoverable=False))
+        db.commit()
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.get("/api/v1/friends/discover", params={"q": "Lan"}).json() == []
+        with SessionLocal() as db:
+            db.get(UserProfile, b.user_id).discoverable = True
+            db.commit()
+        res = client.get("/api/v1/friends/discover", params={"q": "Lan"})
+        assert res.status_code == 200
+        assert res.json() == [{"user_id": str(b.user_id), "display_name": "Lan Anh"}]
+        assert client.post("/api/v1/friends/blocks", json={
+            "user_id": str(b.user_id)
+        }).status_code == 204
+        assert client.get("/api/v1/friends/discover", params={"q": "Lan"}).json() == []
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        }).status_code == 404
+        assert client.delete(f"/api/v1/friends/blocks/{b.user_id}").status_code == 204
+        assert len(client.get("/api/v1/friends/discover", params={"q": "Lan"}).json()) == 1
+    finally:
+        app.dependency_overrides.clear()
