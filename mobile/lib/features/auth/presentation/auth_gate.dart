@@ -195,6 +195,7 @@ class _AuthGateState extends State<AuthGate> {
       home: OnboardingSignInScreen(
         service: SupabaseSignInAdapter(widget.auth),
         realAuth: true,
+        initialError: _localError,
         onBack: () {},
         onDone: () {}, // AuthGate reacts to the Supabase session stream.
         onGuest: _continueAsGuest,
