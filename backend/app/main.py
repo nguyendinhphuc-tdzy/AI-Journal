@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.modules.friends.router import router as friends_router
 from app.modules.ai.router import router as ai_router
 from app.modules.albums.photos_router import router as memory_photos_router
 from app.modules.albums.router import router as albums_router
