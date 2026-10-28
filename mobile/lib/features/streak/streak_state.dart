@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
-/// Session-only mock state. Replace the initial count/date with backend data.
+import '../../core/network/api_client.dart';
+
+/// Session state; authenticated streaks are hydrated from /streak.
 class StreakState extends ValueNotifier<int> {
-  StreakState({int initialCount = 2, DateTime Function()? now})
+  StreakState({int initialCount = 0, DateTime Function()? now})
       : _now = now ?? DateTime.now,
         super(initialCount) {
     _lastCompletedDay = _today.subtract(const Duration(days: 1));
@@ -37,9 +40,31 @@ class StreakState extends ValueNotifier<int> {
   /// Do not carry a user's mock streak across a real auth identity switch.
   void resetForNewLocalSession() => reset();
 
+  /// The server alone records streak completions. Hydration is read-only.
+  void applyServerSnapshot({required int currentStreak, required bool todayCompleted}) {
+    if (currentStreak < 0) throw ArgumentError.value(currentStreak);
+    _lastCompletedDay = todayCompleted
+        ? _today
+        : _today.subtract(const Duration(days: 1));
+    value = currentStreak;
+  }
+
   @visibleForTesting
-  void reset({int count = 2}) {
+  void reset({int count = 0}) {
     _lastCompletedDay = _today.subtract(const Duration(days: 1));
     value = count;
   }
+}
+
+/// Only a verified account has server streak access; guests never call /streak.
+class StreakApiScope extends InheritedWidget {
+  const StreakApiScope({super.key, required this.client, required super.child});
+
+  final ApiClient client;
+
+  static StreakApiScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<StreakApiScope>();
+
+  @override
+  bool updateShouldNotify(StreakApiScope oldWidget) => client != oldWidget.client;
 }
