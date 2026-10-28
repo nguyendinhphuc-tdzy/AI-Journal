@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../social/data/friends_repository.dart';
+import '../social/presentation/friends_screen.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -279,6 +281,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
               padding: const EdgeInsets.fromLTRB(
                   AppSpacing.lg, 0, AppSpacing.lg, 40),
               children: [
+                if (FriendsScope.maybeOf(context) != null)
+                  ListTile(
+                    leading: const Icon(Icons.people_outline),
+                    title: const Text('Bạn bè'),
+                    subtitle: const Text('Lời mời, tìm kiếm và chặn người dùng'),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const FriendsScreen(),
+                    )),
+                  ),
                 _buildGeneralSettings(),
                 _buildPreferences(),
                 _buildSettingsGroup(
