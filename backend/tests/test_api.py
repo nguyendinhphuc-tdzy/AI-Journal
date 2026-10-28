@@ -1144,6 +1144,8 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
             "display_date": "2026-10-28",
         })
         assert memory.status_code == 201
+        assert memory.json()["photo_available"] is False
+        assert "photo_path" not in memory.json()
         memory_id = memory.json()["id"]
         url = f"/api/v1/albums/{album_id}/memories/{memory_id}/photo"
         headers = {"Authorization": "Bearer valid-test-token"}
@@ -1160,7 +1162,13 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
         assert calls[-1][0] == "POST"
         assert calls[-1][2] == "Bearer valid-test-token"
         info = client.get(f"/api/v1/albums/{album_id}/memories/{memory_id}")
-        assert info.json()["photo_path"].startswith(str(owner.user_id) + "/")
+        assert info.status_code == 200
+        assert info.json()["photo_available"] is True
+        assert "photo_path" not in info.json()
+        listed = client.get(f"/api/v1/albums/{album_id}/memories")
+        assert listed.status_code == 200
+        assert listed.json()[0]["photo_available"] is True
+        assert "photo_path" not in listed.json()[0]
         response = client.get(url, headers=headers)
         assert response.status_code == 200
         assert response.content == image
