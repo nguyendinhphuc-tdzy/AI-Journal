@@ -1187,7 +1187,7 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
                                 headers={"Authorization": "Bearer valid-test-token"})
         assert removed.status_code == 204
         assert calls[-1][0] == "DELETE"
-        assert client.get(url).status_code == 404
+        assert client.get(url, headers={"Authorization": "Bearer valid-test-token"}).status_code == 404
         assert client.delete(f"/api/v1/albums/{album_id}").status_code == 204
     finally:
         app.dependency_overrides.clear()
