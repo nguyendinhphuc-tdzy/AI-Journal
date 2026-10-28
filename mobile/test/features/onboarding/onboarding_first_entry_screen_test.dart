@@ -295,7 +295,7 @@ void main() {
   });
 
   testWidgets('Back to OB06 and return: fields and mood kept', (tester) async {
-    await _pump(tester);
+    await _pump(tester, reflections: MockReflectionService());
     await _openBlank(tester, 'Chọn cảm xúc');
     await tester.tap(find.text('Mệt'));
     await _settle(tester);

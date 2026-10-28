@@ -13,21 +13,30 @@ import 'onboarding_widgets.dart';
 ///
 /// The copy comes from [DataPolicy]; while it is not approved the screen
 /// says it is a demo build with simulated AI.
+///
+/// Without AI here ([aiAvailable] false, e.g. guest mode) there is nothing
+/// to choose: the screen says AI needs an account and goes on, AI off.
 class OnboardingAiDataScreen extends StatelessWidget {
   const OnboardingAiDataScreen({
     super.key,
     this.policy = DataPolicy.current,
+    this.aiAvailable = true,
     required this.onBack,
     required this.onChoose,
   });
 
   final DataPolicy policy;
+
+  /// Whether a reflection can be asked for at all; false in guest mode.
+  final bool aiAvailable;
+
   final VoidCallback onBack;
 
   /// true: "Tiếp tục với AI"; false: "Chỉ viết nhật ký".
   final ValueChanged<bool> onChoose;
 
   static const title = 'Bạn chọn cách dùng AI.';
+  static const guestTitle = 'AI và nhật ký của bạn.';
   static const demoLabel = 'Bản thử nghiệm: phản hồi AI là mô phỏng';
   static const realAiLabel = 'Bản thử nghiệm: AI chạy trên máy tính của nhóm';
   static const storageHeading = 'Nhật ký của bạn';
@@ -35,6 +44,11 @@ class OnboardingAiDataScreen extends StatelessWidget {
   static const choiceHeading = 'Quyền lựa chọn';
   static const withAiLabel = 'Tiếp tục với AI';
   static const journalOnlyLabel = 'Chỉ viết nhật ký';
+  static const needsAccountLabel = 'Phản hồi AI cần tài khoản';
+  static const needsAccountBody =
+      'Phản hồi AI chỉ có khi bạn đăng nhập. Ở chế độ khách, bạn vẫn viết và '
+      'lưu nhật ký trên máy này như bình thường.';
+  static const continueLabel = 'Tiếp tục';
 
   static const mascotAsset = 'assets/Deimage/Nudaeng xé-transparent.png';
 
@@ -54,40 +68,59 @@ class OnboardingAiDataScreen extends StatelessWidget {
                 order: 1,
                 child: Semantics(
                   header: true,
-                  child: const Text(title, style: _Text.title),
+                  child: Text(aiAvailable ? title : guestTitle,
+                      style: _Text.title),
                 ),
               ),
-              if (!policy.approved) ...[
+              if (!aiAvailable || !policy.approved) ...[
                 const SizedBox(height: 12),
-                StaggerItem(order: 2, child: _DemoLabel(
-                  policy.realLocalAi ? realAiLabel : demoLabel,
-                )),
+                StaggerItem(
+                    order: 2,
+                    child: _DemoLabel(
+                      !aiAvailable
+                          ? needsAccountLabel
+                          : policy.realLocalAi
+                              ? realAiLabel
+                              : demoLabel,
+                    )),
               ],
               const SizedBox(height: AppSpacing.md),
               StaggerItem(
                 order: 3,
                 child: _Sections(sections: [
                   (Icons.menu_book_outlined, storageHeading, policy.storage),
-                  (Icons.send_outlined, aiHeading, policy.aiRequest),
-                  (Icons.tune_rounded, choiceHeading, DataPolicy.choiceNote),
+                  if (aiAvailable) ...[
+                    (Icons.send_outlined, aiHeading, policy.aiRequest),
+                    (Icons.tune_rounded, choiceHeading, DataPolicy.choiceNote),
+                  ] else
+                    (Icons.send_outlined, aiHeading, needsAccountBody),
                 ]),
               ),
             ],
           ),
         ),
         stage: const StaggerItem(order: 5, child: _Stage()),
-        actions: [
-          StaggerItem(
-            order: 6,
-            child: OnboardingCta(
-                label: withAiLabel, onPressed: () => onChoose(true)),
-          ),
-          StaggerItem(
-            order: 6,
-            child: OnboardingTextAction(
-                label: journalOnlyLabel, onPressed: () => onChoose(false)),
-          ),
-        ],
+        actions: aiAvailable
+            ? [
+                StaggerItem(
+                  order: 6,
+                  child: OnboardingCta(
+                      label: withAiLabel, onPressed: () => onChoose(true)),
+                ),
+                StaggerItem(
+                  order: 6,
+                  child: OnboardingTextAction(
+                      label: journalOnlyLabel,
+                      onPressed: () => onChoose(false)),
+                ),
+              ]
+            : [
+                StaggerItem(
+                  order: 6,
+                  child: OnboardingCta(
+                      label: continueLabel, onPressed: () => onChoose(false)),
+                ),
+              ],
       );
 }
 
