@@ -16,7 +16,7 @@ void main() {
   });
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
     for (final action in ['Lưu nhật ký', 'Nhìn lại cùng bạn']) {
-      testWidgets('$action follows full reflection flow at $size',
+      testWidgets('$action saves, then the streak, at $size',
           (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = size;
@@ -54,15 +54,12 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Xác nhận'));
         await tester.pumpAndSettle();
-        expect(
-            tester
-                .widget<AiReflectionScreen>(find.byType(AiReflectionScreen))
-                .journalContent,
-            action == 'Lưu nhật ký'
-                ? 'A quiet moment today.'
-                : 'A quiet moment today.\n\nSchool feels overwhelming.');
+        // AI is off here (no consent, no service): no reflection, never a
+        // mock one; the day's first entry still goes to the streak.
+        expect(find.byType(AiReflectionScreen), findsNothing);
+        expect(find.byType(StreakScreen), findsOneWidget);
 
-        // Pushing reflection preserves the editor and its draft on Quay lại.
+        // Pushing the streak preserves the editor and its draft on Quay lại.
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
         expect(
@@ -73,16 +70,6 @@ void main() {
         await tester.tap(find.text('Lưu nhật ký'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Xác nhận'));
-        await tester.pumpAndSettle();
-        await tester.pump(const Duration(seconds: 7));
-        await tester.pumpAndSettle();
-        // The quote waits for the reader, then the reflection.
-        expect(find.text('Theodore Roosevelt'), findsOneWidget);
-        expect(find.text('Góc suy ngẫm'), findsNothing);
-        await tester.tap(find.text('Tiếp tục'));
-        await tester.pumpAndSettle();
-        expect(find.text('Góc suy ngẫm'), findsOneWidget);
-        await tester.tap(find.text('Tiếp tục'));
         await tester.pumpAndSettle();
         expect(find.byType(StreakScreen), findsOneWidget);
         expect(ModalRoute.of(tester.element(find.byType(StreakScreen))),
@@ -121,12 +108,6 @@ void main() {
       await tester.tap(find.text('Lưu nhật ký'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Xác nhận'));
-      await tester.pumpAndSettle();
-      await tester.pump(const Duration(seconds: 3));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Tiếp tục')); // the quote
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Tiếp tục')); // the reflection
       await tester.pumpAndSettle();
     }
 

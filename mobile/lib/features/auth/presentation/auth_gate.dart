@@ -192,6 +192,7 @@ class _AuthGateState extends State<AuthGate> {
       title: 'AI Diary',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      scrollBehavior: const AppScrollBehavior(),
       home: OnboardingSignInScreen(
         service: SupabaseSignInAdapter(widget.auth),
         realAuth: true,
@@ -298,6 +299,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
             title: 'Nhật ký AI',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
+            scrollBehavior: const AppScrollBehavior(),
             home: data.onboarding.completed
                 ? const AppShell()
                 : OnboardingFlow(

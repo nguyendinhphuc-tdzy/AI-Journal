@@ -17,6 +17,8 @@ import 'ai_reflection_screen.dart';
 import '../../onboarding/data/onboarding_store.dart';
 import '../../profile/data/writing_preferences.dart';
 import '../../sound/app_sound.dart';
+import '../../streak/streak_screen.dart';
+import '../../streak/streak_state.dart';
 
 class WriteJournalScreen extends StatefulWidget {
   const WriteJournalScreen({super.key, this.entry});
@@ -227,11 +229,12 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     );
     final scopedOnboarding = OnboardingScope.maybeOf(context);
     final journals = JournalScope.of(context);
+    final remoteAi = AiRemoteScope.maybeOf(context);
     bool useAi;
     try {
       final settings = scopedOnboarding ?? await OnboardingStore.open();
       // Cloud AI needs an explicit, current policy choice; never use mock insights.
-      useAi = AiRemoteScope.maybeOf(context) != null &&
+      useAi = remoteAi != null &&
           settings.aiEnabled == true &&
           settings.aiPolicyVersion == DataPolicy.localOllama.version;
       if (!mounted) return;
@@ -252,6 +255,11 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     if (!mounted) return;
     if (useAi) {
       _openReflection();
+    } else if (!StreakState.shared.completedToday) {
+      // No reflection without AI, but the day's first entry still counts:
+      // the streak celebrates it, then Home.
+      FocusManager.instance.primaryFocus?.unfocus();
+      Navigator.of(context).push(StreakScreen.route());
     } else {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Đã lưu nhật ký. Phản hồi AI đang tắt.')));

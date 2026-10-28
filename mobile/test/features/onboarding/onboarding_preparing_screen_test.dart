@@ -5,6 +5,7 @@ import 'package:ai_diary/features/journal/data/journal_entry.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
 import 'package:ai_diary/features/journal/data/reflection_service.dart';
 import 'package:ai_diary/features/journal/journal_scope.dart';
+import 'package:ai_diary/features/onboarding/data/data_policy.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_ai_data_screen.dart';
@@ -53,7 +54,12 @@ late _Reflections _reflections;
 Future<OnboardingStore> _pump(WidgetTester tester,
     {bool ai = true, String step = 'firstEntry'}) async {
   SharedPreferences.setMockInitialValues(
-      {'onboarding.step': step, 'onboarding.ai': ai ? 'on' : 'off'});
+      {
+        'onboarding.step': step,
+        'onboarding.ai': ai ? 'on' : 'off',
+        // Consent is to the current AI policy (OB06).
+        if (ai) 'onboarding.aiPolicyVersion': DataPolicy.localOllama.version!,
+      });
   final store = await OnboardingStore.open();
   _journals = _SlowJournals();
   _reflections = _Reflections();

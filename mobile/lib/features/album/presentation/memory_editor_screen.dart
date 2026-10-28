@@ -87,6 +87,9 @@ class MemoryEditorScreen extends StatefulWidget {
   static const saveLabel = 'Lưu kỷ niệm';
   static const needContent =
       'Thêm một ảnh hoặc viết vài dòng ghi chú để lưu kỷ niệm.';
+  static const needNote =
+      'Kỷ niệm trong album trên tài khoản cần vài dòng ghi chú. Bạn viết '
+      'thêm rồi lưu nhé.';
   static const waitPhoto = 'Đợi ảnh thêm xong rồi lưu nhé.';
   static const fixPhoto = 'Hãy thử lại hoặc xóa ảnh lỗi trước khi lưu.';
   static const saveFailed =
@@ -334,7 +337,13 @@ class _MemoryEditorScreenState extends State<MemoryEditorScreen> {
     final message = switch (_photo) {
       _PhotoState.loading => MemoryEditorScreen.waitPhoto,
       _PhotoState.failed => MemoryEditorScreen.fixPhoto,
-      _ => _content.isValid ? null : MemoryEditorScreen.needContent,
+      _ when !_content.isValid => MemoryEditorScreen.needContent,
+      // An account album (RemoteAlbumRepository, "cloud-" ids) keeps a
+      // memory only with a note; say so instead of a save that always fails.
+      _ when widget.album.id.startsWith('cloud-') &&
+              (_content.note?.trim().isEmpty ?? true) =>
+        MemoryEditorScreen.needNote,
+      _ => null,
     };
     if (message != null) {
       setState(() => _message = message);

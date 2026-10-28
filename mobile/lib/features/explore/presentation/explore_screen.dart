@@ -16,6 +16,7 @@ import '../../social/presentation/friend_space_screen.dart';
 import '../data/device_location.dart';
 import '../data/explore_places_repository.dart';
 import '../data/place_lookup.dart';
+import '../data/remote_saved_places_repository.dart';
 import 'map_style.dart';
 import 'widgets/map_marker_art.dart';
 import 'widgets/map_overlay_parts.dart';
@@ -92,6 +93,16 @@ class ExploreScreen extends StatefulWidget {
   static const savedShown = 'Đã lưu. Bộ lọc được bỏ để bạn thấy nơi này.';
   static const keepFailed =
       'Đã ghim trên bản đồ nhưng chưa lưu được vào máy. Bạn thử lại nhé.';
+  static const cloudSaved = 'Đã lưu vào tài khoản';
+  static const cloudSaveFailed = 'Không lưu được ghim trên cloud. Hãy thử lại.';
+  static const cloudPartlySaved =
+      'Đã tạo ghim nhưng chưa lưu được ghi chú. Vui lòng kiểm tra lại.';
+  static const cloudLoadFailed =
+      'Không tải được địa điểm đã lưu từ tài khoản. Thử mở lại bản đồ.';
+  static const cloudShareUnsupported =
+      'Chia sẻ địa điểm chưa được hỗ trợ trên cloud.';
+  static const cloudInboxUnsupported =
+      'Hòm thư mẫu chưa kết nối với tài khoản.';
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
@@ -181,6 +192,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
     ),
   ];
   int _nextSavedPlaceId = 3;
+
+  /// The signed-in user's private places ([SavedPlacesScope]); then the
+  /// samples and the device store are not used for them.
+  RemoteSavedPlacesRepository? _cloudPlaces;
   bool _hasUnreadMail = true;
   bool _showAnonymous = false;
 
@@ -223,7 +238,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final stops = await widget.savedPlacesStore.stops();
       if (!mounted) return;
       setState(() {
-        if (places != null) {
+        // Account places come from the cloud, never from the device.
+        if (places != null && _cloudPlaces == null) {
           _savedPlaces
             ..clear()
             ..addAll(places);
@@ -243,11 +259,47 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// Keeps the places and stops; false when that failed.
   Future<bool> _keep() async {
     try {
-      await widget.savedPlacesStore.keepPlaces(_savedPlaces);
+      if (_cloudPlaces == null) {
+        await widget.savedPlacesStore.keepPlaces(_savedPlaces);
+      }
       await widget.savedPlacesStore.keepStops(_anonymousPlaces);
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final cloud = SavedPlacesScope.maybeOf(context);
+    if (cloud == null || identical(cloud, _cloudPlaces)) return;
+    _cloudPlaces = cloud;
+    // Authenticated cloud screens never display the three local demo pins
+    // or the sample mail.
+    setState(() {
+      _savedPlaces.clear();
+      _hasUnreadMail = false;
+    });
+    _syncMarkers();
+    _reloadSavedPlaces();
+  }
+
+  Future<void> _reloadSavedPlaces() async {
+    final cloud = _cloudPlaces;
+    if (cloud == null) return;
+    try {
+      final items = await cloud.all();
+      if (!mounted || !identical(cloud, _cloudPlaces)) return;
+      setState(() {
+        _savedPlaces
+          ..clear()
+          ..addAll(items);
+      });
+      await _syncMarkers();
+    } catch (_) {
+      if (!mounted || !identical(cloud, _cloudPlaces)) return;
+      _toast(ExploreScreen.cloudLoadFailed);
     }
   }
 
@@ -899,6 +951,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// MapLibre renders annotations imperatively, so [_syncMarkers] is the
   /// equivalent of updating a GoogleMap `Set<Marker>` after `setState`.
   Future<void> _saveNewPlace(PlaceDraft draft, LatLng target) async {
+    final cloud = _cloudPlaces;
+    if (cloud != null && !draft.isAnonymousShare) {
+      await _saveCloudPlace(cloud, draft, target);
+      return;
+    }
     try {
       final markerIdVal = 'marker_${DateTime.now().millisecondsSinceEpoch}';
       var unfiltered = false;
@@ -961,6 +1018,42 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
+  /// A private place saved to the signed-in account, then shown as a local
+  /// one would be.
+  Future<void> _saveCloudPlace(RemoteSavedPlacesRepository cloud,
+      PlaceDraft draft, LatLng target) async {
+    final SavedPlace place;
+    try {
+      place = await cloud.create(draft,
+          latitude: target.latitude, longitude: target.longitude);
+    } on PartiallySavedPlace {
+      // The pin was created; reloading prevents a retry from duplicating it.
+      await _reloadSavedPlaces();
+      if (mounted) _toast(ExploreScreen.cloudPartlySaved);
+      return;
+    } catch (_) {
+      if (mounted) _toast(ExploreScreen.cloudSaveFailed);
+      return;
+    }
+    if (!mounted || !identical(cloud, _cloudPlaces)) return;
+    var unfiltered = false;
+    setState(() {
+      _savedPlaces.add(place);
+      // A filter that would hide it at once is dropped.
+      if ((_category != null && _category != place.category) ||
+          (_mood != null && _mood != place.mood)) {
+        _category = null;
+        _mood = null;
+        unfiltered = true;
+      }
+      _draftPin = null;
+      _selected = null;
+    });
+    await _selectSaved(place);
+    if (!mounted) return;
+    _toast(unfiltered ? ExploreScreen.savedShown : ExploreScreen.cloudSaved);
+  }
+
   /// A short message, above the floating "Cộng đồng" / "Lưu nơi này" row so
   /// it never covers them.
   void _toast(String text) => ScaffoldMessenger.of(context)
@@ -972,6 +1065,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
     ));
 
   Future<void> _showShareBottomSheet(SavedPlace place) async {
+    // The friends list here is a sample: never pretend to send a real
+    // account's place.
+    if (_cloudPlaces != null) {
+      _toast(ExploreScreen.cloudShareUnsupported);
+      return;
+    }
     final recipients =
         await showShareFriendsSheet(context, placeName: place.name);
     if (!mounted || recipients == null || recipients.isEmpty) return;
@@ -1001,6 +1100,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> _showInbox() async {
+    if (_cloudPlaces != null) {
+      _toast(ExploreScreen.cloudInboxUnsupported);
+      return;
+    }
     final accept = await showInboxSheet(context);
     if (!mounted || accept != true) return;
     final target =

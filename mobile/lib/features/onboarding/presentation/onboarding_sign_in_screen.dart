@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -79,6 +81,17 @@ class OnboardingSignInScreen extends StatefulWidget {
   static const passwordShort = 'Mật khẩu cần ít nhất 6 ký tự.';
   static const confirmMismatch = 'Hai mật khẩu chưa giống nhau.';
   static const failed = 'Chưa đăng nhập được. Bạn thử lại nhé.';
+  static const offline = 'Không thể kết nối. Kiểm tra mạng và thử lại.';
+  static const wrongCredentials = 'Email hoặc mật khẩu chưa đúng.';
+  static const notConfirmed =
+      'Email chưa được xác nhận. Bạn mở thư xác nhận rồi đăng nhập lại nhé.';
+  static const alreadyRegistered =
+      'Email này đã có tài khoản. Bạn chuyển sang Đăng nhập nhé.';
+  static const weakPassword = 'Mật khẩu chưa đủ mạnh. Bạn chọn mật khẩu khác nhé.';
+  static const tooManyTries = 'Bạn thử nhiều lần quá. Đợi ít phút rồi thử lại nhé.';
+  static const checkEmail =
+      'Kiểm tra email xác nhận tài khoản, sau đó đăng nhập.';
+  static const guestFailed = 'Chưa vào được chế độ khách. Bạn thử lại nhé.';
 
   static const forgotTitle = 'Quên mật khẩu?';
   static const forgotBody =
@@ -172,14 +185,10 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
       if (active) {
         widget.onDone();
       } else {
-        setState(() => _error = 'Kiểm tra email xác nhận tài khoản, sau đó đăng nhập.');
+        setState(() => _error = OnboardingSignInScreen.checkEmail);
       }
-    } on AuthException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } on SignInFailed catch (e) {
-      if (mounted) setState(() => _error = e.message);
     } catch (e) {
-      if (mounted) setState(() => _error = e is Exception ? e.toString() : OnboardingSignInScreen.failed);
+      if (mounted) setState(() => _error = _messageFor(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -206,12 +215,49 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
       _password.clear();
       _confirm.clear();
       if (mounted) widget.onDone();
-    } on SignInFailed catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = OnboardingSignInScreen.failed);
+    } catch (e) {
+      if (mounted) setState(() => _error = _messageFor(e));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// What went wrong, in words the user can act on. Supabase's own messages
+  /// are English, so the common ones are said again; ours (Vietnamese, e.g.
+  /// "Google OAuth chưa được cấu hình.") are shown as they are.
+  String _messageFor(Object error) => switch (error) {
+        SignInFailed(:final message) => message,
+        AuthException(code: 'invalid_credentials') =>
+          OnboardingSignInScreen.wrongCredentials,
+        AuthException(code: 'email_not_confirmed') =>
+          OnboardingSignInScreen.notConfirmed,
+        AuthException(code: 'user_already_exists' || 'email_exists') =>
+          OnboardingSignInScreen.alreadyRegistered,
+        AuthException(code: 'weak_password') =>
+          OnboardingSignInScreen.weakPassword,
+        AuthException(
+          code: 'over_request_rate_limit' || 'over_email_send_rate_limit'
+        ) =>
+          OnboardingSignInScreen.tooManyTries,
+        AuthException(statusCode: final status?) when status.startsWith('5') =>
+          OnboardingSignInScreen.failed,
+        AuthException(:final message) when message.trim().isNotEmpty =>
+          message,
+        _ when widget.realAuth => OnboardingSignInScreen.offline,
+        _ => OnboardingSignInScreen.failed,
+      };
+
+  Future<void> _later() async {
+    if (_busy) return;
+    final guest = widget.onGuest;
+    if (guest == null) {
+      widget.onDone();
+      return;
+    }
+    try {
+      await guest();
+    } catch (_) {
+      if (mounted) setState(() => _error = OnboardingSignInScreen.guestFailed);
     }
   }
 
@@ -293,6 +339,8 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
         ],
       );
 
+  static const _formWidth = 440.0;
+
   /// The paper holding the form.
   Widget _card(BuildContext context) => StaggerItem(
         order: 3,
@@ -314,9 +362,19 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
               AppSpacing.lg,
               AppSpacing.lg,
               AppSpacing.lg + MediaQuery.paddingOf(context).bottom),
-          child: Center(
+          // Centred by padding, not Center: IntrinsicHeight above then
+          // measures the form at the width it really gets (at most
+          // [_formWidth]), so a wide or landscape screen never overflows.
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+                horizontal: math.max(
+                    0,
+                    (MediaQuery.sizeOf(context).width -
+                            2 * AppSpacing.lg -
+                            _formWidth) /
+                        2)),
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
+              constraints: const BoxConstraints(maxWidth: _formWidth),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -358,7 +416,9 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                         setState(() => _confirmError = null);
                       }
                     }),
-                  ] else ...[
+                  ] else if (!widget.realAuth) ...[
+                    // Only in the stand-in: a real session is always kept,
+                    // and there is no password reset yet.
                     const SizedBox(height: AppSpacing.xs),
                     // Side by side when they fit; "Quên mật khẩu?" goes under
                     // on a narrow screen or with large text.
@@ -436,14 +496,7 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                   const SizedBox(height: AppSpacing.sm),
                   OnboardingTextAction(
                     label: OnboardingSignInScreen.later,
-                    onPressed: () async {
-                      if (_busy) return;
-                      if (widget.onGuest != null) {
-                        await widget.onGuest!();
-                      } else {
-                        widget.onDone();
-                      }
-                    },
+                    onPressed: _later,
                   ),
                   const SizedBox(height: AppSpacing.xs),
                   if (!widget.realAuth)

@@ -55,7 +55,8 @@ class OnboardingFlow extends StatefulWidget {
 
   final OnboardingStore store;
 
-  /// AI reflections; the deterministic stand-in when not given.
+  /// AI reflections; without one (guest mode), OB06 offers no AI choice,
+  /// nothing is asked and OB07 goes to OB09.
   final ReflectionService? reflections;
 
   /// Local reminders (OB10); the stand-in when not given, configurable with
@@ -316,6 +317,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
             OnboardingStep.aiAndData => OnboardingAiDataScreen(
                 policy: widget.reflections == null
                     ? DataPolicy.current : DataPolicy.localOllama,
+                aiAvailable: widget.reflections != null,
                 onBack: _back,
                 onChoose: _saveAiChoice,
               ),
