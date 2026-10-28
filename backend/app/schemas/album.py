@@ -131,6 +131,7 @@ class MemoryRead(BaseModel):
     note: str
     display_date: date
     place: MemoryPlace | None
+    photo_path: str | None = None
     created_at: datetime
     updated_at: datetime
 
