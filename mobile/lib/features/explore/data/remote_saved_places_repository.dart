@@ -31,16 +31,8 @@ class RemoteSavedPlacesRepository {
 
   Map<String, dynamic> _metadata(PlaceDraft draft) => {
         'category': draft.category,
-        'mood_tag': draft.moodTag,
+        'mood': draft.mood?.name,
         'note': draft.note,
-        'mood_label': draft.moodLabel,
-      };
-
-  String _asset(String moodLabel) => switch (moodLabel) {
-        'Reading' => 'assets/images/docsach.gif',
-        'On the road' => 'assets/images/laixe.gif',
-        'Loved it' => 'assets/images/like.gif',
-        _ => 'assets/images/loading.gif',
       };
 
   Map<String, dynamic> _unpack(String? note) {
@@ -80,9 +72,10 @@ class RemoteSavedPlacesRepository {
       throw const FormatException('Invalid saved place');
     }
     final stored = _unpack(await _firstNote(id));
-    final mood = stored['mood_label'] is String
-        ? stored['mood_label'] as String
-        : 'Taking a breath';
+    final savedMood = stored['mood'];
+    final mood = savedMood is String
+        ? PlaceMood.values.asNameMap()[savedMood]
+        : null;
     return SavedPlace(
       id: '$_prefix$id',
       name: label,
@@ -90,11 +83,8 @@ class RemoteSavedPlacesRepository {
       longitude: lon.toDouble(),
       category: stored['category'] is String
           ? stored['category'] as String : 'Chill',
-      moodTag: stored['mood_tag'] is String
-          ? stored['mood_tag'] as String : 'Yên tĩnh',
       note: stored['note'] is String ? stored['note'] as String : '',
-      moodLabel: mood,
-      moodAsset: _asset(mood),
+      mood: mood,
     );
   }
 
@@ -164,10 +154,8 @@ class RemoteSavedPlacesRepository {
       latitude: latitude,
       longitude: longitude,
       category: draft.category,
-      moodTag: draft.moodTag,
       note: draft.note,
-      moodLabel: draft.moodLabel,
-      moodAsset: _asset(draft.moodLabel),
+      mood: draft.mood,
     );
   }
 

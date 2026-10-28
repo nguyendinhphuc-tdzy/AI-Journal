@@ -33,7 +33,8 @@ class GuestModeStore {
   /// onboarding progress; no guest data is moved into a real account.
   Future<void> leaveAndDiscard() async {
     for (final key in _preferences.getKeys().toList()) {
-      if (key.startsWith(_guestDataPrefix) &&
+      if ((key.startsWith(_guestDataPrefix) ||
+          key.startsWith('account.$userId.onboarding.')) &&
           !await _preferences.remove(key)) {
         throw StateError('Could not remove local guest data');
       }
