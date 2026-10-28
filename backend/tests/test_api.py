@@ -1284,39 +1284,54 @@ def test_friends_only_memory_shares_revoke_expire_and_unfriend():
         })
         assert memory.status_code == 201, memory.text
         memory_id = memory.json()["id"]
-        share = client.post("/api/v1/memory-shares", params={"memory_id": memory_id})
-        assert share.status_code == 201, share.text
-        sid = share.json()["id"]
-        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 200
-        app.dependency_overrides[get_current_user] = lambda: b
-        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
-        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 404
-        app.dependency_overrides[get_current_user] = lambda: c
-        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
-        app.dependency_overrides[get_current_user] = lambda: a
+        # No share to non-friends, no share without explicit recipients.
+        assert client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+        }).status_code == 422
+        assert client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": []
+        }).status_code == 422
         assert client.post("/api/v1/friends/requests", json={
             "user_id": str(b.user_id)
         }).status_code == 201
         app.dependency_overrides[get_current_user] = lambda: b
         assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        share = client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+        })
+        assert share.status_code == 201, share.text
+        sid = share.json()["id"]
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: b
         view = client.get(f"/api/v1/memory-shares/{sid}")
-        assert view.status_code == 200
+        assert view.status_code == 200, view.text
         assert view.json()["note"] == "A private day"
         assert "photo_path" not in view.json()
+        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
         with SessionLocal() as db:
             item = db.get(MemoryShare, UUID(sid))
             item.created_at = datetime.now(timezone.utc) - timedelta(hours=25)
             item.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
             db.commit()
+        app.dependency_overrides[get_current_user] = lambda: b
         assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
         app.dependency_overrides[get_current_user] = lambda: a
-        new_share = client.post("/api/v1/memory-shares", params={"memory_id": memory_id}).json()["id"]
+        new_share = client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+        })
+        assert new_share.status_code == 201, new_share.text
+        sid2 = new_share.json()["id"]
         app.dependency_overrides[get_current_user] = lambda: b
-        assert client.get(f"/api/v1/memory-shares/{new_share}").status_code == 200
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 200
         assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
-        assert client.get(f"/api/v1/memory-shares/{new_share}").status_code == 404
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
         app.dependency_overrides[get_current_user] = lambda: a
-        assert client.delete(f"/api/v1/memory-shares/{new_share}").status_code == 204
+        assert client.delete(f"/api/v1/memory-shares/{sid2}").status_code == 204
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
     finally:
         app.dependency_overrides.clear()
 
