@@ -1305,7 +1305,8 @@ def test_friends_only_memory_shares_revoke_expire_and_unfriend():
         assert "photo_path" not in view.json()
         with SessionLocal() as db:
             item = db.get(MemoryShare, UUID(sid))
-            item.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            item.created_at = datetime.now(timezone.utc) - timedelta(hours=25)
+            item.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
             db.commit()
         assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
         app.dependency_overrides[get_current_user] = lambda: a
