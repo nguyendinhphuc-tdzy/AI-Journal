@@ -14,6 +14,7 @@ import '../social/data/friends_account.dart';
 import '../social/data/friend_space.dart';
 import '../social/presentation/facebook_login_screen.dart';
 import '../sound/app_sound.dart';
+import '../auth/presentation/auth_gate.dart';
 import '../sound/data/sound_settings.dart';
 import 'data/writing_preferences.dart';
 import 'widgets/setting_editor.dart';
@@ -355,6 +356,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
+            if (AuthScope.maybeOf(context) != null || GuestScope.maybeOf(context) != null)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.sm),
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.logout),
+                  label: const Text('Đăng xuất'),
+                  onPressed: () async {
+                    final auth = AuthScope.maybeOf(context);
+                    final guest = GuestScope.maybeOf(context);
+                    try {
+                      if (auth != null) {
+                        await auth.signOut();
+                      } else if (guest != null) {
+                        await guest.onLeaveGuest();
+                      }
+                      if (context.mounted) {
+                        Navigator.of(context).popUntil((route) => route.isFirst);
+                      }
+                    } catch (_) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Không thể đăng xuất. Thử lại.')),
+                        );
+                      }
+                    }
+                  },
+                ),
+              ),
           ],
         ),
       );
