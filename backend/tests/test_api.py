@@ -1265,3 +1265,56 @@ def test_friend_discovery_opt_in_and_block_privacy():
         assert len(client.get("/api/v1/friends/discover", params={"q": "Lan"}).json()) == 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_friends_only_memory_shares_revoke_expire_and_unfriend():
+    from datetime import datetime, timedelta, timezone
+    from app.core.database import SessionLocal
+    from app.models.memory_share import MemoryShare
+    a = AuthenticatedUser(user_id=uuid4(), email="share-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="share-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="share-c@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        album = client.post("/api/v1/albums", json={"name": "Share test"})
+        assert album.status_code == 201, album.text
+        album_id = album.json()["id"]
+        memory = client.post(f"/api/v1/albums/{album_id}/memories", json={
+            "note": "A private day", "display_date": "2026-10-28",
+        })
+        assert memory.status_code == 201, memory.text
+        memory_id = memory.json()["id"]
+        share = client.post("/api/v1/memory-shares", params={"memory_id": memory_id})
+        assert share.status_code == 201, share.text
+        sid = share.json()["id"]
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        }).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        view = client.get(f"/api/v1/memory-shares/{sid}")
+        assert view.status_code == 200
+        assert view.json()["note"] == "A private day"
+        assert "photo_path" not in view.json()
+        with SessionLocal() as db:
+            item = db.get(MemoryShare, UUID(sid))
+            item.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            db.commit()
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        new_share = client.post("/api/v1/memory-shares", params={"memory_id": memory_id}).json()["id"]
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{new_share}").status_code == 200
+        assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
+        assert client.get(f"/api/v1/memory-shares/{new_share}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/memory-shares/{new_share}").status_code == 204
+    finally:
+        app.dependency_overrides.clear()
