@@ -57,11 +57,27 @@ def test_migration_applied():
 
 
 def test_ai_requires_authentication_in_all_provider_modes():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
     app.dependency_overrides.clear()
-    for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
-        response = client.post(path, json={"content": "private entry"})
-        assert response.status_code == 401
-        assert response.headers.get("www-authenticate") == "Bearer"
+    invoked = []
+    def provider_spy():
+        invoked.append(True)
+        return MockAIProvider()
+
+    app.dependency_overrides[get_ai_provider] = provider_spy
+    try:
+        for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
+            for headers in ({}, {"Authorization": "Bearer not-a-jwt"}):
+                response = client.post(
+                    path, json={"content": "private entry"}, headers=headers
+                )
+                assert response.status_code == 401
+                assert response.headers.get("www-authenticate") == "Bearer"
+        # Authorization must be rejected before any model provider is invoked.
+        assert not invoked
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_authenticated_ai_and_bounded_request_content():
