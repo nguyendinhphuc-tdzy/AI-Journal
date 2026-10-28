@@ -163,9 +163,39 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     final photo = _json(raw)['photo_path'];
     if (photo is! String || photo.isEmpty) return memory;
     final uid = userId;
-    // Never store another account's personal photo in a shared directory.
-    if (uid == null ||
-        !RegExp(r'^[0-9a-fA-F-]{36} async => (await client.getList(
+    if (uid == null || !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(uid)) {
+      throw StateError('Authenticated photo cache requires a user ID');
+    }
+    final base = await getApplicationDocumentsDirectory();
+    final folder = Directory('${base.path}/cloud_memory_photos/$uid');
+    await folder.create(recursive: true);
+    final stem = _id(memory.id, entity: 'memory');
+    final revision = memory.updatedAt.microsecondsSinceEpoch;
+    final path = '${folder.path}/$stem-$revision.private';
+    final target = File(path);
+    if (!await target.exists()) {
+      final bytes = await client.getBytes(_photoUrl(memory.albumId, memory.id));
+      final pending = File('$path.tmp');
+      await pending.writeAsBytes(bytes, flush: true);
+      await pending.rename(path);
+    }
+    return Memory(
+      id: memory.id,
+      albumId: memory.albumId,
+      createdAt: memory.createdAt,
+      updatedAt: memory.updatedAt,
+      content: MemoryContent(
+        title: memory.content.title,
+        note: memory.content.note,
+        photoPath: path,
+        displayDate: memory.content.displayDate,
+        place: memory.content.place,
+      ),
+    );
+  }
+
+  @override
+  Future<List<Album>> albums() async => (await client.getList(
         '/albums?limit=100', requireAuth: true,
       )).map(_album).toList();
 
