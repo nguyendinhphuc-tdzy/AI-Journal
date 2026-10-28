@@ -1,6 +1,6 @@
 """Backend API tests use temporary SQLite, NEVER the shared Supabase DB."""
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 import os
 import tempfile
 
@@ -45,13 +45,15 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261018_06"
+    assert revision == "20261025_07"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
     assert "saved_places" in tables
     assert "place_notes" in tables
     assert "journal_places" in tables
+    assert "albums" in tables
+    assert "album_memories" in tables
 
 
 def test_public_mock_ai_preserved():
@@ -359,6 +361,7 @@ def test_journal_and_streak_roll_back_together(monkeypatch):
     """A journal save that fails after its streak insert must credit nothing."""
     import pytest
     from sqlalchemy import select
+    from uuid import UUID
     from app.core.database import SessionLocal
     from app.models.journal import JournalEntry
     from app.models.journal_action_day import JournalActionDay
@@ -904,5 +907,95 @@ def test_notes_and_journal_place_links_do_not_complete_streak(monkeypatch):
         assert after["today_completed"] is False
         assert after["current_streak"] == 1
         assert after["activity_dates"] == ["2026-10-18"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pr17_album_and_memory_require_authentication():
+    app.dependency_overrides.clear()
+    for endpoint in ("/api/v1/albums", "/api/v1/albums/00000000-0000-0000-0000-000000000001"):
+        assert client.get(endpoint).status_code == 401
+    assert client.post("/api/v1/albums", json={"name": "Private"}).status_code == 401
+
+
+def test_pr17_album_memory_owner_isolation_and_e05_place():
+    from sqlalchemy import select
+    from app.core.database import SessionLocal
+    from app.models.album import AlbumMemory
+
+    a = AuthenticatedUser(user_id=uuid4(), email="album-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="album-b@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        created = client.post("/api/v1/albums", json={
+            "name": "  A special day  ", "theme_id": "classic",
+            "locked": True, "hide_name_when_locked": True,
+        })
+        assert created.status_code == 201, created.text
+        album = created.json()
+        aid = album["id"]
+        assert album["name"] == "A special day"
+        assert album["memory_count"] == 0
+        assert "user_id" not in album
+
+        invalid = client.post("/api/v1/albums", json={
+            "name": "A", "user_id": str(b.user_id),
+        })
+        assert invalid.status_code == 422
+        assert client.post("/api/v1/albums", json={"name": " "}).status_code == 422
+
+        place = {
+            "label": "Coffee place", "latitude": 10.8231,
+            "longitude": 106.6297, "named": True,
+            "address": "Ho Chi Minh City", "place_id": "sample-id",
+        }
+        memory = client.post(f"/api/v1/albums/{aid}/memories", json={
+            "title": "Morning", "note": "A memory from today",
+            "display_date": "2026-10-25", "place": place,
+        })
+        assert memory.status_code == 201, memory.text
+        mid = memory.json()["id"]
+        assert memory.json()["place"]["label"] == "Coffee place"
+        assert "user_id" not in memory.json()
+        assert client.get(f"/api/v1/albums/{aid}").json()["memory_count"] == 1
+        assert len(client.get(f"/api/v1/albums/{aid}/memories").json()) == 1
+
+        # PR17 local file paths are NOT a remote asset: never accept them.
+        assert client.post(f"/api/v1/albums/{aid}/memories", json={
+            "photoPath": "/data/user/0/app/secret.jpg", "note": "hi",
+            "display_date": "2026-10-25",
+        }).status_code == 422
+        assert client.post(f"/api/v1/albums/{aid}/memories", json={
+            "note": " ", "display_date": "2026-10-25",
+        }).status_code == 422
+        assert client.patch(f"/api/v1/albums/{aid}/memories/{mid}",
+            json={"note": "  "}).status_code == 422
+        assert client.patch(f"/api/v1/albums/{aid}",
+            json={"name": None}).status_code == 422
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/albums").json() == []
+        assert client.get(f"/api/v1/albums/{aid}").status_code == 404
+        assert client.patch(f"/api/v1/albums/{aid}",
+            json={"name": "stolen"}).status_code == 404
+        assert client.delete(f"/api/v1/albums/{aid}").status_code == 404
+        assert client.get(f"/api/v1/albums/{aid}/memories").status_code == 404
+        assert client.get(f"/api/v1/albums/{aid}/memories/{mid}").status_code == 404
+        assert client.delete(f"/api/v1/albums/{aid}/memories/{mid}").status_code == 404
+        assert client.post(f"/api/v1/albums/{aid}/memories", json={
+            "note": "steal", "display_date": "2026-10-25",
+        }).status_code == 404
+
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.patch(f"/api/v1/albums/{aid}/memories/{mid}", json={
+            "note": "Updated note", "place": None,
+        }).json()["note"] == "Updated note"
+        assert client.get(f"/api/v1/albums/{aid}/memories/{mid}").json()["place"] is None
+        assert client.delete(f"/api/v1/albums/{aid}").status_code == 204
+        assert client.get(f"/api/v1/albums/{aid}").status_code == 404
+        with SessionLocal() as session:
+            assert session.scalar(
+                select(AlbumMemory).where(AlbumMemory.id == UUID(mid))
+            ) is None
     finally:
         app.dependency_overrides.clear()
