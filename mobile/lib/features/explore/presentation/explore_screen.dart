@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../auth/presentation/auth_gate.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
@@ -196,6 +197,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// The signed-in user's private places ([SavedPlacesScope]); then the
   /// samples and the device store are not used for them.
   RemoteSavedPlacesRepository? _cloudPlaces;
+  bool _storeReady = false;
+  bool _signedIn = false;
+  late SavedPlacesStore _effectiveLocalStore;
   bool _hasUnreadMail = true;
   bool _showAnonymous = false;
 
@@ -228,14 +232,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
     // correctly; the default SurfaceView uses a separate virtual display.
     MapLibreMap.useHybridComposition = true;
     _search();
-    _loadKept();
   }
 
   /// What was saved before (in an earlier run); the samples until then.
   Future<void> _loadKept() async {
     try {
-      final places = await widget.savedPlacesStore.places();
-      final stops = await widget.savedPlacesStore.stops();
+      final places = await _effectiveLocalStore.places();
+      final stops = _signedIn
+          ? null // No mock community messages/inbox for authenticated users.
+          : await _effectiveLocalStore.stops();
       if (!mounted) return;
       setState(() {
         // Account places come from the cloud, never from the device.
@@ -260,9 +265,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<bool> _keep() async {
     try {
       if (_cloudPlaces == null) {
-        await widget.savedPlacesStore.keepPlaces(_savedPlaces);
+        await _effectiveLocalStore.keepPlaces(_savedPlaces);
       }
-      await widget.savedPlacesStore.keepStops(_anonymousPlaces);
+      if (!_signedIn) await _effectiveLocalStore.keepStops(_anonymousPlaces);
       return true;
     } catch (_) {
       return false;
@@ -272,6 +277,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Choose the correct account key BEFORE reading saved pins. The old
+    // unscoped demo key must not leak between signed-in accounts.
+    if (!_storeReady) {
+      _storeReady = true;
+      final id = AuthScope.maybeOf(context)?.auth.currentUserId;
+      _signedIn = id != null;
+      _effectiveLocalStore = id == null
+          ? widget.savedPlacesStore
+          : LocalSavedPlacesStore(userId: id);
+      if (_signedIn) {
+        _savedPlaces.clear();
+        _anonymousPlaces.clear();
+        _hasUnreadMail = false;
+        _showAnonymous = false;
+      }
+      _loadKept();
+    }
     final cloud = SavedPlacesScope.maybeOf(context);
     if (cloud == null || identical(cloud, _cloudPlaces)) return;
     _cloudPlaces = cloud;
