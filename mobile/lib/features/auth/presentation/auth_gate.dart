@@ -340,9 +340,12 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           final withPlaceLookup = _api != null
               ? PlaceLookupScope(lookup: RemotePlaceLookup(_api), child: privatePlaces)
               : privatePlaces;
-          return _ai == null
+          final withStreak = _api == null
               ? withPlaceLookup
-              : AiRemoteScope(service: _ai, child: withPlaceLookup);
+              : StreakApiScope(client: _api, child: withPlaceLookup);
+          return _ai == null
+              ? withStreak
+              : AiRemoteScope(service: _ai, child: withStreak);
         },
       );
 }
