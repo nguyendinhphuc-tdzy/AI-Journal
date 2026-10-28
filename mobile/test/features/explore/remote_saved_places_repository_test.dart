@@ -16,10 +16,8 @@ http.Response _reply(Object value, [int status = 200]) => http.Response.bytes(
 const _draft = PlaceDraft(
   name: 'Cà phê sách',
   category: 'Chill',
-  moodTag: 'Yên tĩnh',
   note: 'Mùi cà phê dễ chịu',
-  moodAsset: 'assets/images/docsach.gif',
-  moodLabel: 'Reading',
+  mood: PlaceMood.peaceful,
   isAnonymousShare: false,
 );
 
@@ -48,8 +46,8 @@ void main() {
         if (path.endsWith('/notes')) {
           return _reply({'items': [{'content':
             'AIJOURNAL_PLACE_V1:${jsonEncode({
-              'category': 'Chill', 'mood_tag': 'Yên tĩnh',
-              'note': 'Mùi cà phê dễ chịu', 'mood_label': 'Reading',
+              'category': 'Chill', 'mood': 'peaceful',
+              'note': 'Mùi cà phê dễ chịu',
             })}'
           }], 'next_cursor': null});
         }
