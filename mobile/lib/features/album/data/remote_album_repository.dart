@@ -272,7 +272,7 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
         '${_id(memoryId, entity: 'memory')}',
         requireAuth: true,
       );
-      return _hydratePhoto(_memory(raw), raw);
+      return await _hydratePhoto(_memory(raw), raw);
     } on ApiException catch (e) {
       if (e.statusCode == 404) return null;
       rethrow;
