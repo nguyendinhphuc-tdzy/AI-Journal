@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_ui.dart';
 import '../onboarding/data/onboarding_store.dart';
+import '../auth/presentation/auth_gate.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
 import '../home/data/home_scene_settings.dart';
@@ -29,6 +30,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   late Future<HomeSceneSettings> _scene;
   late Future<SoundSettings> _sound;
   bool _editing = false;
+  bool _signingOut = false;
 
   @override
   void initState() {
@@ -306,6 +308,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           ),
+          // Keep logout outside the lazy ListView so it is visible and
+          // reachable immediately on narrow Android displays.
+          if (AuthScope.maybeOf(context) case final auth?)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                child: Center(
+                  child: TextButton.icon(
+                    onPressed: _signingOut ? null : () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      setState(() => _signingOut = true);
+                      try {
+                        await auth.signOut();
+                      } catch (_) {
+                        if (mounted) {
+                          messenger.showSnackBar(const SnackBar(
+                            content: Text('Không thể đăng xuất. Hãy thử lại.'),
+                          ));
+                        }
+                      } finally {
+                        if (mounted) setState(() => _signingOut = false);
+                      }
+                    },
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Đăng xuất'),
+                  ),
+                ),
+              ),
+            ),
         ]),
       ),
     );
