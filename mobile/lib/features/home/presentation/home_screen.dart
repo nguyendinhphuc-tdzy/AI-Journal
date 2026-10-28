@@ -34,15 +34,18 @@ import 'widgets/home_scene_hero.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
-  static const reflectionTitle = 'Khoảnh khắc suy ngẫm';
-  static const startLabel = 'Cùng suy ngẫm';
-  static const latestTitle = 'Nhật ký của bạn';
-  static const weekTitle = 'Tuần này';
+  static const reflectionTitle = 'Một chút cho bản thân';
+  static const startLabel = 'Viết nhật ký';
+  static const latestTitle = 'Nhật ký gần đây';
+  static const weekTitle = 'Nhìn lại tuần này';
+
+  /// A saved reflection, in "Đã lưu".
+  static const savedReflectionLabel = 'Nhìn lại hôm nay';
   static const savedTitle = 'Đã lưu';
 
   /// Entries shown on Home; the rest are one tap away.
   static const recentCount = 3;
-  static const insightLabel = 'Gợi ý từ AI';
+  static const insightLabel = 'Góc nhìn từ AI';
   static const nextPromptTooltip = 'Đổi gợi ý';
   static const profileTooltip = 'Hồ sơ';
 
@@ -75,7 +78,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // Local sample prompts until the daily-prompt API is connected.
   static const _prompts = [
-    'Hôm nay bạn nhận thấy điều gì về tâm trạng của mình?',
+    'Hôm nay bạn cảm thấy thế nào?',
     'Điều nhỏ bé nào đã mang lại niềm vui cho bạn hôm nay?',
     'Ngay lúc này, điều gì có thể giúp bạn thấy nhẹ lòng hơn?',
   ];
@@ -649,8 +652,9 @@ class _ThisWeek extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           // Mock suggestion for the prototype; replace with the API's.
           const Text(
-            'Tuần này bạn có vẻ tìm thấy nhiều niềm vui từ những khởi đầu '
-            'mới. Hãy tiếp tục giữ năng lượng tích cực này nhé!',
+            'Tuần này, bạn có vẻ khá hào hứng với những trải nghiệm mới. '
+            'Những điều bạn chia sẻ cho thấy đây là một tuần có nhiều khoảnh '
+            'khắc vui vẻ. Cảm ơn bạn đã dành thời gian viết nhật ký hôm nay.',
             style: _Journal.preview,
           ),
         ],
@@ -821,7 +825,7 @@ class _SavedItem extends StatelessWidget {
             Expanded(
               child: _JournalEyebrow(
                   [
-                    quote ? 'Trích dẫn' : HomeScreen.reflectionTitle,
+                    quote ? 'Trích dẫn' : HomeScreen.savedReflectionLabel,
                     dateLabel,
                     if (timestamp.isNotEmpty) timestamp,
                   ].join(' · '),

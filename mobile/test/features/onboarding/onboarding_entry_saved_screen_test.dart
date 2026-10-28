@@ -138,7 +138,7 @@ void main() {
 
     _reflections.answer(0, 'Có lẽ điều này đáng để viết thêm.');
     await _settle(tester);
-    expect(find.text('Gợi ý từ AI · mô phỏng'), findsOneWidget);
+    expect(find.text('Góc nhìn từ AI · mô phỏng'), findsOneWidget);
     expect(find.text('Có lẽ điều này đáng để viết thêm.'), findsOneWidget);
     expect(find.text(OnboardingEntrySavedScreen.notReady), findsNothing);
     expect(find.textContaining('chuyến đi'), findsOneWidget);

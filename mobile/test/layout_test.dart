@@ -39,14 +39,14 @@ void main() {
     await tester.enterText(find.byType(TextField), 'A peaceful afternoon.');
     // Going deeper turns on once there is something written.
     await tester.pump();
-    await tester.tap(find.text('Suy ngẫm sâu hơn'));
+    await tester.tap(find.text('Nhìn lại cùng bạn'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 3));
     expect(find.byType(WriteJournalScreen), findsOneWidget);
     expect(find.byType(TextField), findsOneWidget);
     expect(
         tester.widget<TextField>(find.byType(TextField)).decoration!.hintText,
-        'Viết tại đây...');
+        'Chia sẻ suy nghĩ của bạn...');
     expect(tester.takeException(), isNull);
   });
 }

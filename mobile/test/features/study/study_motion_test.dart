@@ -94,7 +94,7 @@ void main() {
       (tester) async {
     await openStudy(tester, disableAnimations: false);
     await tapText(tester, 'Gỡ rối suy nghĩ');
-    final route = ModalRoute.of(tester.element(find.text('CÁC BƯỚC MẪU')))!;
+    final route = ModalRoute.of(tester.element(find.text('CÁCH THỰC HIỆN')))!;
     expect(route, isA<StudyRoute<void>>());
     expect(route.transitionDuration, const Duration(milliseconds: 280));
     expect(route.reverseTransitionDuration, route.transitionDuration);
@@ -102,27 +102,27 @@ void main() {
     await openStudy(tester);
     await tapText(tester, 'Gỡ rối suy nghĩ');
     final reducedRoute =
-        ModalRoute.of(tester.element(find.text('CÁC BƯỚC MẪU')))!;
+        ModalRoute.of(tester.element(find.text('CÁCH THỰC HIỆN')))!;
     expect(reducedRoute.transitionDuration, StudyMotion.reducedFade);
   });
 
   testWidgets('Editor explains why its actions are disabled', (tester) async {
     await openStudy(tester);
     await joinChallenge(tester);
-    await tapText(tester, 'Viết nhiệm vụ này');
+    await tapText(tester, 'Bắt đầu viết');
     const reason = 'Viết vài dòng để dùng các nút bên dưới.';
     expect(find.text(reason), findsOneWidget);
     expect(
         tester
             .widget<OutlinedButton>(
-                find.widgetWithText(OutlinedButton, 'Suy ngẫm sâu hơn'))
+                find.widgetWithText(OutlinedButton, 'Nhìn lại cùng bạn'))
             .onPressed,
         isNull);
-    final before = tester.getTopLeft(find.text('Hoàn tất'));
+    final before = tester.getTopLeft(find.text('Lưu nhật ký'));
     await tester.enterText(find.byType(TextField), 'Một buổi chiều yên.');
     await tester.pump();
     expect(find.text(reason), findsNothing);
     // The reserved line keeps the actions from jumping.
-    expect(tester.getTopLeft(find.text('Hoàn tất')), before);
+    expect(tester.getTopLeft(find.text('Lưu nhật ký')), before);
   });
 }

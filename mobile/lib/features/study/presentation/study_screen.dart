@@ -123,18 +123,22 @@ class _StudyScreenState extends State<_StudyOverview> {
 
   static const _items = <_StudyItem>[
     _StudyItem(
-        'Khóa học',
-        'Viết điều biết ơn mỗi ngày',
-        'Một cách nhẹ nhàng để nhận ra điều đang nâng đỡ bạn.',
+        'Kỹ năng',
+        'Tập viết về những điều bạn biết ơn',
+        'Bắt đầu từ những điều nhỏ khiến ngày của bạn dễ chịu hơn.',
         '3 bài · 12 phút',
         course: true,
         practicePrompt: coursePracticePrompt,
         order: 3),
-    _StudyItem('Mẫu viết', frameworkTitle,
-        'Gỡ rối một suy nghĩ bằng vài bước viết chậm rãi.', '8 phút',
+    _StudyItem('Phương pháp', frameworkTitle,
+        'Viết ra điều đang khiến bạn băn khoăn để nhìn nhận rõ hơn.', '8 phút',
         framework: true, order: 2),
-    _StudyItem('Bài đọc', 'Nhìn lại những điều nhỏ đã làm được',
-        'Một bài đọc ngắn về cách ghi nhận tiến bộ của chính mình.', '5 phút',
+    _StudyItem(
+        'Bài đọc',
+        'Ghi nhận những việc bạn đã làm',
+        'Đừng chỉ nhìn những việc chưa xong. Hãy xem hôm nay bạn đã làm được '
+            'gì.',
+        '5 phút',
         order: 1),
   ];
 
@@ -265,7 +269,7 @@ class _StudyScreenState extends State<_StudyOverview> {
           children: [
             const AppPageHeader(
                 title: 'Học tập',
-                help: 'Học cách viết qua khóa học, mẫu viết và bài đọc ngắn. '
+                help: 'Học cách viết qua kỹ năng, phương pháp và bài đọc ngắn. '
                     'Khi muốn luyện đều, hãy thử một challenge nhỏ mỗi ngày.'),
             const SizedBox(height: AppSpacing.md),
             _ChallengeBanner(
@@ -288,10 +292,10 @@ class _StudyScreenState extends State<_StudyOverview> {
             ],
             const SizedBox(height: AppSpacing.xxl),
             const AppSectionHeader(
-                title: 'Khám phá cách viết',
-                help: 'Khóa học gồm vài bài nối tiếp nhau. Mẫu viết dẫn bạn '
-                    'viết theo từng bước. Bài đọc là một câu chuyện ngắn để '
-                    'tham khảo.'),
+                title: 'Gợi ý viết nhật ký',
+                help: 'Kỹ năng gồm vài bài nối tiếp nhau. Phương pháp dẫn bạn '
+                    'viết theo từng bước. Bài đọc là một bài ngắn để tham '
+                    'khảo.'),
             const SizedBox(height: AppSpacing.sm),
             _FilterChips(
                 selected: _filter,
@@ -346,7 +350,7 @@ class _ChallengeBanner extends StatelessWidget {
     final eyebrow = left
         ? 'Đã rời challenge'
         : active
-            ? 'Challenge của bạn'
+            ? 'Thử thách của bạn'
             : paused
                 ? 'Đã tạm dừng'
                 : 'Challenge gợi ý';
@@ -390,7 +394,7 @@ class _ChallengeBanner extends StatelessWidget {
                     ?.copyWith(fontSize: 18)),
             const SizedBox(height: 6),
             Text(enrolled
-                ? '$complete/${_prompts.length} nhiệm vụ đã hoàn thành'
+                ? 'Đã hoàn thành $complete/${_prompts.length} nhiệm vụ'
                 : 'Mỗi ngày, viết một điều biết ơn.'),
             const SizedBox(height: 6),
             if (enrolled)
@@ -451,7 +455,7 @@ class _FilterChips extends StatelessWidget {
   final String selected;
   final ValueChanged<String> onSelected;
 
-  static const _options = ['Tất cả', 'Khóa học', 'Mẫu viết', 'Bài đọc'];
+  static const _options = ['Tất cả', 'Kỹ năng', 'Phương pháp', 'Bài đọc'];
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
@@ -536,7 +540,7 @@ class _ContinueCard extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text('Viết điều biết ơn mỗi ngày',
+                    Text('Tập viết về những điều bạn biết ơn',
                         style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: AppSpacing.xs),
                     Text('Đã học $completed/3 bài', style: _meta(context)),
@@ -667,7 +671,7 @@ class _CourseScreenState extends State<_CourseScreen> {
     final index = List.generate(_lessons.length, (i) => i)
         .firstWhere((i) => !read.contains(i), orElse: () => 0);
     return Scaffold(
-      appBar: AppBar(title: const Text('Khóa học')),
+      appBar: AppBar(title: const Text('Kỹ năng')),
       body: SafeArea(
           child: Stack(children: [
         ListView(
@@ -754,7 +758,7 @@ class _FrameworkScreen extends StatelessWidget {
   final StudySession session;
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Mẫu viết')),
+        appBar: AppBar(title: const Text('Phương pháp')),
         body: SafeArea(
             child: Stack(children: [
           ListView(padding: const EdgeInsets.only(bottom: 120), children: [
@@ -762,20 +766,23 @@ class _FrameworkScreen extends StatelessWidget {
                 cardColor: AppColors.textPrimary,
                 eyebrow: item.type,
                 title: item.title,
-                description: item.description,
+                description: frameworkIntro,
                 meta: item.meta,
                 mascot: true),
             const SizedBox(height: AppSpacing.xxl),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-              child: StudySection(title: 'Các bước mẫu', children: [
-                for (var i = 0; i < frameworkSteps.length; i++)
-                  StudyStepLine(number: i + 1, text: frameworkSteps[i])
+              child: StudySection(title: 'Cách thực hiện', children: [
+                for (final (i, (step, question)) in frameworkSteps.indexed)
+                  StudyStepLine(
+                      number: i + 1,
+                      text: 'Bước ${i + 1}: $step',
+                      detail: question)
               ]),
             ),
           ]),
           _Dock(
-              label: 'Viết theo phương pháp này',
+              label: 'Bắt đầu viết',
               onPressed: () => Navigator.of(context).push(_studyRoute(
                   builder: (_) => _Editor(
                       session: session,
@@ -783,7 +790,7 @@ class _FrameworkScreen extends StatelessWidget {
                           kind: 'framework', sourceId: 'clear-my-mind'),
                       title: frameworkTitle,
                       prompt: frameworkPrompt,
-                      returnLabel: 'Về mẫu viết')))),
+                      returnLabel: 'Về phương pháp')))),
         ])),
       );
 }
@@ -856,13 +863,13 @@ class _ReaderScreenState extends State<_ReaderScreen> {
                         artwork: NudaengArtwork.lesson,
                         animate: false),
                     const SizedBox(height: AppSpacing.sm),
-                    Text('Thử viết từ bài học này',
+                    Text('Thử viết nhé!',
                         style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: AppSpacing.sm),
                     Text(widget.lesson.prompt),
                     const SizedBox(height: AppSpacing.md),
                     _PrimaryButton(
-                        label: 'Thực hành',
+                        label: 'Viết nhật ký',
                         onPressed: () => Navigator.of(context).push(_studyRoute(
                             builder: (_) => _Editor(
                                 session: widget.session,
@@ -920,25 +927,30 @@ class _ChallengeDetailScreenState extends State<_ChallengeDetailScreen> {
               children: [
                 const _Hero(
                     title: '7 ngày viết điều biết ơn',
-                    tag: '7 nhiệm vụ · Linh hoạt theo nhịp của bạn',
+                    tag: '7 nhiệm vụ · Không cần hoàn thành liên tục',
                     mascotArtwork: NudaengArtwork.challengeInvitation,
                     mascotWidth: 112,
                     mascotHeight: 128,
                     description:
-                        'Dành vài phút để nhận ra điều đang làm ngày hôm nay có ý nghĩa.'),
+                        'Dành vài phút để ghi lại những người, sự việc hoặc '
+                        'khoảnh khắc mà bạn cảm thấy trân trọng.'),
                 const SizedBox(height: AppSpacing.xl),
-                const _Info(title: 'Challenge này dành cho bạn khi…', lines: [
-                  'Bạn muốn bắt đầu viết bằng một câu gợi ý thật nhỏ.',
-                  'Bạn muốn có nhịp gợi ý nhưng không bị áp lực theo ngày.'
+                const _Info(title: 'Challenge này phù hợp nếu bạn...', lines: [
+                  'Muốn bắt đầu viết nhật ký nhưng chưa biết viết gì.',
+                  'Thích có câu hỏi gợi ý để dễ bắt đầu.',
+                  'Muốn duy trì thói quen viết mà không bị áp lực mỗi ngày.'
                 ]),
                 const SizedBox(height: AppSpacing.xl),
                 Text('Cách tham gia',
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
-                    'Mỗi nhiệm vụ là một câu gợi ý. Nhiệm vụ hoàn thành khi bạn lưu bài viết.'),
+                    'Challenge gồm 7 câu hỏi. Bạn chỉ cần chọn một câu hỏi và '
+                    'viết câu trả lời của mình.\n'
+                    'Mỗi lần lưu nhật ký, bạn sẽ hoàn thành một nhiệm vụ.\n'
+                    'Bạn có thể viết bất cứ khi nào có thời gian.'),
                 const SizedBox(height: AppSpacing.xl),
-                Text('Các nhiệm vụ',
+                Text('Danh sách nhiệm vụ',
                     style: Theme.of(context).textTheme.titleLarge),
                 for (var i = 0; i < _prompts.length; i++)
                   ListTile(
@@ -1130,7 +1142,7 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
         .firstWhere((i) => !done.contains(i), orElse: () => 6);
     final complete = done.length == 7;
     return Scaffold(
-      appBar: AppBar(title: const Text('Challenge của bạn'), actions: [
+      appBar: AppBar(title: const Text('Thử thách của bạn'), actions: [
         PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'leave') {
@@ -1166,7 +1178,7 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text('${done.length}/7 nhiệm vụ đã hoàn thành',
+                    Text('Đã hoàn thành ${done.length}/7 nhiệm vụ',
                         style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: AppSpacing.md),
                     _Progress(value: done.length / 7)
@@ -1190,7 +1202,10 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
               label: 'Tiếp tục challenge', onPressed: () => onPause(false))
         ],
         const SizedBox(height: AppSpacing.xl),
-        Text('Nhiệm vụ tiếp theo',
+        Text(
+            done.isEmpty
+                ? 'Bắt đầu với câu hỏi đầu tiên'
+                : 'Nhiệm vụ tiếp theo',
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: AppSpacing.md),
         if (complete)
@@ -1207,7 +1222,8 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
               hasDraft: widget.drafts[current]?.trim().isNotEmpty ?? false,
               onWrite: () => _writeTask(current)),
         const SizedBox(height: AppSpacing.xl),
-        Text('Các nhiệm vụ', style: Theme.of(context).textTheme.titleLarge),
+        Text('Danh sách nhiệm vụ',
+            style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: AppSpacing.md),
         for (var task = 0; task < 7; task++) ...[
           _TaskRow(
@@ -1245,7 +1261,7 @@ class _CurrentTask extends StatelessWidget {
         Text(_prompts[index], style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: AppSpacing.md),
         _PrimaryButton(
-            label: hasDraft ? 'Tiếp tục bản nháp' : 'Viết nhiệm vụ này',
+            label: hasDraft ? 'Tiếp tục bản nháp' : 'Bắt đầu viết',
             onPressed: disabled ? null : onWrite)
       ]));
 }
@@ -1270,7 +1286,7 @@ class _TaskRow extends StatelessWidget {
     final label = done
         ? 'Đã hoàn thành'
         : current
-            ? 'Tiếp theo'
+            ? 'Chưa hoàn thành'
             : 'Chưa thực hiện';
     return InkWell(
         onTap: onTap,
@@ -1350,7 +1366,7 @@ class _Editor extends StatefulWidget {
 
 class _EditorState extends State<_Editor> {
   /// As in the journal editor.
-  static const _deeperLabel = 'Suy ngẫm sâu hơn';
+  static const _deeperLabel = 'Nhìn lại cùng bạn';
 
   late final _controller = TextEditingController(text: widget.initialText);
   final _focus = FocusNode();
@@ -1417,11 +1433,11 @@ class _EditorState extends State<_Editor> {
     if (source.kind == 'challenge') {
       return 'Challenge · Nhiệm vụ ${source.taskIndex! + 1}';
     }
-    if (source.kind == 'framework') return 'Mẫu viết · $frameworkTitle';
+    if (source.kind == 'framework') return 'Phương pháp · $frameworkTitle';
     for (final lesson in [...studyLessons, studyCase]) {
       if (lesson.id == source.sourceId) return 'Bài học · ${lesson.title}';
     }
-    return 'Khóa học · ${_StudyScreenState._items.first.title}';
+    return 'Kỹ năng · ${_StudyScreenState._items.first.title}';
   }
 
   /// Keeps what was written above and asks the next question, with a fresh
@@ -1478,7 +1494,7 @@ class _EditorState extends State<_Editor> {
     if (_controller.text.trim().isEmpty) {
       return _answers.isEmpty
           ? 'Viết vài dòng để dùng các nút bên dưới.'
-          : 'Viết câu trả lời, hoặc Hoàn tất với những gì đã viết.';
+          : 'Viết câu trả lời, hoặc lưu nhật ký với những gì đã viết.';
     }
     return _answers.length < _followUps.length
         ? ''
@@ -1626,7 +1642,7 @@ class _EditorState extends State<_Editor> {
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
                           child: _PrimaryButton(
-                              label: _saving ? 'Đang lưu…' : 'Hoàn tất',
+                              label: _saving ? 'Đang lưu…' : 'Lưu nhật ký',
                               onPressed: _text.isEmpty ? null : _finish))
                     ]),
                   ]))));

@@ -37,7 +37,7 @@ class OnboardingEntrySavedScreen extends StatefulWidget {
   static const savedLabel = 'Nhật ký đã lưu';
   static const aiTitle = 'Một góc nhìn từ điều bạn vừa viết.';
   static const plainTitle = 'Bạn đã ghi lại những dòng đầu tiên.';
-  static const aiLabel = 'Gợi ý từ AI';
+  static const aiLabel = 'Góc nhìn từ AI';
   static const simulatedLabel = 'mô phỏng';
   static const notReady = 'Phản hồi AI chưa sẵn sàng.';
   static const retryLabel = 'Thử lại';

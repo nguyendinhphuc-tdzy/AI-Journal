@@ -19,11 +19,11 @@ class WriteJournalScreen extends StatefulWidget {
   const WriteJournalScreen({super.key, this.entry});
 
   static const title = 'Nhật ký hôm nay';
-  static const prompt = 'Hôm nay bạn nhận thấy tâm trạng mình thế nào?';
+  static const prompt = 'Hôm nay bạn cảm thấy thế nào?';
   static const followUpPrompt =
-      'Điều gì về chuyện học đang làm bạn nặng lòng lúc này?';
-  static const finishLabel = 'Hoàn tất';
-  static const deeperLabel = 'Suy ngẫm sâu hơn';
+      'Gần đây, điều gì trong chuyện học khiến bạn thấy áp lực?';
+  static const finishLabel = 'Lưu nhật ký';
+  static const deeperLabel = 'Nhìn lại cùng bạn';
   static const confirmTitle = 'Bạn đã hoàn tất chưa?';
   static const confirmBody =
       'Nhật ký sẽ được lưu. Bạn vẫn có thể mở lại để viết tiếp từ Trang chủ.';
@@ -381,7 +381,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                       decoration: InputDecoration(
                                         isCollapsed: true,
                                         hintText: _hasFollowUp
-                                            ? 'Viết tại đây...'
+                                            ? 'Chia sẻ suy nghĩ của bạn...'
                                             : 'Bắt đầu viết...',
                                         hintStyle: _writingStyle.copyWith(
                                             color: AppColors.textSecondary),

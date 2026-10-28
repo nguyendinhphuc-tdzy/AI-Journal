@@ -20,6 +20,7 @@ dependencies:
   path_provider: ^2.1.6
   # Background music and interface sounds (lib/features/sound).
   audioplayers: ^6.8.1
+  geolocator: ^14.0.2
 
 dev_dependencies:
   flutter_test:
@@ -31,6 +32,16 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/scrapbook/
+    - assets/images/map-moods/
+    # Only what the map uses: not the APNG, sheet or notes beside them.
+    - assets/images/map-markers/pin-frame.png
+    - assets/images/map-markers/nudaeng-frame-01.png
+    - assets/images/map-markers/nudaeng-frame-02.png
+    - assets/images/map-markers/nudaeng-frame-03.png
+    - assets/images/map-markers/nudaeng-frame-04.png
+    - assets/images/map-markers/nudaeng-frame-05.png
+    - assets/images/map-markers/nudaeng-frame-06.png
     - assets/icons/
     - assets/mascot/
     - assets/NudaenggifDe/

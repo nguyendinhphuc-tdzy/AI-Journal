@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_delete_dialog.dart';
@@ -694,13 +693,13 @@ class _PhotoSlot extends StatelessWidget {
         children: [
           const Text('Ảnh của kỷ niệm', style: AppText.sectionTitle),
           const SizedBox(height: AppSpacing.md),
-          _PhotoAction(
+          AlbumSheetAction(
             icon: Icons.photo_library_outlined,
             label: MemoryEditorScreen.replacePhotoLabel,
             onTap: () => Navigator.pop(sheet, 'replace'),
           ),
           const SizedBox(height: AppSpacing.sm),
-          _PhotoAction(
+          AlbumSheetAction(
             icon: Icons.delete_outline_rounded,
             label: MemoryEditorScreen.removePhotoLabel,
             color: AppDeleteDialog.destructive,
@@ -716,49 +715,6 @@ class _PhotoSlot extends StatelessWidget {
         onRemove();
     }
   }
-}
-
-/// One action in the photo's sheet: an icon and its label on Background,
-/// 56 high.
-class _PhotoAction extends StatelessWidget {
-  const _PhotoAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.color = AppColors.primaryAction,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) => Material(
-        color: AppColors.background,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(AppRadius.input))),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 56),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: Row(children: [
-                Icon(icon, color: color),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                    child: Text(label,
-                        style: AppText.body.copyWith(
-                            color: color == AppColors.primaryAction
-                                ? AppColors.textPrimary
-                                : color))),
-              ]),
-            ),
-          ),
-        ),
-      );
 }
 
 class _SlotFrame extends StatelessWidget {

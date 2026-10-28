@@ -10,6 +10,9 @@ import '../data/album_repository.dart';
 import '../data/album_unlocks.dart';
 import '../data/memory.dart';
 import '../data/memory_share.dart';
+import '../../social/data/friends_account.dart';
+import '../../social/data/friends_sharing.dart';
+import '../../social/presentation/facebook_login_screen.dart';
 import 'album_form_parts.dart';
 
 /// A10: preview a memory and share it on the map for 24 hours.
@@ -102,6 +105,18 @@ class ShareMemorySheet extends StatefulWidget {
   static const publishLabel = 'Chia sẻ trong 24 giờ';
   static const noService =
       'Chưa chia sẻ được: cần đăng nhập Facebook để có bạn bè trên app.';
+  static const signedOut =
+      'Bạn chưa đăng nhập Facebook nên chưa có bạn bè trên app để chia sẻ. '
+      'Đăng nhập trong Hồ sơ hoặc ở Khám phá, mục Bạn bè.';
+  static const spaceEmpty =
+      'Space của bạn chưa có ai. Thêm bạn bè trong Khám phá, mục Bạn bè, rồi '
+      'quay lại chia sẻ nhé.';
+  static const spaceBlocker = 'Thêm bạn bè vào Space để chia sẻ.';
+  static const pickHelp = 'Chỉ những người bạn chọn mới thấy bài này.';
+  static const pickAll = 'Chọn tất cả';
+  static const pickNone = 'Bỏ chọn';
+  static const needPeople = 'chọn ít nhất một người';
+  static String picked(int count, int total) => 'Đã chọn $count/$total người';
   static const unavailable =
       'Chưa kết nối được dịch vụ chia sẻ nên kỷ niệm chưa được chia sẻ. Nội '
       'dung bạn chọn vẫn còn.';
@@ -204,11 +219,34 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
       MediaQuery.textScalerOf(context).scale(16) > 20;
 
   ShareAudience? get _audience {
+    final sharing = widget.sharing;
+    if (sharing is MockFriendsSharing) {
+      // The people picked among the space's: an audience made for them.
+      final picked = _picked(sharing);
+      return picked.isEmpty ? null : spaceAudience(picked);
+    }
     for (final audience in _audiences ?? const <ShareAudience>[]) {
       if (audience.id == _draft.audienceId) return audience;
     }
     return null;
   }
+
+  /// Who in the space is picked (the draft keeps their ids); everyone the
+  /// first time.
+  List<AppFriend> _picked(MockFriendsSharing sharing) {
+    final pickable = sharing.pickable;
+    final kept = _draft.audienceId;
+    if (kept == null) return pickable;
+    final ids = spaceAudienceIds(kept).toSet();
+    return [
+      for (final friend in pickable)
+        if (ids.contains(friend.id)) friend
+    ];
+  }
+
+  /// Keeps [friends] as the people picked (none is allowed: nothing posts).
+  void _pick(List<AppFriend> friends) =>
+      _changed(() => _draft.audienceId = spaceAudience(friends).id);
 
   String? get _sharedText {
     final text = _text.text.trim();
@@ -302,9 +340,19 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
   String? get _blocker {
     final audiences = _audiences;
     if (audiences == null || _serviceFailed) return null;
-    if (audiences.isEmpty) return ShareMemorySheet.noService;
+    final sharing = widget.sharing;
+    if (audiences.isEmpty) {
+      return sharing is! MockFriendsSharing
+          ? ShareMemorySheet.noService
+          : sharing.account.session.value == null
+              ? ShareMemorySheet.signedOut
+              : ShareMemorySheet.spaceBlocker;
+    }
     final steps = [
-      if (_audience == null) ShareMemorySheet.needAudience,
+      if (_audience == null)
+        sharing is MockFriendsSharing
+            ? ShareMemorySheet.needPeople
+            : ShareMemorySheet.needAudience,
       if (_draft.place == null) ShareMemorySheet.needPlace,
       if (!_hasContent) ShareMemorySheet.needText,
     ];
@@ -632,6 +680,18 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
         ],
       );
     }
+    final sharing = widget.sharing;
+    if (sharing is MockFriendsSharing) {
+      if (audiences.isEmpty) {
+        // Signed out, or nobody in the space yet: where to go for it.
+        return AlbumFormMessage(
+            sharing.account.session.value == null
+                ? ShareMemorySheet.signedOut
+                : ShareMemorySheet.spaceEmpty,
+            icon: Icons.people_outline_rounded);
+      }
+      return _peoplePicker(sharing);
+    }
     if (audiences.isEmpty) {
       // Who will see it once sign-in exists, shown but not selectable.
       return Column(
@@ -676,6 +736,54 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
               : () => _changed(() => _draft.audienceId = audience.id),
         ),
     ]);
+  }
+
+  /// Everyone in the space who can see posts, each with a tick; all are
+  /// ticked to start with.
+  Widget _peoplePicker(MockFriendsSharing sharing) {
+    final pickable = sharing.pickable;
+    final picked = {for (final f in _picked(sharing)) f.id};
+    final all = picked.length == pickable.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          Expanded(
+            child: Text(ShareMemorySheet.picked(picked.length, pickable.length),
+                style: AlbumFormText.bodyStrong),
+          ),
+          TextButton(
+            onPressed: _busy ? null : () => _pick(all ? const [] : pickable),
+            style: TextButton.styleFrom(
+                foregroundColor: AppColors.primaryAction,
+                minimumSize: const Size(48, 40)),
+            child: Text(
+                all ? ShareMemorySheet.pickNone : ShareMemorySheet.pickAll),
+          ),
+        ]),
+        const Text(ShareMemorySheet.pickHelp, style: AlbumFormText.note),
+        const SizedBox(height: AppSpacing.sm),
+        for (final friend in pickable)
+          CheckboxListTile(
+            key: ValueKey('share-to-${friend.id}'),
+            value: picked.contains(friend.id),
+            onChanged: _busy
+                ? null
+                : (on) => _pick([
+                      for (final f in pickable)
+                        if (f.id == friend.id
+                            ? on == true
+                            : picked.contains(f.id))
+                          f
+                    ]),
+            contentPadding: EdgeInsets.zero,
+            activeColor: AppColors.primaryAction,
+            controlAffinity: ListTileControlAffinity.trailing,
+            secondary: FriendAvatar(friend, size: 40),
+            title: Text(friend.name, style: AlbumFormText.body),
+          ),
+      ],
+    );
   }
 
   Widget _notePicker(String note) => Container(

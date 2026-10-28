@@ -45,7 +45,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
       'Thg 12'
     ];
     const content =
-        'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.';
+        'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.';
     // One card per quote: saved again, it moves to the top with today's time.
     savedThisWeekItems.value = [
       {
@@ -135,7 +135,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                       children: [
                         Text(
                           quote
-                              ? 'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'
+                              ? 'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'
                               : 'Hãy hít thở thật sâu và thư giãn tâm trí trong lúc chúng mình đọc nhật ký của bạn nhé...',
                           textAlign: TextAlign.center,
                           style: AppText.pageTitle.copyWith(
@@ -231,7 +231,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 Semantics(
                   header: true,
-                  child: const Text('Né tránh chuyện học hành',
+                  child: const Text('Chuyện học hành đang khiến bạn áp lực?',
                       style: AppText.pageTitle),
                 ),
                 const SizedBox(height: AppSpacing.xl),
@@ -258,36 +258,51 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                   )
                 else ...[
                   // Mock insight for the prototype; replace with the API response.
-                  Text(
-                    'Có lẽ chuyện học hành đang trở thành một gánh nặng trong lòng bạn. '
-                    'Ngay cả khi nghĩ về nó, bạn cũng có thể cảm thấy áp lực, bối rối, '
-                    'hoặc có những cảm xúc khó gọi thành tên. Giữ một khoảng cách đôi khi '
-                    'là cách để bạn kịp thở. Bạn không cần phải giải quyết mọi thứ ngay lập tức. '
-                    'Nhận ra điều gì đang nặng lòng và cho mình không gian để gọi tên nó '
-                    'có thể là một khởi đầu dịu dàng.',
-                    style: AppText.body.copyWith(height: 1.7),
-                  ),
+                  for (final (i, paragraph) in const [
+                    'Bạn chia sẻ rằng gần đây mình đang cố gắng không nghĩ đến '
+                        'chuyện học. Có thể bạn đang có nhiều việc phải lo, hoặc '
+                        'đơn giản là chưa muốn đối diện với những điều còn dang dở. '
+                        'Đôi khi, tạm gác một vấn đề sang một bên cũng là cách để '
+                        'chúng ta có thêm thời gian suy nghĩ.',
+                    'Nếu muốn, bạn có thể thử nhìn lại một chút: Điều gì trong '
+                        'chuyện học đang khiến bạn ngại nghĩ đến nhất? Khối lượng '
+                        'bài tập, kỳ vọng về kết quả, hay một lý do khác?',
+                    'Bạn không nhất thiết phải tìm ra câu trả lời ngay lúc này.',
+                  ].indexed) ...[
+                    if (i > 0) const SizedBox(height: AppSpacing.md),
+                    Text(paragraph, style: AppText.body.copyWith(height: 1.7)),
+                  ],
                   const SizedBox(height: 32),
                   _buildSectionTitle(
-                      Icons.push_pin_outlined, 'Chúng mình nhận thấy rằng'),
+                      Icons.push_pin_outlined, 'Điều chúng mình nhận thấy'),
                   const SizedBox(height: 12),
                   Text(
-                    'Chuyện học hành đang mang nhiều cảm xúc đến mức tâm trí bạn muốn giữ một khoảng cách để tự bảo vệ mình.',
+                    'Bạn đang có xu hướng tránh nghĩ đến chuyện học. Tuy nhiên, '
+                    'từ những gì bạn chia sẻ, vẫn chưa rõ điều gì khiến bạn cảm '
+                    'thấy như vậy.',
                     style: AppText.body.copyWith(height: 1.7),
                   ),
                   const SizedBox(height: 28),
                   _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
                   const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: const ShapeDecoration(
-                      color: AppColors.primaryLight,
-                      shape: StadiumBorder(),
-                    ),
-                    child: const Text('😕  Bồn chồn · né tránh chuyện học hành',
-                        style: AppText.body),
-                  ),
+                  Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        for (final tag in const [
+                          '😕  Tâm trạng: Bồn chồn',
+                          'Chủ đề: Áp lực học tập',
+                        ])
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            decoration: const ShapeDecoration(
+                              color: AppColors.primaryLight,
+                              shape: StadiumBorder(),
+                            ),
+                            child: Text(tag, style: AppText.body),
+                          ),
+                      ]),
                 ],
               ],
             ),

@@ -7,6 +7,7 @@ import 'journaling_experience.dart';
 /// Onboarding routes OB01–OB11. Names are persisted; do not rename.
 enum OnboardingStep {
   welcome, // OB01
+  signIn, // OB01b: account (email, Google, Facebook), or later
   nickname, // OB02
   purpose, // OB03
   experience, // OB04
@@ -21,13 +22,13 @@ enum OnboardingStep {
   /// Interactive routes shown in the progress bar ("Bước x/9").
   static const progressSteps = 9;
 
-  /// 1-based progress position. OB01 has no progress; the transient OB08
-  /// keeps OB07's position.
+  /// 1-based progress position. OB01 and the sign-in before the questions
+  /// have no progress; the transient OB08 keeps OB07's position.
   int? get progressPosition => switch (this) {
-        welcome => null,
+        welcome || signIn => null,
         saving => firstEntry.progressPosition,
-        _ when index < saving.index => index,
-        _ => index - 1,
+        _ when index < saving.index => index - 1,
+        _ => index - 2,
       };
 }
 
