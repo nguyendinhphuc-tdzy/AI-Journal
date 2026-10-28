@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends
 
-from app.core.auth import get_current_user
+from .quota import enforce_ai_quota
 
 from app.schemas.ai import AiTextRequest, GoDeeperResponse, ReflectionResponse
 from .service import AIProvider, get_ai_provider
 
 # Never expose mock or Ollama through an unauthenticated AI route.
 router = APIRouter(
-    prefix="/ai", tags=["ai"], dependencies=[Depends(get_current_user)]
+    prefix="/ai", tags=["ai"], dependencies=[Depends(enforce_ai_quota)]
 )
 
 
