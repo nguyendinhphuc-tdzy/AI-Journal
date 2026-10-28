@@ -226,6 +226,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       source: saved?.content.source,
     );
     final scopedOnboarding = OnboardingScope.maybeOf(context);
+    final journals = JournalScope.of(context);
     bool useAi;
     try {
       final settings = scopedOnboarding ?? await OnboardingStore.open();
@@ -234,7 +235,6 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
           settings.aiEnabled == true &&
           settings.aiPolicyVersion == DataPolicy.localOllama.version;
       if (!mounted) return;
-      final journals = JournalScope.of(context);
       _saved = saved == null
           ? await journals.create(content)
           : await journals.update(saved.id, content);
