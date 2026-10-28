@@ -1,7 +1,7 @@
 """JWT-authenticated private friendship requests; no public user directory."""
 from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
 from app.models.friendship import Friendship
-from app.models.user_profile import auth_users
+from app.models.user_block import UserBlock
+from app.models.user_profile import UserProfile, auth_users
 
 router = APIRouter(prefix="/friends", tags=["friends"])
 
@@ -36,6 +37,13 @@ def _read(item: Friendship, own: UUID) -> FriendRead:
     return FriendRead(user_id=other, status=item.status, direction=direction)
 
 
+def blocked(db: Session, a: UUID, b: UUID) -> bool:
+    return db.scalar(select(UserBlock.blocker_id).where(or_(
+        (UserBlock.blocker_id == a) & (UserBlock.blocked_id == b),
+        (UserBlock.blocker_id == b) & (UserBlock.blocked_id == a),
+    )).limit(1)) is not None
+
+
 def _get(db: Session, own: UUID, other: UUID) -> Friendship:
     item = db.get(Friendship, pair(own, other))
     if item is None:
@@ -50,7 +58,9 @@ def list_friends(user: AuthenticatedUser = Depends(get_current_user),
         or_(Friendship.user_low_id == user.user_id,
             Friendship.user_high_id == user.user_id)
     ).order_by(Friendship.created_at.desc()).limit(200)).all()
-    return [_read(item, user.user_id) for item in items]
+    return [_read(item, user.user_id) for item in items
+            if not blocked(db, user.user_id,
+                item.user_high_id if item.user_low_id == user.user_id else item.user_low_id)]
 
 
 @router.post("/requests", response_model=FriendRead, status_code=201)
@@ -58,6 +68,8 @@ def request_friend(payload: FriendTarget,
                    user: AuthenticatedUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     low, high = pair(user.user_id, payload.user_id)
+    if blocked(db, user.user_id, payload.user_id):
+        raise HTTPException(status_code=404, detail="User not found")
     # Do not create ghost users or profiles. Query auth.users as a
     # read-only Supabase-owned table; no email discovery endpoint.
     target = db.execute(select(auth_users.c.id).where(
@@ -82,6 +94,8 @@ def request_friend(payload: FriendTarget,
 def accept_friend(other_id: UUID,
                   user: AuthenticatedUser = Depends(get_current_user),
                   db: Session = Depends(get_db)):
+    if blocked(db, user.user_id, other_id):
+        raise HTTPException(status_code=404, detail="Friend relationship not found")
     item = _get(db, user.user_id, other_id)
     if item.status != "pending" or item.requester_id == user.user_id:
         raise HTTPException(status_code=409, detail="No incoming pending request")
@@ -95,5 +109,66 @@ def remove_friend(other_id: UUID,
                   user: AuthenticatedUser = Depends(get_current_user),
                   db: Session = Depends(get_db)):
     item = _get(db, user.user_id, other_id)
+    db.delete(item)
+    db.commit()
+
+
+class DiscoveryRead(BaseModel):
+    user_id: UUID
+    display_name: str
+
+
+@router.get("/discover", response_model=list[DiscoveryRead])
+def discover_friends(
+    q: str = Query(min_length=3, max_length=60),
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    clean = q.strip()
+    if len(clean) < 3 or not clean.replace(" ", "").isalnum():
+        raise HTTPException(status_code=422, detail="Invalid search")
+    profiles = db.scalars(select(UserProfile).where(
+        UserProfile.discoverable.is_(True),
+        UserProfile.user_id != user.user_id,
+        UserProfile.display_name.ilike("%" + clean + "%"),
+    ).order_by(UserProfile.display_name.asc()).limit(20)).all()
+    return [DiscoveryRead(user_id=p.user_id, display_name=p.display_name)
+            for p in profiles if p.display_name and
+            not blocked(db, user.user_id, p.user_id)]
+
+
+@router.get("/blocks", response_model=list[FriendTarget])
+def list_blocks(user: AuthenticatedUser = Depends(get_current_user),
+                db: Session = Depends(get_db)):
+    blocks = db.scalars(select(UserBlock).where(
+        UserBlock.blocker_id == user.user_id
+    ).limit(200)).all()
+    return [FriendTarget(user_id=b.blocked_id) for b in blocks]
+
+
+@router.post("/blocks", status_code=204)
+def block_user(payload: FriendTarget,
+               user: AuthenticatedUser = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    low, high = pair(user.user_id, payload.user_id)
+    if db.get(UserBlock, (user.user_id, payload.user_id)) is None:
+        db.add(UserBlock(blocker_id=user.user_id, blocked_id=payload.user_id))
+    relationship = db.get(Friendship, (low, high))
+    if relationship is not None:
+        db.delete(relationship)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Cannot block user") from exc
+
+
+@router.delete("/blocks/{other_id}", status_code=204)
+def unblock_user(other_id: UUID,
+                 user: AuthenticatedUser = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    item = db.get(UserBlock, (user.user_id, other_id))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Block not found")
     db.delete(item)
     db.commit()
