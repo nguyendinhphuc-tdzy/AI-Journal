@@ -134,11 +134,12 @@ def decide_post(post_id: UUID, decision: str,
                 moderator_user: AuthenticatedUser = Depends(moderator),
                 db: Session = Depends(get_db)):
     del moderator_user
-    if decision not in ("approve", "reject"):
+    if decision not in ("approve", "reject", "hide"):
         raise HTTPException(status_code=422, detail="Invalid moderation decision")
     item = db.get(CommunityPost, post_id)
-    if item is None or item.status != "pending":
-        raise HTTPException(status_code=404, detail="Pending post not found")
+    required_status = "approved" if decision == "hide" else "pending"
+    if item is None or item.status != required_status:
+        raise HTTPException(status_code=404, detail="Post not available for moderation")
     item.status = "approved" if decision == "approve" else "rejected"
     db.commit()
     return _post(item)
@@ -161,15 +162,3 @@ def moderation_reports(moderator_user: AuthenticatedUser = Depends(moderator),
                        created_at=item.created_at.isoformat()) for item in reports]
 
 
-@router.post("/moderation/{post_id}/hide", response_model=PostRead,
-             dependencies=[Depends(enabled)])
-def hide_reported_post(post_id: UUID,
-                       moderator_user: AuthenticatedUser = Depends(moderator),
-                       db: Session = Depends(get_db)):
-    del moderator_user
-    item = db.get(CommunityPost, post_id)
-    if item is None or item.status != "approved":
-        raise HTTPException(status_code=404, detail="Approved post not found")
-    item.status = "rejected"
-    db.commit()
-    return _post(item)
