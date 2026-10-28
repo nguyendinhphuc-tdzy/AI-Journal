@@ -34,6 +34,7 @@ def _ensure_profile(db: Session, identity: AuthenticatedUser) -> UserProfile:
 def _response(profile: UserProfile, identity: AuthenticatedUser) -> ProfileRead:
     return ProfileRead(
         user_id=profile.user_id,
+        discoverable=profile.discoverable,
         email=identity.email,
         display_name=profile.display_name,
         timezone=profile.timezone,

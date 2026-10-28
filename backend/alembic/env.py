@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
 from app.core.database import Base
+from app.models.user_block import UserBlock  # noqa: F401
 from app.models.friendship import Friendship  # noqa: F401
 from app.models import JournalEntry, UserProfile, JournalActionDay, SavedPlace, PlaceNote, JournalPlace, Album, AlbumMemory  # noqa: F401 - register metadata
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class ProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    discoverable: bool | None = None
     display_name: str | None = Field(default=None, max_length=100)
     timezone: str | None = Field(default=None, max_length=64)
 
@@ -28,6 +29,7 @@ class ProfileRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     user_id: UUID
+    discoverable: bool
     email: str | None
     display_name: str | None
     timezone: str
