@@ -160,8 +160,8 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
   }
 
   Future<Memory> _hydratePhoto(Memory memory, Object? raw) async {
-    final photo = _json(raw)['photo_path'];
-    if (photo is! String || photo.isEmpty) return memory;
+    // The backend exposes only availability, never an internal Storage key.
+    if (_json(raw)['photo_available'] != true) return memory;
     final uid = userId;
     if (uid == null || !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(uid)) {
       throw StateError('Authenticated photo cache requires a user ID');
@@ -328,7 +328,7 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     final saved = _memory(raw);
     if (content.photoPath case final path?) {
       await _uploadPhoto(albumId, memoryId, path);
-    } else if (raw['photo_path'] is String) {
+    } else if (raw['photo_available'] == true) {
       await client.deleteNoContent(_photoUrl(albumId, memoryId));
     }
     notifyListeners();
