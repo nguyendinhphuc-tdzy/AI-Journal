@@ -67,7 +67,7 @@ def main() -> None:
             request(client, "GET", photo, token=a, status=200)
             request(client, "GET", photo, token=b, status=404)
             place = request(client, "POST", root + "/places", token=a,
-                            status=201, json={"name": label, "latitude": 10.7769,
+                            status=201, json={"label": label, "latitude": 10.7769,
                                               "longitude": 106.7009, "provider": "manual"})
             place_id = place["id"]
             request(client, "GET", f"{root}/places/{place_id}", token=a, status=200)
