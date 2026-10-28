@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Table, Uuid
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -31,6 +31,7 @@ class UserProfile(Base):
         ForeignKey("auth.users.id", name="fk_user_profiles_auth_users", ondelete="CASCADE"),
         primary_key=True,
     )
+    discoverable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Ho_Chi_Minh")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
