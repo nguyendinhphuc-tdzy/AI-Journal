@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../core/network/api_client.dart';
 import 'album.dart';
@@ -7,14 +10,15 @@ import 'memory.dart';
 
 /// Owner-scoped FastAPI Album/Memory persistence.
 ///
-/// Backend currently has NO private photo object storage. Note-only memories
-/// work; rejecting photo content BEFORE HTTP prevents silently losing photos.
+/// Private photos are transferred through owner-scoped FastAPI endpoints.
 /// Existing local albums/drafts never automatically upload to the cloud.
 class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
-  RemoteAlbumRepository({required this.client, required this.localDrafts});
+  RemoteAlbumRepository({required this.client, required this.localDrafts, this.userId});
 
   final ApiClient client;
   final LocalAlbumRepository localDrafts;
+  /// Authenticated user ID for strict separation of private photo caches.
+  final String? userId;
 
   static const _prefix = 'cloud-';
 
@@ -93,7 +97,7 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
         note: _text(data, 'note'),
         displayDate: DateTime.parse(_text(data, 'display_date')),
         place: _place(data['place']),
-        // Photos are never represented as local paths on another device.
+        // Photo bytes are downloaded after parsing, into the user's cache.
         photoPath: null,
       ),
       createdAt: DateTime.parse(_text(data, 'created_at')),
@@ -102,11 +106,6 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
   }
 
   Map<String, dynamic> _content(MemoryContent content) {
-    if (content.photoPath != null) {
-      throw UnsupportedError(
-        'Cloud Memory chưa hỗ trợ lưu ảnh. Hãy giữ ảnh trên thiết bị.'
-      );
-    }
     final note = content.note?.trim() ?? '';
     if (note.isEmpty) {
       throw ArgumentError.value(content, 'content', 'Cloud Memory requires a note');
@@ -127,6 +126,350 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
         'place_id': content.place!.placeId,
       },
     };
+  }
+
+  String _photoUrl(String albumId, String memoryId) =>
+      '/albums/${_id(albumId, entity: 'album')}/memories/'
+      '${_id(memoryId, entity: 'memory')}/photo';
+
+  Future<void> _uploadPhoto(
+      String albumId, String memoryId, String path) async {
+    final file = File(path);
+    final size = await file.length();
+    if (size < 1 || size > 5 * 1024 * 1024) {
+      throw ArgumentError('Ảnh cloud cần có kích thước tối đa 5 MB');
+    }
+    final head = await file.openRead(0, 12).fold<List<int>>(
+        <int>[], (bytes, chunk) => bytes..addAll(chunk));
+    String type;
+    if (head.length >= 3 &&
+        head[0] == 0xff && head[1] == 0xd8 && head[2] == 0xff) {
+      type = 'image/jpeg';
+    } else if (head.length >= 8 &&
+        head.take(8).toList().join(',') == '137,80,78,71,13,10,26,10') {
+      type = 'image/png';
+    } else if (head.length >= 12 &&
+        String.fromCharCodes(head.take(4)) == 'RIFF' &&
+        String.fromCharCodes(head.skip(8).take(4)) == 'WEBP') {
+      type = 'image/webp';
+    } else {
+      throw ArgumentError('Ảnh không phải JPEG, PNG hoặc WebP');
+    }
+    await client.putBytes(_photoUrl(albumId, memoryId), await file.readAsBytes(),
+        contentType: type);
+  }
+
+  Future<Memory> _hydratePhoto(Memory memory, Object? raw) async {
+    final photo = _json(raw)['photo_path'];
+    if (photo is! String || photo.isEmpty) return memory;
+    final uid = userId;
+    // Never store another account's personal photo in a shared directory.
+    if (uid == null ||
+        !RegExp(r'^[0-9a-fA-F-]{36} async => (await client.getList(
+        '/albums?limit=100', requireAuth: true,
+      )).map(_album).toList();
+
+  @override
+  Future<Album?> album(String id) async {
+    try {
+      return _album(await client.getJson(
+        '/albums/${_id(id, entity: 'album')}',
+        requireAuth: true,
+      ));
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Album> create({
+    required String name,
+    String themeId = Album.defaultTheme,
+    bool locked = false,
+  }) async {
+    final saved = _album(await client.postJson('/albums', {
+      'name': name.trim(), 'theme_id': themeId, 'locked': locked,
+    }, requireAuth: true));
+    notifyListeners();
+    return saved;
+  }
+
+  @override
+  Future<Album> update(Album album) async {
+    final saved = _album(await client.patchJson(
+      '/albums/${_id(album.id, entity: 'album')}',
+      {
+        'name': album.name,
+        'theme_id': album.themeId,
+        'locked': album.locked,
+        'hide_name_when_locked': album.hideNameWhenLocked,
+      }, requireAuth: true,
+    ));
+    notifyListeners();
+    return saved;
+  }
+
+  @override
+  Future<Album> updateSettings(String id, {
+    required String name,
+    required String themeId,
+    required bool locked,
+  }) async {
+    final saved = _album(await client.patchJson(
+      '/albums/${_id(id, entity: 'album')}',
+      {'name': name.trim(), 'theme_id': themeId, 'locked': locked},
+      requireAuth: true,
+    ));
+    notifyListeners();
+    return saved;
+  }
+
+  @override
+  Future<List<Memory>> memories(String albumId) async {
+    final items = await client.getList(
+      '/albums/${_id(albumId, entity: 'album')}/memories?limit=100',
+      requireAuth: true,
+    );
+    return Future.wait(items.map((raw) => _hydratePhoto(_memory(raw), raw)));
+  }
+
+  @override
+  Future<Memory?> memory(String albumId, String memoryId) async {
+    try {
+      final raw = await client.getJson(
+        '/albums/${_id(albumId, entity: 'album')}/memories/'
+        '${_id(memoryId, entity: 'memory')}',
+        requireAuth: true,
+      );
+      return _hydratePhoto(_memory(raw), raw);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Memory> createMemory(String albumId, MemoryContent content) async {
+    final body = _content(content);
+    // Validate the local photo before creating any remote data.
+    if (content.photoPath case final path?) {
+      final file = File(path);
+      if (!await file.exists() ||
+          await file.length() > 5 * 1024 * 1024) {
+        throw ArgumentError('Ảnh không tồn tại hoặc quá 5 MB');
+      }
+    }
+    final saved = _memory(await client.postJson(
+      '/albums/${_id(albumId, entity: 'album')}/memories',
+      body, requireAuth: true,
+    ));
+    if (content.photoPath case final path?) {
+      try {
+        await _uploadPhoto(albumId, saved.id, path);
+      } catch (_) {
+        // Avoid duplicate note-only memories after a failed photo upload.
+        await deleteMemory(albumId, saved.id);
+        rethrow;
+      }
+    }
+    notifyListeners();
+    return Memory(
+      id: saved.id, albumId: saved.albumId, createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+      content: MemoryContent(
+        title: saved.content.title, note: saved.content.note,
+        photoPath: content.photoPath, displayDate: saved.content.displayDate,
+        place: saved.content.place,
+      ),
+    );
+  }
+
+  @override
+  Future<Memory> updateMemory(
+    String albumId, String memoryId, MemoryContent content,
+  ) async {
+    final body = _content(content);
+    final raw = await client.patchJson(
+      '/albums/${_id(albumId, entity: 'album')}/memories/'
+      '${_id(memoryId, entity: 'memory')}',
+      body, requireAuth: true,
+    );
+    final saved = _memory(raw);
+    if (content.photoPath case final path?) {
+      await _uploadPhoto(albumId, memoryId, path);
+    } else if (raw['photo_path'] is String) {
+      await client.deleteNoContent(_photoUrl(albumId, memoryId));
+    }
+    notifyListeners();
+    return Memory(
+      id: saved.id, albumId: saved.albumId, createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+      content: MemoryContent(
+        title: saved.content.title, note: saved.content.note,
+        photoPath: content.photoPath, displayDate: saved.content.displayDate,
+        place: saved.content.place,
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteMemory(String albumId, String memoryId) async {
+    await client.deleteNoContent(
+      '/albums/${_id(albumId, entity: 'album')}/memories/'
+      '${_id(memoryId, entity: 'memory')}',
+      requireAuth: true,
+    );
+    notifyListeners();
+  }
+
+  @override
+  Future<void> deleteAlbum(String albumId) async {
+    await client.deleteNoContent(
+      '/albums/${_id(albumId, entity: 'album')}',
+      requireAuth: true,
+    );
+    notifyListeners();
+  }
+
+  // Editor drafts remain scoped local-only; no accidental media upload.
+  @override
+  Future<MemoryDraft?> memoryDraft(String key) => localDrafts.memoryDraft(key);
+  @override
+  Future<void> saveMemoryDraft(String key, MemoryDraft draft) =>
+      localDrafts.saveMemoryDraft(key, draft);
+  @override
+  Future<void> deleteMemoryDraft(String key) => localDrafts.deleteMemoryDraft(key);
+}
+
+
+/// Explicit dual-source view: existing local Albums (including device photos)
+/// remain usable while new cloud Albums are persisted remotely. No implicit
+/// migration or background upload occurs. Existing IDs stay disjoint.
+class CombinedAlbumRepository extends ChangeNotifier implements AlbumRepository {
+  CombinedAlbumRepository({
+    required this.local,
+    required this.remote,
+  }) {
+    local.addListener(notifyListeners);
+    remote.addListener(notifyListeners);
+  }
+
+  final LocalAlbumRepository local;
+  final RemoteAlbumRepository remote;
+
+  bool _cloud(String id) => id.startsWith('cloud-');
+
+  AlbumRepository _owner(String id) {
+    if (_cloud(id)) return remote;
+    return local;
+  }
+
+  @override
+  Future<List<Album>> albums() async {
+    // Fail visibly if remote state is unavailable; no partial cloud
+    // response masquerades as the complete private album library.
+    final values = await Future.wait([local.albums(), remote.albums()]);
+    final all = [...values[0], ...values[1]];
+    all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return all;
+  }
+
+  @override
+  Future<Album?> album(String id) => _owner(id).album(id);
+
+  /// New Albums are cloud-only after explicit opt-in.
+  @override
+  Future<Album> create({
+    required String name,
+    String themeId = Album.defaultTheme,
+    bool locked = false,
+  }) => remote.create(name: name, themeId: themeId, locked: locked);
+
+  @override
+  Future<Album> update(Album album) => _owner(album.id).update(album);
+
+  @override
+  Future<Album> updateSettings(String id, {
+    required String name,
+    required String themeId,
+    required bool locked,
+  }) => _owner(id).updateSettings(
+        id, name: name, themeId: themeId, locked: locked,
+      );
+
+  @override
+  Future<List<Memory>> memories(String albumId) =>
+      _owner(albumId).memories(albumId);
+
+  @override
+  Future<Memory?> memory(String albumId, String memoryId) =>
+      _owner(albumId).memory(albumId, memoryId);
+
+  @override
+  Future<Memory> createMemory(String albumId, MemoryContent content) =>
+      _owner(albumId).createMemory(albumId, content);
+
+  @override
+  Future<Memory> updateMemory(
+    String albumId, String memoryId, MemoryContent content,
+  ) => _owner(albumId).updateMemory(albumId, memoryId, content);
+
+  @override
+  Future<void> deleteMemory(String albumId, String memoryId) =>
+      _owner(albumId).deleteMemory(albumId, memoryId);
+
+  @override
+  Future<void> deleteAlbum(String albumId) =>
+      _owner(albumId).deleteAlbum(albumId);
+
+  // Drafts always stay local, per account, regardless of album ID.
+  @override
+  Future<MemoryDraft?> memoryDraft(String key) => local.memoryDraft(key);
+  @override
+  Future<void> saveMemoryDraft(String key, MemoryDraft draft) =>
+      local.saveMemoryDraft(key, draft);
+  @override
+  Future<void> deleteMemoryDraft(String key) => local.deleteMemoryDraft(key);
+
+  @override
+  void dispose() {
+    local.removeListener(notifyListeners);
+    remote.removeListener(notifyListeners);
+    remote.dispose();
+    super.dispose();
+  }
+}
+).hasMatch(uid)) {
+      throw StateError('Authenticated photo cache requires a user ID');
+    }
+    final base = await getApplicationDocumentsDirectory();
+    final folder = Directory('${base.path}/cloud_memory_photos/$uid');
+    await folder.create(recursive: true);
+    final stem = _id(memory.id, entity: 'memory');
+    final revision = memory.updatedAt.microsecondsSinceEpoch;
+    final path = '${folder.path}/$stem-$revision.private';
+    final target = File(path);
+    if (!await target.exists()) {
+      final bytes = await client.getBytes(
+          _photoUrl(memory.albumId, memory.id));
+      final pending = File('$path.tmp');
+      await pending.writeAsBytes(bytes, flush: true);
+      await pending.rename(path);
+    }
+    return Memory(
+      id: memory.id,
+      albumId: memory.albumId,
+      createdAt: memory.createdAt,
+      updatedAt: memory.updatedAt,
+      content: MemoryContent(
+        title: memory.content.title,
+        note: memory.content.note,
+        photoPath: path,
+        displayDate: memory.content.displayDate,
+        place: memory.content.place,
+      ),
+    );
   }
 
   @override
