@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
 from app.core.database import Base
+from app.models.memory_share_recipient import MemoryShareRecipient  # noqa: F401
 from app.models.community import CommunityPost, CommunityReport  # noqa: F401
 from app.models.memory_share import MemoryShare  # noqa: F401
 from app.models.user_block import UserBlock  # noqa: F401
