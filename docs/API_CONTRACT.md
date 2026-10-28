@@ -2,6 +2,12 @@
 
 **Base:** `/api/v1`. **Owner:** Phúc (FastAPI + PostgreSQL). **Flutter integrators:** Trâm (auth, Journal, streak, map UI) and Vy (remaining assigned Flutter features). This document is the proposed contract for B01; **do not assume new endpoints work until their owning PR merges**.
 
+## Integration runtime: private Memory photos (current branch)
+
+- `GET /api/v1/albums/{album_id}/memories`, `GET /api/v1/albums/{album_id}/memories/{memory_id}`, `POST /api/v1/albums/{album_id}/memories`, and `PATCH /api/v1/albums/{album_id}/memories/{memory_id}` return a `MemoryRead` containing `photo_available: boolean`, **never** the private Storage object key `photo_path`.
+- Photo bytes are retrieved through authenticated `GET /api/v1/albums/{album_id}/memories/{memory_id}/photo`; upload/delete use the same owner-scoped endpoint with `PUT`/`DELETE`. The backend keeps private keys internally, with owner checks on each request.
+- This replaces the old `photo_path` response field and requires a matched Flutter client update. It does **not** alter the database schema or the existing Storage objects.
+
 ## Implementation status and backward compatibility
 
 - **LIVE in base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`; unauthenticated mock `POST /api/v1/ai/go-deeper` and `POST /api/v1/ai/reflection`; unauthenticated `GET/POST/GET-by-id/PUT/DELETE /api/v1/journals` (old `GET` returns a **bare array**).
