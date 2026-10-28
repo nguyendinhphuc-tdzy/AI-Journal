@@ -99,6 +99,9 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
   var _nameRequest = 0;
   final _name = TextEditingController();
 
+  PlaceLookup get _lookup =>
+      PlaceLookupScope.maybeOf(context) ?? widget.lookup;
+
   var _locating = false;
   String? _locationError;
 
@@ -205,7 +208,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     _Naming outcome;
     PlaceCandidate? named;
     try {
-      named = await widget.lookup.nameAt(at.latitude, at.longitude);
+      named = await _lookup.nameAt(at.latitude, at.longitude);
       outcome = named != null && named.named ? _Naming.idle : _Naming.empty;
     } catch (_) {
       outcome = _Naming.failed;
@@ -258,7 +261,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     final query = _search.text.trim();
     if (query.isEmpty) return;
     try {
-      final results = await widget.lookup.search(query);
+      final results = await _lookup.search(query);
       // An older response never replaces a newer query's.
       if (!mounted || run != _searchVersion) return;
       setState(() {
