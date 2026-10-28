@@ -1128,7 +1128,7 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
     def fake_storage(method, path, token, **kwargs):
         calls.append((method, path, token))
         if method == "GET":
-            return httpx.Response(200, content=b"\\x89PNG\\r\\n\\x1a\\nphoto",
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nphoto",
                                   headers={"content-type": "image/png"})
         return httpx.Response(201 if method == "POST" else 200, json={})
 
@@ -1152,7 +1152,7 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
         })
         assert bad.status_code == 415
         assert calls == []
-        image = b"\\x89PNG\\r\\n\\x1a\\nphoto"
+        image = b"\x89PNG\r\n\x1a\nphoto"
         uploaded = client.put(url, content=image, headers={
             **headers, "Content-Type": "image/png",
         })
