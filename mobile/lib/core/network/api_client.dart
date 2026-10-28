@@ -43,6 +43,24 @@ class ApiClient {
     return _decode(response);
   }
 
+  /// Geo reverse lookup legitimately returns JSON null for unnamed points.
+  Future<Map<String, dynamic>?> getOptionalJson(
+    String path, {
+    bool requireAuth = false,
+  }) async {
+    final response = await _client.get(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: await _headers(requireAuth: requireAuth),
+    );
+    _ensureSuccess(response);
+    final decoded = jsonDecode(response.body);
+    if (decoded == null) return null;
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Expected JSON object or null');
+    }
+    return decoded;
+  }
+
   /// Album and memory list endpoints return a top-level JSON array.
   Future<List<dynamic>> getList(String path, {bool requireAuth = false}) async {
     final response = await _client.get(
