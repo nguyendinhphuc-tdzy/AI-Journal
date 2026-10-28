@@ -254,7 +254,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
     // They are never uploaded or re-assigned to the cloud.
     AlbumRepository albums = localAlbums;
     if (api != null && AppConfig.albumCloudEnabled) {
-      final remote = RemoteAlbumRepository(client: api, localDrafts: localAlbums);
+      final remote = RemoteAlbumRepository(client: api, localDrafts: localAlbums, userId: widget.userId);
       albums = CombinedAlbumRepository(local: localAlbums, remote: remote);
     }
     final onboarding = await OnboardingStore.open(userId: widget.userId);
