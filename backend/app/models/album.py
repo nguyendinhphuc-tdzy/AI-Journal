@@ -63,6 +63,7 @@ class AlbumMemory(Base):
     display_date: Mapped[date] = mapped_column(Date, nullable=False)
     # PR17's MemoryPlace snapshot: name/coords/address/provider ID.
     place: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    photo_path: Mapped[str | None] = mapped_column(String(400), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
