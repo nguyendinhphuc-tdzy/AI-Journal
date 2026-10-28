@@ -56,9 +56,16 @@ def test_migration_applied():
     assert "album_memories" in tables
 
 
-def test_ai_requires_authentication_in_all_provider_modes():
+def test_ai_requires_authentication_in_all_provider_modes(monkeypatch):
+    from app.core.config import Settings
     from app.modules.ai.service import MockAIProvider, get_ai_provider
 
+    # An invalid Bearer token is 401 when the verifier is configured.
+    # Without SUPABASE_URL, a configuration failure intentionally returns 503.
+    monkeypatch.setattr(
+        "app.core.auth.get_settings",
+        lambda: Settings(database_url="sqlite://", supabase_url="https://test-ref.supabase.co"),
+    )
     app.dependency_overrides.clear()
     invoked = []
     def provider_spy():
