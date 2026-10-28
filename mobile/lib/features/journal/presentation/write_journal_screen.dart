@@ -225,9 +225,10 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       // Written in Study, it stays a Study entry when edited here.
       source: saved?.content.source,
     );
+    final scopedOnboarding = OnboardingScope.maybeOf(context);
     bool useAi;
     try {
-      final settings = OnboardingScope.maybeOf(context) ?? await OnboardingStore.open();
+      final settings = scopedOnboarding ?? await OnboardingStore.open();
       // Cloud AI needs an explicit, current policy choice; never use mock insights.
       useAi = AiRemoteScope.maybeOf(context) != null &&
           settings.aiEnabled == true &&
