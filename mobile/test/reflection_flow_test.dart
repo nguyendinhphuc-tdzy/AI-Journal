@@ -35,11 +35,20 @@ void main() {
         // Going deeper turns on once there is something written.
         await tester.pump();
         if (action != 'Lưu nhật ký') {
+          // No account here: no AI question, never a made-up one.
           await tester.tap(find.text(action));
           await tester.pumpAndSettle();
           expect(find.byType(AiReflectionScreen), findsNothing);
-          expect(find.text('A quiet moment today.'), findsOneWidget);
+          expect(find.text(WriteJournalScreen.deeperNeedsAccount),
+              findsOneWidget);
           expect(find.byType(TextField), findsOneWidget);
+          expect(
+              tester.widget<TextField>(find.byType(TextField)).decoration!
+                  .hintText,
+              'Bắt đầu viết...');
+          ScaffoldMessenger.of(tester.element(find.byType(TextField)))
+              .removeCurrentSnackBar();
+          await tester.pumpAndSettle();
           await tester.enterText(
               find.byType(TextField), 'School feels overwhelming.');
         }

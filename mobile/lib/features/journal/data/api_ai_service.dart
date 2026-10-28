@@ -4,20 +4,50 @@ import '../../../core/network/api_client.dart';
 import 'journal_entry.dart';
 import 'reflection_service.dart';
 
+/// A quote the backend picked for the entry from the team's list of
+/// quotes with checked sources; never written by the AI.
+class AiQuote {
+  const AiQuote({required this.text, required this.author, this.source});
+
+  final String text;
+  final String author;
+
+  /// Where it was checked (book, speech…), when the list says.
+  final String? source;
+}
+
 /// Backend-validated AI analysis. This is real AI output, not a local
 /// simulation. It is never persisted by this service.
+///
+/// [title], [analysis], [topics] and [quote] are optional: proposed for the
+/// analysis screen and shown once the backend returns them.
 class AiAnalysis {
   const AiAnalysis({
     required this.emotion,
     required this.observation,
     required this.reflection,
     required this.question,
+    this.title,
+    this.analysis,
+    this.topics = const [],
+    this.quote,
   });
 
   final String emotion;
   final String observation;
   final String reflection;
   final String question;
+
+  /// A few words naming what the entry is about.
+  final String? title;
+
+  /// The main reading of the entry, a short paragraph.
+  final String? analysis;
+
+  /// What the entry touches on, a word or two each.
+  final List<String> topics;
+
+  final AiQuote? quote;
 
   factory AiAnalysis.fromJson(Map<String, dynamic> json) {
     String requiredText(String key) {
@@ -28,11 +58,32 @@ class AiAnalysis {
       return value.trim();
     }
 
+    String? optionalText(Object? value) =>
+        value is String && value.trim().isNotEmpty ? value.trim() : null;
+
+    final topics = json['topics'];
+    final quote = json['quote'];
+    final quoteText = quote is Map ? optionalText(quote['text']) : null;
+    final quoteAuthor = quote is Map ? optionalText(quote['author']) : null;
     return AiAnalysis(
       emotion: requiredText('emotion'),
       observation: requiredText('observation'),
       reflection: requiredText('reflection'),
       question: requiredText('question'),
+      title: optionalText(json['title']),
+      analysis: optionalText(json['analysis']),
+      topics: [
+        if (topics is List)
+          for (final topic in topics)
+            if (optionalText(topic) case final text?) text,
+      ],
+      // Only a whole quote: text and who said it.
+      quote: quoteText != null && quoteAuthor != null
+          ? AiQuote(
+              text: quoteText,
+              author: quoteAuthor,
+              source: optionalText((quote as Map)['source']))
+          : null,
     );
   }
 }

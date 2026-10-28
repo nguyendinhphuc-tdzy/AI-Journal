@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ai_diary/features/journal/data/api_ai_service.dart';
 import 'package:ai_diary/features/journal/data/guided_template.dart';
 import 'package:ai_diary/features/journal/data/journal_entry.dart';
 import 'package:ai_diary/features/journal/data/journal_mood.dart';
@@ -9,12 +10,15 @@ import 'package:ai_diary/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Future<void> _pumpApp(WidgetTester tester, JournalRepository journals) async {
+import '../../support/fake_ai.dart';
+
+Future<void> _pumpApp(WidgetTester tester, JournalRepository journals,
+    {ApiAIService? ai}) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(412, 915);
   tester.view.padding = const FakeViewPadding(top: 44, bottom: 34);
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(AiDiaryApp(journals: journals));
+  await tester.pumpWidget(AiDiaryApp(journals: journals, ai: ai));
   await tester.pumpAndSettle();
 }
 
@@ -128,7 +132,7 @@ void main() {
 
   testWidgets('Follow-up is saved only after confirmation', (tester) async {
     final journals = InMemoryJournalRepository();
-    await _pumpApp(tester, journals);
+    await _pumpApp(tester, journals, ai: FakeAi().service);
     await tester.ensureVisible(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Viết nhật ký'));

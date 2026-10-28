@@ -5,6 +5,7 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../journal/data/journal_entry.dart';
 import '../../journal/data/reflection_service.dart';
+import '../../journal/presentation/sentence_case.dart';
 import '../data/onboarding_store.dart';
 import 'first_entry_session.dart';
 import 'first_reflection.dart';
@@ -258,7 +259,7 @@ class _ReflectionCard extends StatelessWidget {
               style: _Text.label,
             ),
             const SizedBox(height: AppSpacing.xs),
-            Text(reflection.text, style: _Text.reading),
+            Text(sentenceCase(reflection.text), style: _Text.reading),
           ],
         ),
       );
