@@ -1,7 +1,7 @@
 """Owner-scoped PR17 Album + Memory APIs. Never serve guest or public posts."""
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -45,6 +45,16 @@ def _album_read(db: Session, album: Album) -> AlbumRead:
         "memory_count": count or 0, "created_at": album.created_at,
         "updated_at": album.updated_at,
     })
+
+
+def _delete_photo_if_present(memory: AlbumMemory, authorization: str | None) -> None:
+    if not memory.photo_path:
+        return
+    if not authorization:
+        raise HTTPException(401, "Authentication required to remove private photo")
+    # Delayed import avoids router initialization cycles.
+    from app.modules.albums.photos_router import _storage_error, _storage_request
+    _storage_error(_storage_request("DELETE", memory.photo_path, authorization))
 
 
 @router.get("", response_model=list[AlbumRead])
@@ -100,10 +110,17 @@ def update_album(
 @router.delete("/{album_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_album(
     album_id: UUID,
+    authorization: str | None = Header(default=None),
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     album = _album_or_404(db, album_id, user.user_id)
+    images = db.scalars(select(AlbumMemory).where(
+        AlbumMemory.album_id == album_id, AlbumMemory.user_id == user.user_id,
+        AlbumMemory.photo_path.is_not(None),
+    )).all()
+    for image in images:
+        _delete_photo_if_present(image, authorization)
     db.delete(album)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -171,10 +188,12 @@ def update_memory(
 @router.delete("/{album_id}/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_memory(
     album_id: UUID, memory_id: UUID,
+    authorization: str | None = Header(default=None),
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     memory = _memory_or_404(db, album_id, memory_id, user.user_id)
+    _delete_photo_if_present(memory, authorization)
     db.delete(memory)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
