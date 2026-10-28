@@ -428,7 +428,8 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                   const SizedBox(height: AppSpacing.sm),
                   OnboardingTextAction(
                     label: OnboardingSignInScreen.later,
-                    onPressed: _busy ? null : () async {
+                    onPressed: () async {
+                      if (_busy) return;
                       if (widget.onGuest != null) {
                         await widget.onGuest!();
                       } else {
