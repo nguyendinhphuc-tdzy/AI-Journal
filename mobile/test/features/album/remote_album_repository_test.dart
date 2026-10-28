@@ -169,6 +169,42 @@ void main() {
     }
   });
 
+  test('album and memory pages above 100 items are fully loaded', () async {
+    String id(int index) =>
+        '00000000-0000-0000-0000-${index.toString().padLeft(12, '0')}';
+    final albums = [
+      for (var i = 1; i <= 105; i++) {..._album(), 'id': id(i)}
+    ];
+    final memories = [
+      for (var i = 1; i <= 105; i++) {..._memory(), 'id': id(i)}
+    ];
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        final offset = int.parse(request.url.queryParameters['offset'] ?? '0');
+        final limit = int.parse(request.url.queryParameters['limit'] ?? '100');
+        final items = request.url.path.endsWith('/memories') ? memories : albums;
+        return _response(items.skip(offset).take(limit).toList());
+      }),
+    );
+    final local = await LocalAlbumRepository.open(userId: 'owner');
+    final repo = RemoteAlbumRepository(client: api, localDrafts: local);
+    try {
+      expect(await repo.albums(), hasLength(105));
+      expect(await repo.memories('cloud-$_albumId'), hasLength(105));
+      expect(requests, hasLength(4));
+      expect(requests[1].url.queryParameters['offset'], '100');
+      expect(requests[3].url.queryParameters['offset'], '100');
+      expect(requests.every((r) => r.headers['authorization'] == 'Bearer jwt'),
+          isTrue);
+    } finally {
+      repo.dispose();
+      api.close();
+    }
+  });
+
   test('without JWT, private albums fail before network', () async {
     var count = 0;
     final api = ApiClient(
