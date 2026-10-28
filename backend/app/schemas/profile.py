@@ -10,6 +10,15 @@ class ProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     discoverable: bool | None = None
+
+    @field_validator("discoverable")
+    @classmethod
+    def discoverable_must_not_be_null(cls, value: bool | None) -> bool:
+        # Omitted is valid (partial PATCH); explicit JSON null is not.
+        # Without validation, SQLAlchemy writes NULL to a NOT NULL column (500).
+        if value is None:
+            raise ValueError("discoverable must not be null")
+        return value
     display_name: str | None = Field(default=None, max_length=100)
     timezone: str | None = Field(default=None, max_length=64)
 
