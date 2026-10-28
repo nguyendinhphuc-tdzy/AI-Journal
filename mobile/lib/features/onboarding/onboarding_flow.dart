@@ -128,7 +128,8 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// "analysing" screen). AI on: ask for a reflection (reusing one for the
   /// same body version); OB08 only while it is actually running.
   void _firstEntryDone(JournalEntry entry) {
-    if (widget.store.aiEnabled != true) {
+    if (widget.store.aiEnabled != true || widget.reflections == null ||
+        !widget.store.consentedToRemoteAi) {
       _goTo(OnboardingStep.entrySaved);
       return;
     }
@@ -198,7 +199,10 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// has one) for the next requests, then OB07. Sends nothing.
   Future<void> _saveAiChoice(bool enabled) async {
     await widget.store.saveAiChoice(
-        enabled: enabled, policyVersion: DataPolicy.current.version);
+        enabled: enabled,
+        policyVersion: widget.reflections == null
+            ? DataPolicy.current.version
+            : DataPolicy.localOllama.version);
     // AI off from now on: stop waiting; a late response is ignored.
     if (!enabled) _reflection.cancel();
     if (mounted) _goTo(OnboardingStep.firstEntry);
@@ -310,6 +314,8 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                 onContinue: () => _goTo(OnboardingStep.aiAndData),
               ),
             OnboardingStep.aiAndData => OnboardingAiDataScreen(
+                policy: widget.reflections == null
+                    ? DataPolicy.current : DataPolicy.localOllama,
                 onBack: _back,
                 onChoose: _saveAiChoice,
               ),
@@ -328,7 +334,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
             OnboardingStep.entrySaved => OnboardingEntrySavedScreen(
                 session: _firstEntry!,
                 reflection: _reflection,
-                aiEnabled: widget.store.aiEnabled == true,
+                aiEnabled: widget.store.aiEnabled == true &&
+                    widget.reflections != null &&
+                    widget.store.consentedToRemoteAi,
                 onBack: _back,
                 onContinue: () => _goTo(OnboardingStep.reminder),
               ),

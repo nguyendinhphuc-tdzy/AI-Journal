@@ -10,6 +10,9 @@ import '../../../core/widgets/app_ui.dart';
 import '../../../navigation/app_shell.dart';
 import '../data/journal_entry.dart';
 import '../journal_scope.dart';
+import '../data/api_ai_service.dart';
+import '../../onboarding/data/data_policy.dart';
+import '../../onboarding/data/onboarding_scope.dart';
 import 'ai_reflection_screen.dart';
 import '../../onboarding/data/onboarding_store.dart';
 import '../../profile/data/writing_preferences.dart';
@@ -222,13 +225,16 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       // Written in Study, it stays a Study entry when edited here.
       source: saved?.content.source,
     );
+    final scopedOnboarding = OnboardingScope.maybeOf(context);
+    final journals = JournalScope.of(context);
     bool useAi;
     try {
-      final settings = await OnboardingStore.open();
-      // Preserve the demo's existing flow when no choice has been recorded.
-      useAi = settings.aiEnabled != false;
+      final settings = scopedOnboarding ?? await OnboardingStore.open();
+      // Cloud AI needs an explicit, current policy choice; never use mock insights.
+      useAi = AiRemoteScope.maybeOf(context) != null &&
+          settings.aiEnabled == true &&
+          settings.aiPolicyVersion == DataPolicy.localOllama.version;
       if (!mounted) return;
-      final journals = JournalScope.of(context);
       _saved = saved == null
           ? await journals.create(content)
           : await journals.update(saved.id, content);
@@ -274,6 +280,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       MaterialPageRoute(
         builder: (_) => AiReflectionScreen(
           journalContent: _entryText,
+          remote: AiRemoteScope.maybeOf(context),
         ),
       ),
     );
