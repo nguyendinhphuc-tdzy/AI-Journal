@@ -1,3 +1,4 @@
+import '../../auth/data/auth_service.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -106,4 +107,37 @@ class MockSignInService implements SignInService {
       // Nothing kept to forget.
     }
   }
+}
+
+/// Real Supabase adapter for Vy's existing sign-in layout.
+/// The AuthGate listens to the same Supabase session and switches routes.
+class SupabaseSignInAdapter implements SignInService {
+  SupabaseSignInAdapter(this.auth);
+  final AuthService auth;
+  final ValueNotifier<SignedInUser?> _user = ValueNotifier(null);
+
+  @override
+  ValueListenable<SignedInUser?> get user => _user;
+
+  @override
+  Future<bool> signUpEmail(String email, String password) async {
+    final active = await auth.signUpEmail(email, password);
+    if (active) _user.value = SignedInUser(method: SignInMethod.email, email: email);
+    return active;
+  }
+
+  @override
+  Future<void> signInEmail(String email, String password) async {
+    await auth.signInEmail(email, password);
+    _user.value = SignedInUser(method: SignInMethod.email, email: email);
+  }
+
+  @override
+  Future<void> signInGoogle() => auth.signInGoogle();
+
+  @override
+  Future<void> signInFacebook() => auth.signInFacebook();
+
+  @override
+  Future<void> signOut() => auth.signOut();
 }

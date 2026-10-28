@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
@@ -29,9 +30,13 @@ class OnboardingSignInScreen extends StatefulWidget {
     required this.onBack,
     required this.onDone,
     this.friends,
+    this.realAuth = false,
+    this.onGuest,
   });
 
   final SignInService service;
+  final bool realAuth;
+  final Future<void> Function()? onGuest;
 
   /// Facebook friends on the app; Facebook also connects these.
   final FriendsAccount? friends;
@@ -143,15 +148,39 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
       return;
     }
     FocusManager.instance.primaryFocus?.unfocus();
-    await _run(() => _signUp
-        ? widget.service.signUpEmail(email, password)
-        : widget.service.signInEmail(email, password));
+    if (_signUp) {
+      await _signUpReal(email, password);
+    } else {
+      await _run(() => widget.service.signInEmail(email, password));
+    }
+  }
+
+  Future<void> _signUpReal(String email, String password) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final active = await widget.service.signUpEmail(email, password);
+      if (!mounted) return;
+      if (active) {
+        widget.onDone();
+      } else {
+        setState(() => _error = 'Kiểm tra email xác nhận tài khoản, sau đó đăng nhập.');
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } on SignInFailed catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = e is Exception ? e.toString() : OnboardingSignInScreen.failed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _facebook() async {
     if (_busy) return;
     final friends = widget.friends;
-    if (friends != null) {
+    if (!widget.realAuth && friends != null) {
       // Facebook's login and consent, which also brings friends on the app.
       final connected = await openFacebookLogin(context, friends);
       if (!connected || !mounted) return;
@@ -226,11 +255,12 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 24, 0),
             child: Row(children: [
-              IconButton(
-                onPressed: _busy ? null : widget.onBack,
-                tooltip: OnboardingSignInScreen.backTooltip,
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
+              if (!widget.realAuth)
+                IconButton(
+                  onPressed: _busy ? null : widget.onBack,
+                  tooltip: OnboardingSignInScreen.backTooltip,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
               const Flexible(
                   child:
                       Text(OnboardingSignInScreen.brand, style: _Text.brand)),
@@ -398,11 +428,19 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                   const SizedBox(height: AppSpacing.sm),
                   OnboardingTextAction(
                     label: OnboardingSignInScreen.later,
-                    onPressed: _busy ? () {} : widget.onDone,
+                    onPressed: () async {
+                      if (_busy) return;
+                      if (widget.onGuest != null) {
+                        await widget.onGuest!();
+                      } else {
+                        widget.onDone();
+                      }
+                    },
                   ),
                   const SizedBox(height: AppSpacing.xs),
-                  const Text(OnboardingSignInScreen.mockNote,
-                      textAlign: TextAlign.center, style: _Text.note),
+                  if (!widget.realAuth)
+                    const Text(OnboardingSignInScreen.mockNote,
+                        textAlign: TextAlign.center, style: _Text.note),
                 ],
               ),
             ),
