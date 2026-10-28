@@ -200,8 +200,10 @@ class CombinedJournalRepository extends ChangeNotifier implements JournalReposit
   final LocalJournalRepository local;
   final RemoteJournalRepository remote;
 
-  JournalRepository _owner(String id) =>
-      id.startsWith('cloud-') ? remote : local;
+  JournalRepository _owner(String id) {
+    if (id.startsWith('cloud-')) return remote;
+    return local;
+  }
 
   @override
   Future<List<JournalEntry>> entries() async {
