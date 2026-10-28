@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261028_10"
+    assert revision == "20261028_11"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -1189,5 +1189,49 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
         assert calls[-1][0] == "DELETE"
         assert client.get(url, headers={"Authorization": "Bearer valid-test-token"}).status_code == 404
         assert client.delete(f"/api/v1/albums/{album_id}").status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_private_friend_request_accept_and_remove():
+    """A can request B; only B can accept, and C cannot act on their pair."""
+    a = AuthenticatedUser(user_id=uuid4(), email="friends-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="friends-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="friends-c@example.com")
+    app.dependency_overrides.clear()
+    assert client.get("/api/v1/friends").status_code == 401
+    assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 401
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(a.user_id)
+        }).status_code == 422
+        response = client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        })
+        assert response.status_code == 201, response.text
+        assert response.json() == {
+            "user_id": str(b.user_id), "status": "pending", "direction": "outgoing"
+        }
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        }).status_code == 409
+        assert client.post(f"/api/v1/friends/{b.user_id}/accept").status_code == 409
+        assert len(client.get("/api/v1/friends").json()) == 1
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get("/api/v1/friends").json() == []
+        assert client.post(f"/api/v1/friends/{b.user_id}/accept").status_code == 404
+        assert client.delete(f"/api/v1/friends/{b.user_id}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: b
+        incoming = client.get("/api/v1/friends").json()
+        assert incoming[0]["direction"] == "incoming"
+        accept = client.post(f"/api/v1/friends/{a.user_id}/accept")
+        assert accept.status_code == 200
+        assert accept.json()["status"] == "accepted"
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 409
+        assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
+        assert client.get("/api/v1/friends").json() == []
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.get("/api/v1/friends").json() == []
     finally:
         app.dependency_overrides.clear()
