@@ -194,10 +194,28 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     );
   }
 
+  /// Keep the legacy JSON-list contract, but retrieve every page instead of
+  /// silently truncating private memories or albums at 100 rows.
+  Future<List<dynamic>> _allPages(String path) async {
+    final all = <dynamic>[];
+    const pageSize = 100;
+    for (var page = 0; page < 1000; page++) {
+      final items = await client.getList(
+        '$path?limit=$pageSize&offset=${page * pageSize}',
+        requireAuth: true,
+      );
+      if (items.length > pageSize) {
+        throw const FormatException('Album API page exceeds requested limit');
+      }
+      all.addAll(items);
+      if (items.length < pageSize) return all;
+    }
+    throw const FormatException('Album API exceeded safe pagination limit');
+  }
+
   @override
-  Future<List<Album>> albums() async => (await client.getList(
-        '/albums?limit=100', requireAuth: true,
-      )).map(_album).toList();
+  Future<List<Album>> albums() async =>
+      (await _allPages('/albums')).map(_album).toList();
 
   @override
   Future<Album?> album(String id) async {
@@ -257,10 +275,8 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
 
   @override
   Future<List<Memory>> memories(String albumId) async {
-    final items = await client.getList(
-      '/albums/${_id(albumId, entity: 'album')}/memories?limit=100',
-      requireAuth: true,
-    );
+    final items = await _allPages(
+        '/albums/${_id(albumId, entity: 'album')}/memories');
     return Future.wait(items.map((raw) => _hydratePhoto(_memory(raw), raw)));
   }
 
