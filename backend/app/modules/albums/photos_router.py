@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 from urllib.parse import quote
 
 import httpx
+import json
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
@@ -41,8 +42,16 @@ def _storage_request(method: str, path: str, token: str, *, data: bytes | None =
         headers["Content-Type"] = content_type
     try:
         with httpx.Client(timeout=20.0, follow_redirects=False) as client:
-            return client.request(method, f"{base}/storage/v1/object/{BUCKET}/{quote(path, safe='/')}",
-                                  headers=headers, content=data)
+            endpoint = f"{base}/storage/v1/object"
+            if method == "GET":
+                url = f"{endpoint}/authenticated/{BUCKET}/{quote(path, safe='/')}"
+            elif method == "DELETE":
+                url = f"{endpoint}/{BUCKET}"
+                headers["Content-Type"] = "application/json"
+                data = json.dumps({"prefixes": [path]}).encode()
+            else:
+                url = f"{endpoint}/{BUCKET}/{quote(path, safe='/')}"
+            return client.request(method, url, headers=headers, content=data)
     except httpx.RequestError as exc:
         raise HTTPException(503, "Photo storage is temporarily unavailable") from exc
 
