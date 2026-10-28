@@ -42,6 +42,7 @@ class OnboardingFlow extends StatefulWidget {
     this.onComplete,
     this.signIn,
     this.friends,
+    this.skipAccountStep = false,
   });
 
   /// The account (OB01b); a simulated one when not given.
@@ -49,6 +50,8 @@ class OnboardingFlow extends StatefulWidget {
 
   /// Facebook friends on the app, connected when signing in with Facebook.
   final FriendsAccount? friends;
+  /// AuthGate already authenticated the user (or selected guest mode).
+  final bool skipAccountStep;
 
   final OnboardingStore store;
 
@@ -71,7 +74,10 @@ class OnboardingFlow extends StatefulWidget {
 
 class _OnboardingFlowState extends State<OnboardingFlow>
     with SingleTickerProviderStateMixin {
-  late OnboardingStep _step = widget.store.step;
+  late OnboardingStep _step =
+      widget.skipAccountStep && widget.store.step == OnboardingStep.signIn
+          ? OnboardingStep.nickname
+          : widget.store.step;
 
   /// OB01 → OB02 wind, 0 → 1. Reset to 0 when done, so OB01 shows its
   /// petals again after Back.
@@ -141,6 +147,10 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// transition still resumes at OB02. Extra taps are ignored.
   void _start() {
     if (_gust.isAnimating || _step != OnboardingStep.welcome) return;
+    if (widget.skipAccountStep) {
+      _goTo(OnboardingStep.nickname);
+      return;
+    }
     if (MediaQuery.disableAnimationsOf(context)) {
       _goTo(OnboardingStep.signIn);
       return;
@@ -227,7 +237,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
 
   void _back() {
     if (_step == OnboardingStep.welcome) return;
-    final previous = _previous(_step);
+    final rawPrevious = _previous(_step);
+    final previous = widget.skipAccountStep && rawPrevious == OnboardingStep.signIn
+        ? OnboardingStep.welcome : rawPrevious;
     // Back before the gust is over: stop it, or it would switch again.
     if (previous == OnboardingStep.welcome) _gust.value = 0;
     _goTo(previous);
