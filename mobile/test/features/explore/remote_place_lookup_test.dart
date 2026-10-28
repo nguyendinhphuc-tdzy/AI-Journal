@@ -21,7 +21,7 @@ void main() {
           'latitude': 10.7769,
           'longitude': 106.7009,
         }]
-      }), 200);
+      }), 200, headers: {'content-type': 'application/json; charset=utf-8'});
     });
     final api = ApiClient(client: httpClient,
       accessTokenProvider: () async => 'test-access-token');
