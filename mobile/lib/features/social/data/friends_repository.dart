@@ -47,7 +47,7 @@ class FriendsRepository {
   Future<void> remove(String userId) =>
       api.deleteNoContent('/friends/$userId', requireAuth: true);
   Future<void> block(String userId) async {
-    await api.postJson('/friends/blocks', {'user_id': userId}, requireAuth: true);
+    await api.postNoContent('/friends/blocks', {'user_id': userId}, requireAuth: true);
   }
 }
 
