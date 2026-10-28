@@ -182,4 +182,48 @@ void main() {
     repo.dispose();
     api.close();
   });
+
+  test('two loads at once right after a new photo: both see it', () async {
+    // Home, the album list and the open album all reload on a change, so
+    // the first download of a new photo can be asked for twice at once.
+    final cache = await Directory.systemTemp.createTemp('cloud-photo-cache');
+    addTearDown(() => cache.delete(recursive: true));
+    var downloads = 0;
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/photo')) {
+          downloads++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return http.Response.bytes([0xff, 0xd8, 0xff, 0xe0, 9], 200,
+              headers: const {'content-type': 'image/jpeg'});
+        }
+        return _response([
+          {..._memory(), 'photo_path': 'u/a/m/photo.jpg'}
+        ]);
+      }),
+    );
+    final repo = RemoteAlbumRepository(
+      client: api,
+      localDrafts: await LocalAlbumRepository.open(userId: 'cache-user'),
+      userId: '11111111-2222-3333-4444-555555555555',
+      photoCacheRoot: () async => cache,
+    );
+    final loads = await Future.wait([
+      repo.memories('cloud-$_albumId'),
+      repo.memories('cloud-$_albumId'),
+    ]);
+    for (final memories in loads) {
+      final photo = File(memories.single.content.photoPath!);
+      expect(await photo.readAsBytes(), [0xff, 0xd8, 0xff, 0xe0, 9]);
+    }
+    expect(downloads, 1, reason: 'one download, shared');
+    expect(
+        cache.listSync(recursive: true).whereType<File>().where(
+            (file) => file.path.endsWith('.tmp')),
+        isEmpty,
+        reason: 'no half-written file left behind');
+    repo.dispose();
+    api.close();
+  });
 }

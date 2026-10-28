@@ -13,12 +13,25 @@ import 'memory.dart';
 /// Private photos are transferred through owner-scoped FastAPI endpoints.
 /// Existing local albums/drafts never automatically upload to the cloud.
 class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
-  RemoteAlbumRepository({required this.client, required this.localDrafts, this.userId});
+  RemoteAlbumRepository({
+    required this.client,
+    required this.localDrafts,
+    this.userId,
+    Future<Directory> Function()? photoCacheRoot,
+  }) : _photoCacheRoot = photoCacheRoot ?? getApplicationDocumentsDirectory;
 
   final ApiClient client;
   final LocalAlbumRepository localDrafts;
   /// Authenticated user ID for strict separation of private photo caches.
   final String? userId;
+
+  /// Where the private photo cache lives; the app's documents by default.
+  final Future<Directory> Function() _photoCacheRoot;
+
+  /// Photo downloads in flight, per cache file. A change reloads several
+  /// screens at once (Home, the album list, the open album), and a new photo
+  /// is not cached yet: they share one download instead of racing on it.
+  final _downloads = <String, Future<void>>{};
 
   static const _prefix = 'cloud-';
 
@@ -159,6 +172,19 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
         contentType: type);
   }
 
+  Future<void> _download(Memory memory, String path) async {
+    final bytes = await client.getBytes(_photoUrl(memory.albumId, memory.id));
+    // Its own temporary file, so no other writer can take it away.
+    final pending =
+        File('$path.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    try {
+      await pending.writeAsBytes(bytes, flush: true);
+      await pending.rename(path);
+    } finally {
+      if (await pending.exists()) await pending.delete();
+    }
+  }
+
   Future<Memory> _hydratePhoto(Memory memory, Object? raw) async {
     final photo = _json(raw)['photo_path'];
     if (photo is! String || photo.isEmpty) return memory;
@@ -166,18 +192,17 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     if (uid == null || !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(uid)) {
       throw StateError('Authenticated photo cache requires a user ID');
     }
-    final base = await getApplicationDocumentsDirectory();
+    final base = await _photoCacheRoot();
     final folder = Directory('${base.path}/cloud_memory_photos/$uid');
     await folder.create(recursive: true);
     final stem = _id(memory.id, entity: 'memory');
     final revision = memory.updatedAt.microsecondsSinceEpoch;
     final path = '${folder.path}/$stem-$revision.private';
-    final target = File(path);
-    if (!await target.exists()) {
-      final bytes = await client.getBytes(_photoUrl(memory.albumId, memory.id));
-      final pending = File('$path.tmp');
-      await pending.writeAsBytes(bytes, flush: true);
-      await pending.rename(path);
+    if (!await File(path).exists()) {
+      await (_downloads[path] ??=
+          _download(memory, path).whenComplete(() {
+        _downloads.remove(path);
+      }));
     }
     return Memory(
       id: memory.id,
