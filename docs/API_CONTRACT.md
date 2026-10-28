@@ -4,7 +4,7 @@
 
 ## Implementation status and backward compatibility
 
-- **LIVE in base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`; unauthenticated mock `POST /api/v1/ai/go-deeper` and `POST /api/v1/ai/reflection`; unauthenticated `GET/POST/GET-by-id/PUT/DELETE /api/v1/journals` (old `GET` returns a **bare array**).
+- **Historical base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`, public mock AI and unscoped journal CRUD. The **current integration branch** requires a Supabase JWT for `/api/v1/ai/*` and all Journal operations; never use the v0.1 descriptions as the live runtime contract.
 - **PLANNED for MVP v1 (B02/B04/B06/B09/B10):** Supabase JWT authentication, owner-scoped Journal APIs, profile, completed-action streak, search and saved places, multiple notes, journal-place linking.
 - B04 changes `GET /journals` from a bare list to a paginated object `{items,next_cursor}`. Trâm must switch at the same integration milestone; **do not silently deploy a breaking change to active Flutter clients**. Preserve existing integer Journal IDs and basic input fields.
 - There is **no** production AI integration in MVP v1; mock responses remain in the separate AI module.
@@ -33,11 +33,13 @@
 {"id":"daily-001","text":"What is something you want to remember about today?"}
 ```
 
-### `POST /api/v1/ai/go-deeper` (mock)
+### `POST /api/v1/ai/go-deeper` (authenticated; mock or Ollama)
+
+**Current integration contract:** Both AI endpoints require `Authorization: Bearer <Supabase access token>`. Missing or invalid auth returns 401. If Supabase signing keys are temporarily inaccessible, authentication can return 503. `content` is a nonblank string of at most 8000 characters; optional `mood` is at most 64 characters. Invalid input returns 422. Neither endpoint persists the generated response. Server configuration controls the mock/Ollama provider.
 Request: `{"content":"I felt peaceful today."}`; response: `{"question":"What made today feel different?"}` (exact mock question may differ).
 
-### `POST /api/v1/ai/reflection` (mock)
-Request: `{"content":"I finished my task.","mood":"relieved"}`; response fields: `emotion`, `observation`, `reflection`, `question`. The existing AI mock module is not a private journal archive.
+### `POST /api/v1/ai/reflection` (authenticated; mock or Ollama)
+Request: `{"content":"I finished my task.","mood":"relieved"}`; response fields: `emotion`, `observation`, `reflection`, `question`. The mock AI module remains test-only and is no longer reachable without authentication on the current integration branch.
 
 ## B02 — Profile / authenticated session
 
