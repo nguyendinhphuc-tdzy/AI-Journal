@@ -254,9 +254,12 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
     if (api != null && AppConfig.journalCloudEnabled) {
       final remote = RemoteJournalRepository(
           client: api, localDrafts: localJournals);
-      journals = (await localJournals.entries()).isEmpty
-          ? remote
-          : CombinedJournalRepository(local: localJournals, remote: remote);
+      if ((await localJournals.entries()).isEmpty) {
+        journals = remote;
+      } else {
+        journals = CombinedJournalRepository(
+            local: localJournals, remote: remote);
+      }
     }
     final localAlbums = await LocalAlbumRepository.open(userId: widget.userId);
     // Existing local/photo albums remain visible alongside new cloud albums.
