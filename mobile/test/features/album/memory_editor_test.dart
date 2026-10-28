@@ -54,6 +54,15 @@ class _Repository extends InMemoryAlbumRepository {
   var failDraft = false;
   var creates = 0;
 
+  /// An album this store answers for without holding it (an account one).
+  Album? extra;
+
+  @override
+  Future<Album?> album(String id) async {
+    if (extra case final album? when album.id == id) return album;
+    return super.album(id);
+  }
+
   @override
   Future<Memory> createMemory(String albumId, MemoryContent content) async {
     creates++;
@@ -210,6 +219,20 @@ void main() {
     final memory = (await setup.albums.memories(setup.album.id)).single;
     expect(memory.content.photoPath, '/kept/photo.jpg');
     expect(memory.content.note, isNull);
+  });
+
+  testWidgets('Account album: a photo alone asks for a note, saves none',
+      (tester) async {
+    final now = DateTime(2026, 10, 28);
+    final cloud =
+        Album(id: 'cloud-5f1c', name: 'Đà Lạt', createdAt: now, updatedAt: now);
+    final setup = await _pump(tester,
+        repository: _Repository()..extra = cloud, album: cloud);
+    await _addPhoto(tester);
+    await _tapSave(tester);
+    expect(find.text(_A06.needNote), findsOneWidget);
+    expect(find.text(_A06.saveFailed), findsNothing);
+    expect(setup.albums.creates, 0, reason: 'no save that cannot work');
   });
 
   testWidgets('Closing the picker keeps the photo slot as it was',

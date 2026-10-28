@@ -55,7 +55,7 @@ class OnboardingFlow extends StatefulWidget {
 
   final OnboardingStore store;
 
-  /// AI reflections; the deterministic stand-in when not given.
+  /// AI reflections; without one, nothing is asked and OB07 goes to OB09.
   final ReflectionService? reflections;
 
   /// Local reminders (OB10); the stand-in when not given, configurable with

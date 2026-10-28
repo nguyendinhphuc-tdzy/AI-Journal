@@ -126,6 +126,7 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
           debugShowCheckedModeBanner: false,
           title: appName,
           theme: AppTheme.light,
+          scrollBehavior: const AppScrollBehavior(),
           home: onboarding == null || onboarding.completed
               ? const AppShell()
               : OnboardingFlow(

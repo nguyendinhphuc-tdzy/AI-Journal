@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
+import '../../core/widgets/app_delete_dialog.dart';
 import '../../core/widgets/app_ui.dart';
 import '../onboarding/data/onboarding_scope.dart';
 import '../onboarding/data/onboarding_store.dart';
@@ -40,6 +41,14 @@ class ProfileScreen extends StatefulWidget {
       'cho đến khi đăng nhập lại. Kỷ niệm của bạn vẫn ở nguyên.';
   static const disconnectLabel = 'Ngắt kết nối';
   static const keepLabel = 'Giữ kết nối';
+  static const signOutLabel = 'Đăng xuất';
+  static const guestSignOutTitle = 'Thoát chế độ khách?';
+  static const guestSignOutBody =
+      'Bạn chưa có tài khoản, nên nhật ký, kỷ niệm và ảnh chỉ nằm trên máy '
+      'này. Khi thoát, tất cả sẽ bị xóa và không lấy lại được.';
+  static const guestSignOutConfirm = 'Xóa và thoát';
+  static const guestSignOutFailed =
+      'Chưa xóa được dữ liệu khách. Bạn thử lại nhé.';
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -362,7 +371,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 padding: const EdgeInsets.only(top: AppSpacing.sm),
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.logout),
-                  label: const Text('Đăng xuất'),
+                  label: const Text(ProfileScreen.signOutLabel),
                   onPressed: () async {
                     final auth = AuthScope.maybeOf(context);
                     final guest = GuestScope.maybeOf(context);
@@ -370,7 +379,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       if (auth != null) {
                         await auth.signOut();
                       } else if (guest != null) {
-                        await guest.onLeaveGuest();
+                        // A guest's data goes for good: say so first. The
+                        // dialog shows its own failure and "Thử lại".
+                        final left = await AppDeleteDialog.present(context,
+                            builder: (_) => AppDeleteDialog(
+                                  title: ProfileScreen.guestSignOutTitle,
+                                  body: ProfileScreen.guestSignOutBody,
+                                  confirmLabel:
+                                      ProfileScreen.guestSignOutConfirm,
+                                  failed: ProfileScreen.guestSignOutFailed,
+                                  onConfirm: guest.onLeaveGuest,
+                                ));
+                        if (!left) return;
                       }
                       if (context.mounted) {
                         Navigator.of(context).popUntil((route) => route.isFirst);
