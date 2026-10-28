@@ -30,7 +30,8 @@ import '../../onboarding/presentation/first_entry_session.dart';
 import '../../streak/streak_state.dart';
 import '../data/auth_service.dart';
 import '../data/guest_mode_store.dart';
-import 'auth_screen.dart';
+import '../../onboarding/data/sign_in_service.dart';
+import '../../onboarding/presentation/onboarding_sign_in_screen.dart';
 
 /// Auth scope is above MaterialApp, so pushed routes see the active session.
 class AuthScope extends InheritedWidget {
@@ -191,10 +192,12 @@ class _AuthGateState extends State<AuthGate> {
       title: 'AI Diary',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      home: AuthScreen(
-        auth: widget.auth,
-        onContinueAsGuest: _continueAsGuest,
-        initialError: _localError,
+      home: OnboardingSignInScreen(
+        service: SupabaseSignInAdapter(widget.auth),
+        realAuth: true,
+        onBack: () {},
+        onDone: () {}, // AuthGate reacts to the Supabase session stream.
+        onGuest: _continueAsGuest,
       ),
     );
   }
@@ -302,6 +305,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
                     // Only remote when the session is authenticated; onboarding
                     // itself enforces the user's AI choice.
                     reflections: _ai,
+                    skipAccountStep: true,
                     onComplete: () => setState(() {}),
                   ),
           );
