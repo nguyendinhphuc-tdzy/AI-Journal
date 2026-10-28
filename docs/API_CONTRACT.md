@@ -35,7 +35,7 @@
 
 ### `POST /api/v1/ai/go-deeper` (authenticated; mock or Ollama)
 
-**Current integration contract:** Both AI endpoints require `Authorization: Bearer <Supabase access token>`. Missing or invalid auth returns 401. If Supabase signing keys are temporarily inaccessible, authentication can return 503. `content` is a nonblank string of at most 8000 characters; optional `mood` is at most 64 characters. Invalid input returns 422. Neither endpoint persists the generated response. Server configuration controls the mock/Ollama provider.
+**Current integration contract:** Both AI endpoints require `Authorization: Bearer <Supabase access token>`. Missing or invalid auth returns 401. If Supabase signing keys are temporarily inaccessible, authentication can return 503. `content` is a nonblank string of at most 8000 characters; optional `mood` is at most 64 characters. Invalid input returns 422. In the single-process development backend, each authenticated user is limited to 12 AI requests per rolling minute and one concurrent request, with at most two active inference requests globally; excess receives HTTP 429. This in-memory limiter is **not** a cross-worker/replica production quota. Neither endpoint persists the generated response. Server configuration controls the mock/Ollama provider.
 Request: `{"content":"I felt peaceful today."}`; response: `{"question":"What made today feel different?"}` (exact mock question may differ).
 
 ### `POST /api/v1/ai/reflection` (authenticated; mock or Ollama)
