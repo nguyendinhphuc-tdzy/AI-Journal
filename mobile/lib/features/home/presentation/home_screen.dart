@@ -11,7 +11,7 @@ import '../../journal/data/journal_entry.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/journal_list_screen.dart';
 import '../../journal/presentation/write_journal_screen.dart';
-import '../../onboarding/data/onboarding_store.dart';
+import '../../onboarding/data/onboarding_scope.dart';
 import '../../profile/profile_screen.dart';
 import '../../streak/streak_state.dart';
 import '../data/home_scene_settings.dart';
@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadNickname() async {
     try {
-      final store = await OnboardingStore.open();
+      final store = await OnboardingScope.storeOf(context);
       if (mounted) setState(() => _nickname = store.nickname);
     } catch (_) {
       // Without settings the greeting stays general.

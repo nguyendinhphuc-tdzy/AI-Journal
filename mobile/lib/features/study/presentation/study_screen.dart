@@ -17,7 +17,7 @@ import '../data/study_progress.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/write_journal_screen.dart'
     show JournalPaperView;
-import '../../onboarding/data/onboarding_store.dart';
+import '../../onboarding/data/onboarding_scope.dart';
 import '../../profile/data/writing_preferences.dart';
 import '../../streak/streak_state.dart';
 
@@ -25,15 +25,21 @@ import '../../streak/streak_state.dart';
 /// is kept on this device ([StudyProgressStore]) and what the user writes
 /// goes into the journal ([StudySession]).
 class StudyScreen extends StatelessWidget {
-  const StudyScreen(
-      {super.key, this.progress = const LocalStudyProgressStore()});
+  const StudyScreen({super.key, this.progress});
 
-  /// Where the challenge, lessons read and drafts are kept.
-  final StudyProgressStore progress;
+  /// Where the challenge, lessons read and drafts are kept; without it, the
+  /// signed-in or guest user's own store ([StudyProgressScope]), else the
+  /// device's (local demo).
+  final StudyProgressStore? progress;
 
   @override
-  Widget build(BuildContext context) =>
-      StudyTheme(child: _StudyOverview(progress: progress));
+  Widget build(BuildContext context) => StudyTheme(
+        child: _StudyOverview(
+          progress: progress ??
+              StudyProgressScope.maybeOf(context)?.repository ??
+              const LocalStudyProgressStore(),
+        ),
+      );
 }
 
 class _StudyOverview extends StatefulWidget {
@@ -1725,7 +1731,7 @@ class _NextTaskNoticeState extends State<_NextTaskNotice> {
   @override
   void initState() {
     super.initState();
-    OnboardingStore.open().then((store) {
+    OnboardingScope.storeOf(context).then((store) {
       final times = store.reminders.values.toList()
         ..sort((a, b) => (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute));
       if (mounted) {

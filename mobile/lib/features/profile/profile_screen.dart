@@ -5,6 +5,7 @@ import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_ui.dart';
+import '../onboarding/data/onboarding_scope.dart';
 import '../onboarding/data/onboarding_store.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
@@ -56,7 +57,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _onboarding = OnboardingStore.open();
+    _onboarding = OnboardingScope.storeOf(context);
     _preferences = WritingPreferences.open();
     _scene = HomeSceneSettings.open();
     _sound = SoundSettings.open();
@@ -232,7 +233,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 style: AppText.body),
             TextButton(
               onPressed: () => setState(() {
-                _onboarding = OnboardingStore.open();
+                _onboarding = OnboardingScope.storeOf(context);
               }),
               child: const Text('Thử lại'),
             ),
