@@ -13,6 +13,7 @@ import '../../album/data/album_repository.dart';
 import '../../album/data/remote_album_repository.dart';
 import '../../explore/data/remote_saved_places_repository.dart';
 import '../../explore/data/place_lookup.dart';
+import '../../social/data/friends_repository.dart';
 import '../../album/data/memory_photos.dart';
 import '../../album/data/album_settings.dart';
 import '../../album/data/album_unlocks.dart';
@@ -333,9 +334,12 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           final withPlaceLookup = _api != null
               ? PlaceLookupScope(lookup: RemotePlaceLookup(_api), child: privatePlaces)
               : privatePlaces;
-          return _ai == null
+          final withFriends = _api == null
               ? withPlaceLookup
-              : AiRemoteScope(service: _ai, child: withPlaceLookup);
+              : FriendsScope(repository: FriendsRepository(_api), child: withPlaceLookup);
+          return _ai == null
+              ? withFriends
+              : AiRemoteScope(service: _ai, child: withFriends);
         },
       );
 }
