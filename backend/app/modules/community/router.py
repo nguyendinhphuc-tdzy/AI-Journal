@@ -142,3 +142,34 @@ def decide_post(post_id: UUID, decision: str,
     item.status = "approved" if decision == "approve" else "rejected"
     db.commit()
     return _post(item)
+
+
+class ReportRead(BaseModel):
+    post_id: UUID
+    reason: str
+    created_at: str
+
+
+@router.get("/moderation/reports", response_model=list[ReportRead],
+            dependencies=[Depends(enabled)])
+def moderation_reports(moderator_user: AuthenticatedUser = Depends(moderator),
+                       db: Session = Depends(get_db)):
+    del moderator_user
+    reports = db.scalars(select(CommunityReport)
+        .order_by(CommunityReport.created_at.desc()).limit(100)).all()
+    return [ReportRead(post_id=item.post_id, reason=item.reason,
+                       created_at=item.created_at.isoformat()) for item in reports]
+
+
+@router.post("/moderation/{post_id}/hide", response_model=PostRead,
+             dependencies=[Depends(enabled)])
+def hide_reported_post(post_id: UUID,
+                       moderator_user: AuthenticatedUser = Depends(moderator),
+                       db: Session = Depends(get_db)):
+    del moderator_user
+    item = db.get(CommunityPost, post_id)
+    if item is None or item.status != "approved":
+        raise HTTPException(status_code=404, detail="Approved post not found")
+    item.status = "rejected"
+    db.commit()
+    return _post(item)
