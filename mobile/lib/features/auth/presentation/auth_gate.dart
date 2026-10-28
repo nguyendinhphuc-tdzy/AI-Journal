@@ -246,14 +246,17 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
   })> _prepare() async {
     final localJournals =
         await LocalJournalRepository.open(userId: widget.userId);
-    // Existing signed-in device journals are never hidden or auto-uploaded:
-    // they continue using the local repository until a reviewed migration UI
-    // explicitly transfers them. Guest and fake-auth sessions stay local.
-    final hasDeviceEntries = (await localJournals.entries()).isNotEmpty;
+    // Account-owned entries already on this device remain visible without
+    // automatic upload; new entries always use cloud while it is enabled.
+    // Guest and fake-auth sessions remain local-only.
     JournalRepository journals = localJournals;
     final api = _api;
-    if (api != null && AppConfig.journalCloudEnabled && !hasDeviceEntries) {
-      journals = RemoteJournalRepository(client: api, localDrafts: localJournals);
+    if (api != null && AppConfig.journalCloudEnabled) {
+      final remote = RemoteJournalRepository(
+          client: api, localDrafts: localJournals);
+      journals = (await localJournals.entries()).isEmpty
+          ? remote
+          : CombinedJournalRepository(local: localJournals, remote: remote);
     }
     final localAlbums = await LocalAlbumRepository.open(userId: widget.userId);
     // Existing local/photo albums remain visible alongside new cloud albums.
