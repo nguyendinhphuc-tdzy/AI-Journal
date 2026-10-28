@@ -374,19 +374,16 @@ void main() {
     expect(find.byType(FrameSequence), findsNothing);
   });
 
-  testWidgets('ND08: a ready photo gets a 1.2 s look, below the photo',
+  testWidgets('A new photo comes without Nudaeng; its options are a sheet',
       (tester) async {
     await _pump(tester);
     await _addPhoto(tester);
-    final nudaeng = find.byType(FrameSequence);
-    expect(nudaeng, findsOneWidget);
-    // By widget: the preview's exit still hides the editor's semantics.
-    final photo = tester.getRect(find.byWidgetPredicate(
-        (w) => w is Semantics && w.properties.label == 'Ảnh của kỷ niệm'));
-    expect(tester.getRect(nudaeng).top, greaterThanOrEqualTo(photo.bottom),
-        reason: 'never over the photo');
-    await tester.pump(const Duration(milliseconds: 1300));
     expect(find.byType(FrameSequence), findsNothing);
+    await tester.tap(find.byTooltip('Tùy chọn ảnh'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsOneWidget);
+    expect(find.text(_A06.replacePhotoLabel), findsOneWidget);
+    expect(find.text(_A06.removePhotoLabel), findsOneWidget);
   });
 
   testWidgets('First memory from A05: back shows A09, not A05 again',

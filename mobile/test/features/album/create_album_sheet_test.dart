@@ -16,21 +16,25 @@ import 'package:flutter_test/flutter_test.dart';
 
 typedef _A02 = CreateAlbumSheet;
 
+/// The PIN lock without its pad: [choosePin] gives [chosen].
 class _FakeAuth implements AlbumAuth {
-  _FakeAuth({this.supported = true});
-
-  final bool supported;
-  var result = AlbumAuthResult.success;
-  final reasons = <String>[];
+  String? chosen = '2468';
+  var chooses = 0;
+  final pins = <String, String?>{};
 
   @override
-  Future<bool> isSupported() async => supported;
-
-  @override
-  Future<AlbumAuthResult> authenticate(String reason) async {
-    reasons.add(reason);
-    return result;
+  Future<String?> choosePin(BuildContext context) async {
+    chooses++;
+    return chosen;
   }
+
+  @override
+  Future<AlbumAuthResult> verify(BuildContext context, String albumId,
+          {required String reason}) async =>
+      AlbumAuthResult.success;
+
+  @override
+  Future<void> setPin(String albumId, String? pin) async => pins[albumId] = pin;
 }
 
 /// Creates only when [gate] completes; fails while [failing].
@@ -53,7 +57,6 @@ class _SlowRepository extends InMemoryAlbumRepository {
 Future<AlbumRepository> _pump(
   WidgetTester tester, {
   AlbumRepository? repository,
-  bool lockSupported = true,
   _FakeAuth? auth,
   Size size = const Size(390, 844),
   double textScale = 1,
@@ -66,7 +69,7 @@ Future<AlbumRepository> _pump(
   addTearDown(CreateAlbumDraft.session.clear);
   await tester.pumpWidget(AlbumScope(
     repository: albums,
-    auth: auth ?? _FakeAuth(supported: lockSupported),
+    auth: auth ?? _FakeAuth(),
     child: MaterialApp(
       theme: AppTheme.light,
       builder: (context, child) => MediaQuery(
@@ -193,54 +196,58 @@ void main() {
   });
 
   group('Lock', () {
-    testWidgets('supported: can be turned on; album saved locked',
+    testWidgets('on: a PIN is chosen at once; the album is locked with it',
         (tester) async {
-      final albums = await _pump(tester);
-      await _open(tester);
-      await tester.enterText(_name, 'Riêng tư');
-      await tester.ensureVisible(_switch);
-      await tester.tap(_switch);
-      await tester.pump();
-      expect(tester.widget<Switch>(_switch).value, isTrue);
-      await _create(tester);
-      expect((await albums.albums()).single.locked, isTrue);
-    });
-
-    testWidgets('on: the device PIN confirms before creating', (tester) async {
       final auth = _FakeAuth();
       final albums = await _pump(tester, auth: auth);
       await _open(tester);
       await tester.enterText(_name, 'Riêng tư');
       await tester.ensureVisible(_switch);
       await tester.tap(_switch);
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(auth.chooses, 1);
+      expect(tester.widget<Switch>(_switch).value, isTrue);
       await _create(tester);
-      expect(auth.reasons, [_A02.lockReason]);
+      expect(auth.chooses, 1, reason: 'not asked again');
       final album = (await albums.albums()).single;
       expect(album.locked, isTrue);
+      expect(auth.pins[album.id], '2468');
       // Locked right away, not left open for this session.
       expect(AlbumUnlocks.instance.isUnlocked(album.id), isFalse);
       expect(find.text(AlbumScreen.lockedLabel), findsOneWidget);
     });
 
-    testWidgets('canceled PIN: nothing created, form kept, says why',
-        (tester) async {
-      final auth = _FakeAuth()..result = AlbumAuthResult.canceled;
+    testWidgets('giving up the PIN keeps the lock off', (tester) async {
+      final auth = _FakeAuth()..chosen = null;
       final albums = await _pump(tester, auth: auth);
       await _open(tester);
       await tester.enterText(_name, 'Riêng tư');
       await tester.ensureVisible(_switch);
       await tester.tap(_switch);
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(tester.widget<Switch>(_switch).value, isFalse);
+      await _create(tester);
+      expect((await albums.albums()).single.locked, isFalse);
+    });
+
+    testWidgets(
+        'a kept locked draft asks its PIN at create; giving up '
+        'creates nothing', (tester) async {
+      final auth = _FakeAuth()..chosen = null;
+      CreateAlbumDraft.session
+        ..name = 'Riêng tư'
+        ..locked = true;
+      final albums = await _pump(tester, auth: auth);
+      await _open(tester);
+      expect(tester.widget<Switch>(_switch).value, isTrue);
       await _create(tester);
       expect(await albums.albums(), isEmpty);
-      expect(_sheet, findsOneWidget);
       expect(find.text(_A02.lockCanceled), findsOneWidget);
-      expect(tester.widget<Switch>(_switch).value, isTrue);
-
-      auth.result = AlbumAuthResult.success;
+      auth.chosen = '1357';
       await _create(tester);
-      expect((await albums.albums()).single.locked, isTrue);
+      final album = (await albums.albums()).single;
+      expect(album.locked, isTrue);
+      expect(auth.pins[album.id], '1357');
     });
 
     testWidgets('off: no PIN asked', (tester) async {
@@ -249,21 +256,7 @@ void main() {
       await _open(tester);
       await tester.enterText(_name, 'Mở');
       await _create(tester);
-      expect(auth.reasons, isEmpty);
-      expect((await albums.albums()).single.locked, isFalse);
-    });
-
-    testWidgets('not supported: off, disabled, says so', (tester) async {
-      final albums = await _pump(tester, lockSupported: false);
-      await _open(tester);
-      expect(find.text(_A02.lockUnsupported), findsOneWidget);
-      expect(find.text(_A02.lockHelp), findsNothing);
-      final toggle = tester.widget<Switch>(_switch);
-      expect(toggle.value, isFalse);
-      expect(toggle.onChanged, isNull);
-
-      await tester.enterText(_name, 'Riêng tư');
-      await _create(tester);
+      expect(auth.chooses, 0);
       expect((await albums.albums()).single.locked, isFalse);
     });
   });

@@ -31,6 +31,7 @@ class JournalEntry(Base):
     prompt: Mapped[str | None] = mapped_column(String(500), nullable=True)
     mood: Mapped[str | None] = mapped_column(String(64), nullable=True)
     guided: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     body_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

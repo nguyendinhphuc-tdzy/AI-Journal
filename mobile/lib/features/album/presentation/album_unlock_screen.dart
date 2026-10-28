@@ -41,7 +41,7 @@ class _AlbumUnlockScreenState extends State<AlbumUnlockScreen> {
       setState(() {
         _success = false;
         _animationComplete = false;
-        _message = 'Phiên mở khóa đã kết thúc. Hãy xác thực lại.';
+        _message = 'Phiên mở khóa đã kết thúc. Hãy nhập lại mật khẩu.';
       });
     }
     if (_success && _animationComplete && _session.foreground && !_opening) {
@@ -60,7 +60,8 @@ class _AlbumUnlockScreenState extends State<AlbumUnlockScreen> {
     });
     AlbumAuthResult result;
     try {
-      result = await auth.authenticate('Xác thực để mở album');
+      result = await auth.verify(context, widget.albumId,
+          reason: 'Nhập mật khẩu để mở album này.');
     } catch (_) {
       result = AlbumAuthResult.failed;
     }
@@ -72,11 +73,7 @@ class _AlbumUnlockScreenState extends State<AlbumUnlockScreen> {
         _successRevision = _session.revision;
       } else {
         _message = switch (result) {
-          AlbumAuthResult.canceled => 'Đã hủy xác thực. Album vẫn được khóa.',
-          AlbumAuthResult.notSetUp =>
-            'Hãy thiết lập khóa màn hình hoặc sinh trắc học trong cài đặt thiết bị.',
-          AlbumAuthResult.notSupported =>
-            'Thiết bị chưa hỗ trợ xác thực mở khóa.',
+          AlbumAuthResult.canceled => 'Đã hủy. Album vẫn được khóa.',
           _ => 'Chưa mở khóa được. Bạn có thể thử lại hoặc hủy.',
         };
       }
@@ -103,9 +100,9 @@ class _AlbumUnlockScreenState extends State<AlbumUnlockScreen> {
   }
 
   String get _status => _success
-      ? 'Xác thực thành công. Đang mở album…'
+      ? 'Đúng mật khẩu. Đang mở album…'
       : _busy
-          ? 'Đang xác thực…'
+          ? 'Đang chờ mật khẩu…'
           : _message ?? 'Album đang được khóa.';
 
   IconData get _statusIcon => _success

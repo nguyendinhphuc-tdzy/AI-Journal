@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_diary/features/journal/data/guided_template.dart';
 import 'package:ai_diary/features/journal/data/journal_entry.dart';
+import 'package:ai_diary/features/journal/data/journal_mood.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
 import 'package:ai_diary/features/journal/presentation/ai_reflection_screen.dart';
@@ -17,13 +18,64 @@ Future<void> _pumpApp(WidgetTester tester, JournalRepository journals) async {
   await tester.pumpAndSettle();
 }
 
+/// The entry card under "Nhật ký của bạn" on Home.
+Finder get _latest => find.byKey(const ValueKey('home-latest-entry'));
+
+/// Scrolls Home down to "Nhật ký của bạn", below the scene.
+Future<void> _scrollToLatest(WidgetTester tester) async {
+  await tester.scrollUntilVisible(_latest, 200,
+      scrollable: find
+          .descendant(
+              of: find.byKey(const PageStorageKey('home-scroll')),
+              matching: find.byType(Scrollable))
+          .first);
+  await tester.pumpAndSettle();
+}
+
+/// Opens the entry card under "Nhật ký của bạn" on Home.
+Future<void> _openLatest(WidgetTester tester) async {
+  await _scrollToLatest(tester);
+  final card = find.descendant(of: _latest, matching: find.byType(InkWell));
+  await tester.ensureVisible(card);
+  await tester.pumpAndSettle();
+  await tester.tap(card);
+}
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+  testWidgets('The latest entry reads like a journal page', (tester) async {
+    final journals = InMemoryJournalRepository();
+    await journals.create(const JournalContent(
+      body:
+          'Một buổi chiều nhẹ nhõm\n\nĐi dạo quanh hồ, gió mát.\nVề nhà nấu cơm.',
+      mood: JournalMood.calm,
+    ));
+    await _pumpApp(tester, journals);
+    await _scrollToLatest(tester);
+    Finder inCard(String text) =>
+        find.descendant(of: _latest, matching: find.textContaining(text));
+    // The day, the mood, the first line as title, the rest as a glimpse.
+    expect(inCard('Hôm nay'), findsOneWidget);
+    expect(inCard(JournalMood.calm.label), findsOneWidget);
+    expect(
+        find.descendant(
+            of: _latest, matching: find.text('Một buổi chiều nhẹ nhõm')),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: _latest,
+            matching: find.text('Đi dạo quanh hồ, gió mát. Về nhà nấu cơm.')),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Empty and whitespace-only journals cannot finish',
       (tester) async {
     final journals = InMemoryJournalRepository();
     await _pumpApp(tester, journals);
-    await tester.tap(find.text('Cùng suy ngẫm ➔'));
+    await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cùng suy ngẫm'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Hoàn tất'));
@@ -53,7 +105,7 @@ void main() {
     final saved = await journals.create(
         const JournalContent(body: 'A previous meaningful journal entry.'));
     await _pumpApp(tester, journals);
-    await tester.tap(find.text('Nhật ký gần nhất'));
+    await _openLatest(tester);
     await tester.pumpAndSettle();
 
     await tester.enterText(
@@ -77,10 +129,14 @@ void main() {
   testWidgets('Follow-up is saved only after confirmation', (tester) async {
     final journals = InMemoryJournalRepository();
     await _pumpApp(tester, journals);
-    await tester.tap(find.text('Cùng suy ngẫm ➔'));
+    await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cùng suy ngẫm'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'School feels difficult.');
-    await tester.tap(find.text('✨ Suy ngẫm sâu hơn'));
+    // Going deeper turns on once there is something written.
+    await tester.pump();
+    await tester.tap(find.text('Suy ngẫm sâu hơn'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'I am worried about exams.');
     await tester.tap(find.text('Hoàn tất'));
@@ -100,7 +156,7 @@ void main() {
 
   testWidgets('Home has no entry row for a new user', (tester) async {
     await _pumpApp(tester, InMemoryJournalRepository());
-    expect(find.text('Nhật ký gần nhất'), findsNothing);
+    expect(find.text('Nhật ký của bạn'), findsNothing);
   });
 
   testWidgets('The onboarding entry shows on Home and opens in the editor',
@@ -113,11 +169,12 @@ void main() {
       guided: GuidedValues.of(template, fields),
     ));
     await _pumpApp(tester, journals);
-    expect(find.text('Nhật ký gần nhất'), findsOneWidget);
+    await _scrollToLatest(tester);
+    expect(find.text('Nhật ký của bạn'), findsOneWidget);
     expect(find.text('Một điều đang ở trong đầu mình là chuyến đi.'),
         findsOneWidget);
 
-    await tester.tap(find.text('Nhật ký gần nhất'));
+    await _openLatest(tester);
     await tester.pumpAndSettle();
     final editor = tester.widget<TextField>(find.descendant(
         of: find.byType(WriteJournalScreen), matching: find.byType(TextField)));
@@ -141,7 +198,7 @@ void main() {
     final saved =
         await journals.create(const JournalContent(body: 'Hôm nay ổn.'));
     await _pumpApp(tester, journals);
-    await tester.tap(find.text('Nhật ký gần nhất'));
+    await _openLatest(tester);
     await tester.pumpAndSettle();
     await tester.enterText(
         find.descendant(
@@ -164,7 +221,9 @@ void main() {
   testWidgets('A new J01 entry is saved on Finish', (tester) async {
     final journals = InMemoryJournalRepository();
     await _pumpApp(tester, journals);
-    await tester.tap(find.text('Cùng suy ngẫm ➔'));
+    await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cùng suy ngẫm'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Một ngày bình thường.');
     await tester.tap(find.text('Hoàn tất'));

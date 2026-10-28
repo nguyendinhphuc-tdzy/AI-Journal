@@ -36,6 +36,7 @@ class RemoteJournalRepository extends ChangeNotifier implements JournalRepositor
     final updated = record['updated_at'];
     final mood = record['mood'];
     final rawGuided = record['guided'];
+    final rawSource = record['source'];
 
     if (rawId is! int || rawId <= 0 ||
         body is! String || version is! int || version < 1 ||
@@ -61,6 +62,18 @@ class RemoteJournalRepository extends ChangeNotifier implements JournalRepositor
       }
     }
 
+    JournalSource? source;
+    if (rawSource != null) {
+      if (rawSource is! Map) {
+        throw const FormatException('Malformed Study source');
+      }
+      try {
+        source = JournalSource.fromJson(Map<String, Object?>.from(rawSource));
+      } on Object {
+        throw const FormatException('Malformed Study source');
+      }
+    }
+
     return JournalEntry(
       id: '$_prefix$rawId',
       createdAt: DateTime.parse(date),
@@ -70,6 +83,7 @@ class RemoteJournalRepository extends ChangeNotifier implements JournalRepositor
         body: body,
         mood: resolvedMood,
         guided: guided,
+        source: source,
       ),
     );
   }
@@ -82,6 +96,7 @@ class RemoteJournalRepository extends ChangeNotifier implements JournalRepositor
       'content': content.body,
       'mood': content.mood?.name,
       'guided': content.guided?.toJson(),
+      'source': content.source?.toJson(),
     };
   }
 

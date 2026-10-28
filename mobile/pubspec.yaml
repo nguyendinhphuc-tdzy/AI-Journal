@@ -15,8 +15,12 @@ dependencies:
   supabase_flutter: ^2.10.0
   maplibre_gl: ^0.27.1
   local_auth: ^3.0.2
+  # Album PINs are kept only as a salted hash (lib/features/album/data/album_pins.dart).
+  crypto: ^3.0.7
   image_picker: ^1.2.4
   path_provider: ^2.1.6
+  # Background music and interface sounds (lib/features/sound).
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:
@@ -32,6 +36,7 @@ flutter:
     - assets/mascot/
     - assets/NudaenggifDe/
     - assets/Deimage/
+    - assets/sounds/
 
   fonts:
     - family: Nunito
@@ -42,3 +47,7 @@ flutter:
         - asset: assets/fonts/BeVietnamPro-Regular.ttf
         - asset: assets/fonts/BeVietnamPro-SemiBold.ttf
           weight: 600
+    # Handwritten journal feel for Home's journal sections (OFL, full Vietnamese).
+    - family: Itim
+      fonts:
+        - asset: assets/fonts/Itim-Regular.ttf

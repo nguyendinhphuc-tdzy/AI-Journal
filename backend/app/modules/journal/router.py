@@ -170,7 +170,7 @@ def update_journal(
     # belong to Flutter's JournalContent.
     content_changed = any(
         field in changes and changes[field] != getattr(journal, field)
-        for field in ("content", "mood", "guided")
+        for field in ("content", "mood", "guided", "source")
     )
     for field, value in changes.items():
         setattr(journal, field, value)

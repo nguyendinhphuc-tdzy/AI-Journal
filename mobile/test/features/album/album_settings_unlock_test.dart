@@ -21,18 +21,31 @@ import 'package:ai_diary/features/album/presentation/confirm_delete_dialog.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// The PIN lock without its pad: [verify] answers [result] (or [pending]);
+/// [choosePin] gives [chosen]; kept PINs land in [pins].
 class _Auth implements AlbumAuth {
   AlbumAuthResult result = AlbumAuthResult.success;
   Completer<AlbumAuthResult>? pending;
   int calls = 0;
-  bool supported = true;
+  String? chosen = '2468';
+  int chooses = 0;
+  final pins = <String, String?>{};
+
   @override
-  Future<bool> isSupported() async => supported;
-  @override
-  Future<AlbumAuthResult> authenticate(String reason) async {
+  Future<AlbumAuthResult> verify(BuildContext context, String albumId,
+      {required String reason}) async {
     calls++;
     return pending == null ? result : await pending!.future;
   }
+
+  @override
+  Future<String?> choosePin(BuildContext context) async {
+    chooses++;
+    return chosen;
+  }
+
+  @override
+  Future<void> setPin(String albumId, String? pin) async => pins[albumId] = pin;
 }
 
 class _Shares implements AlbumSharing {
@@ -146,7 +159,7 @@ void main() {
     auth.pending!.complete(AlbumAuthResult.success);
     await tester.pump();
     await tester.pump();
-    expect(find.text('Xác thực thành công. Đang mở album…'), findsOneWidget);
+    expect(find.text('Đúng mật khẩu. Đang mở album…'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(AlbumBrowseScreen), findsNothing);
     await tester.pump(const Duration(milliseconds: 500));
@@ -158,8 +171,6 @@ void main() {
   for (final result in [
     AlbumAuthResult.failed,
     AlbumAuthResult.canceled,
-    AlbumAuthResult.notSetUp,
-    AlbumAuthResult.notSupported
   ]) {
     testWidgets(
         '$result keeps private preview hidden and Cancel returns safely',
@@ -313,7 +324,7 @@ void main() {
   });
 
   testWidgets(
-      'A03 lock needs auth, share consent; failed revoke stays unlocked with Retry',
+      'A03 lock asks a new PIN, share consent; failed revoke stays unlocked',
       (tester) async {
     final repository = InMemoryAlbumRepository();
     final shares = _Shares()..fail = true;
@@ -327,9 +338,11 @@ void main() {
     await tester.ensureVisible(find.byType(SwitchListTile));
     await tester.tap(find.byType(SwitchListTile));
     await tester.pump();
+    // The PIN is chosen as the lock is turned on; saving asks nothing more.
+    expect(auth.chooses, 1);
     await tester.tap(find.text(AlbumSettingsScreen.saveLabel));
     await tester.pumpAndSettle();
-    expect(auth.calls, 1);
+    expect(auth.calls, 0);
     expect(find.text(AlbumSettingsScreen.revokeLabel), findsOneWidget);
     expect((await repository.album(album.id))!.locked, isFalse);
     await tester.tap(find.text(AlbumSettingsScreen.revokeLabel));
@@ -348,10 +361,25 @@ void main() {
     expect(find.text(AlbumSettingsScreen.savedLocked), findsOneWidget);
     // Locked at once: not left open for the rest of the session.
     expect(AlbumUnlocks.instance.isUnlocked(album.id), isFalse);
+    expect(auth.pins[album.id], '2468');
   });
 
-  testWidgets(
-      'A03 turning lock off requires fresh auth; failure keeps saved lock',
+  testWidgets('A03: giving up the new PIN leaves the lock off', (tester) async {
+    final auth = _Auth()..chosen = null;
+    await _open(tester,
+        repository: InMemoryAlbumRepository(),
+        auth: auth,
+        locked: false,
+        destination: AlbumDestination.settings);
+    await tester.ensureVisible(find.byType(SwitchListTile));
+    await tester.tap(find.byType(SwitchListTile));
+    await tester.pumpAndSettle();
+    expect(auth.chooses, 1);
+    expect(tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        isFalse);
+  });
+
+  testWidgets('A03 turning lock off asks its PIN; without it the lock stays on',
       (tester) async {
     final repository = InMemoryAlbumRepository();
     final auth = _Auth();
@@ -360,22 +388,29 @@ void main() {
         auth: auth,
         destination: AlbumDestination.settings);
     await _unlock(tester);
-    await tester.ensureVisible(find.byType(SwitchListTile));
-    await tester.tap(find.byType(SwitchListTile));
-    await tester.pump();
-    auth.result = AlbumAuthResult.failed;
-    await tester.tap(find.text(AlbumSettingsScreen.saveLabel));
+    final toggle = find.byType(SwitchListTile);
+    await tester.ensureVisible(toggle);
+    auth.result = AlbumAuthResult.canceled;
+    await tester.tap(toggle);
     await tester.pumpAndSettle();
     expect(auth.calls, 2);
+    expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
     expect((await repository.album(album.id))!.locked, isTrue);
+
     auth.result = AlbumAuthResult.success;
-    await tester.tap(find.text('Thử lại'));
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(auth.calls, 3);
+    expect(tester.widget<SwitchListTile>(toggle).value, isFalse);
+    await tester.tap(find.text(AlbumSettingsScreen.saveLabel));
     await tester.pumpAndSettle();
     expect((await repository.album(album.id))!.locked, isFalse);
+    // Its PIN is forgotten with the lock.
+    expect(auth.pins.containsKey(album.id), isTrue);
+    expect(auth.pins[album.id], isNull);
   });
 
-  testWidgets('A11 over A03, canceled, asks no PIN again',
-      (tester) async {
+  testWidgets('A11 over A03, canceled, asks no PIN again', (tester) async {
     final repository = InMemoryAlbumRepository();
     final album = await _open(tester,
         repository: repository,

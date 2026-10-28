@@ -7,6 +7,7 @@ import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../data/place_lookup.dart';
+import 'map_style.dart';
 
 /// E05: choose and confirm a place, for a memory (A06) or a share (A10).
 ///
@@ -81,8 +82,6 @@ class PlacePickerScreen extends StatefulWidget {
 enum _Naming { idle, looking, failed, empty }
 
 class _PlacePickerScreenState extends State<PlacePickerScreen> {
-  static const _style = 'https://tiles.openfreemap.org/styles/liberty';
-
   MapLibreMapController? _map;
   Timer? _loadTimeout;
   var _generation = 0;
@@ -331,7 +330,8 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
           onPointerDown: (_) => _gesture = true,
           child: MapLibreMap(
             key: ValueKey(_generation),
-            styleString: _style,
+            // The same light map as Explore.
+            styleString: ExploreMapStyle.day,
             initialCameraPosition: CameraPosition(
                 target: initial == null
                     ? PlacePickerScreen.start

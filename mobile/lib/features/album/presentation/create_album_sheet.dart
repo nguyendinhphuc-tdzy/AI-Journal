@@ -4,7 +4,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../album_scope.dart';
 import '../data/album.dart';
-import '../data/album_auth.dart';
 import '../data/album_theme.dart';
 import 'album_form_parts.dart';
 
@@ -34,9 +33,10 @@ class CreateAlbumDraft {
 ///   the error is said below the field, not only by its colour.
 /// - The theme picker shows the supplied Nudaeng poses; the preview cover
 ///   crossfades (180 ms).
-/// - "Khóa album" is offered only when the device can authenticate;
-///   otherwise it is off and says the lock is not supported. Nothing is
-///   presented as secure that is not.
+/// - "Khóa album" asks for the album's own 4-digit PIN as it is turned on
+///   (twice, `AlbumAuth.choosePin`); turning it off forgets that PIN. The
+///   album is created locked with it. Nothing is presented as secure that
+///   is not: the lock gates opening, it encrypts nothing.
 /// - "Tạo album" ignores repeated taps while saving and keeps its size; a
 ///   failed save keeps the form. Closing keeps the draft for the session;
 ///   nothing is created before the CTA.
@@ -52,18 +52,11 @@ class CreateAlbumSheet extends StatefulWidget {
   static const coverLabel = 'Bìa album';
   static const lockLabel = 'Khóa album';
   static const lockHelp =
-      'Album được khóa bằng mã PIN (hoặc vân tay, khuôn mặt) của máy. Bạn '
-      'xác nhận một lần khi tạo, và mỗi lần mở album.';
-  static const lockReason = 'Xác thực để khóa album mới';
-  static const lockCanceled = 'Đã hủy xác thực. Album chưa được tạo.';
-  static const lockNotSetUp =
-      'Hãy đặt mã PIN khóa màn hình trong cài đặt máy để khóa album.';
+      'Album được khóa bằng mật khẩu 4 số của riêng album này. Bật khóa sẽ '
+      'hỏi bạn đặt mật khẩu; mỗi lần mở album cần nhập mật khẩu đó.';
+  static const lockCanceled = 'Chưa đặt mật khẩu. Album chưa được tạo.';
   static const lockFailed =
-      'Chưa xác thực được. Album chưa được tạo. Bạn thử lại nhé.';
-  static const lockUnsupported = 'Tính năng khóa chưa được hỗ trợ';
-  static const lockUnsupportedHelp =
-      'Thiết bị này chưa xác thực được bằng vân tay, khuôn mặt hoặc khóa màn '
-      'hình, nên chưa thể khóa album.';
+      'Chưa giữ được mật khẩu. Album chưa được tạo. Bạn thử lại nhé.';
   static const createLabel = 'Tạo album';
   static const createFailed =
       'Chưa tạo được album. Nội dung bạn nhập vẫn còn, bạn thử lại nhé.';
@@ -100,8 +93,9 @@ class _CreateAlbumSheetState extends State<CreateAlbumSheet> {
   late String _themeId = widget.draft.themeId;
   late bool _locked = widget.draft.locked;
 
-  /// Null while checking.
-  bool? _lockSupported;
+  /// The PIN chosen as the lock was turned on; asked again if the draft
+  /// came back locked without one.
+  String? _pin;
   var _showNameError = false;
   var _saving = false;
 
@@ -118,20 +112,6 @@ class _CreateAlbumSheetState extends State<CreateAlbumSheet> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_lockSupported != null) return;
-    AlbumScope.authOf(context).isSupported().then((supported) {
-      if (!mounted) return;
-      setState(() {
-        _lockSupported = supported;
-        // A lock that cannot be opened is never kept on.
-        if (!supported) _setLocked(false);
-      });
-    });
-  }
-
-  @override
   void dispose() {
     _name.dispose();
     _nameFocus.dispose();
@@ -141,6 +121,23 @@ class _CreateAlbumSheetState extends State<CreateAlbumSheet> {
   void _setTheme(String id) => setState(() => _themeId = _draft.themeId = id);
 
   void _setLocked(bool locked) => _locked = _draft.locked = locked;
+
+  /// On: the album's PIN, chosen now. Off: no PIN.
+  Future<void> _toggleLock(bool value) async {
+    if (!value) {
+      setState(() {
+        _pin = null;
+        _setLocked(false);
+      });
+      return;
+    }
+    final pin = await AlbumScope.authOf(context).choosePin(context);
+    if (!mounted || pin == null) return;
+    setState(() {
+      _pin = pin;
+      _setLocked(true);
+    });
+  }
 
   Future<void> _create() async {
     if (_saving) return;
@@ -153,31 +150,37 @@ class _CreateAlbumSheetState extends State<CreateAlbumSheet> {
       _saving = true;
       _error = null;
     });
-    if (_locked && _lockSupported == true) {
-      // Locked from the start: confirm with the device's own PIN, fingerprint
-      // or face, so the owner knows what will open it. Nothing is created
-      // unless that succeeds.
-      final result = await AlbumScope.authOf(context)
-          .authenticate(CreateAlbumSheet.lockReason);
+    final auth = AlbumScope.authOf(context);
+    if (_locked && _pin == null) {
+      // Locked from the start: it opens with a PIN, chosen before anything
+      // is created.
+      final pin = await auth.choosePin(context);
       if (!mounted) return;
-      if (result != AlbumAuthResult.success) {
+      if (pin == null) {
         setState(() {
           _saving = false;
-          _error = switch (result) {
-            AlbumAuthResult.canceled => CreateAlbumSheet.lockCanceled,
-            AlbumAuthResult.notSetUp => CreateAlbumSheet.lockNotSetUp,
-            _ => CreateAlbumSheet.lockFailed,
-          };
+          _error = CreateAlbumSheet.lockCanceled;
         });
         return;
       }
+      _pin = pin;
     }
+    final repository = AlbumScope.of(context);
     try {
-      final album = await AlbumScope.of(context).create(
+      var album = await repository.create(
         name: _name.text,
         themeId: _themeId,
-        locked: _locked && _lockSupported == true,
+        locked: _locked,
       );
+      if (album.locked) {
+        try {
+          await auth.setPin(album.id, _pin);
+        } catch (_) {
+          // A lock nothing can open is never kept: the album stays open
+          // and can be locked again from its settings.
+          album = await repository.update(album.copyWith(locked: false));
+        }
+      }
       _draft.clear();
       if (mounted) Navigator.of(context).pop(album);
     } catch (_) {
@@ -267,13 +270,10 @@ class _CreateAlbumSheetState extends State<CreateAlbumSheet> {
                     const SizedBox(height: 12),
                     AlbumLockCard(
                       title: CreateAlbumSheet.lockLabel,
-                      supported: _lockSupported,
                       value: _locked,
                       enabled: !_saving,
-                      onChanged: (value) => setState(() => _setLocked(value)),
+                      onChanged: _toggleLock,
                       help: CreateAlbumSheet.lockHelp,
-                      unsupportedTitle: CreateAlbumSheet.lockUnsupported,
-                      unsupportedHelp: CreateAlbumSheet.lockUnsupportedHelp,
                     ),
                   ],
                 ),

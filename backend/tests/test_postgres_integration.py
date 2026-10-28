@@ -106,7 +106,7 @@ def postgres_engine():
             "SELECT COUNT(*) FROM public.journal_entries"
         )).scalar_one() == 0
 
-    # Before deploying revision 08, rehearse the upgrade on a populated
+    # Rehearse the additive 08 and 09 upgrades on a populated
     # existing revision 07 database. Cloud fields MUST preserve old entries.
     previous = subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "20261025_07"],
@@ -137,10 +137,10 @@ def postgres_engine():
     )
     with engine.connect() as connection:
         preserved = connection.execute(text("""
-            SELECT content, body_version, guided
+            SELECT content, body_version, guided, source
             FROM public.journal_entries WHERE id = :id
         """), {"id": old_journal}).one()
-        assert preserved == ("Keep this journal", 1, None)
+        assert preserved == ("Keep this journal", 1, None, None)
 
     checked = subprocess.run(
         [sys.executable, "-m", "alembic", "check"],
@@ -157,7 +157,7 @@ def postgres_engine():
 def test_postgres_upgrade_schema_and_rls(postgres_engine):
     inspector = sa.inspect(postgres_engine)
     with postgres_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261026_08"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261028_09"
         for table in TABLES:
             assert inspector.has_table(table, schema="public"), table
             rls = conn.execute(text("""
