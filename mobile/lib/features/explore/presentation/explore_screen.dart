@@ -281,7 +281,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     // unscoped demo key must not leak between signed-in accounts.
     if (!_storeReady) {
       _storeReady = true;
-      final id = AuthScope.maybeOf(context)?.auth.currentUserId;
+      final id = AuthScope.maybeOf(context)?.currentUserId;
       _signedIn = id != null;
       _effectiveLocalStore = id == null
           ? widget.savedPlacesStore
