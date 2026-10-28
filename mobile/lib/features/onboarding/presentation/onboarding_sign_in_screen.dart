@@ -31,11 +31,13 @@ class OnboardingSignInScreen extends StatefulWidget {
     required this.onDone,
     this.friends,
     this.realAuth = false,
+    this.initialError,
     this.onGuest,
   });
 
   final SignInService service;
   final bool realAuth;
+  final String? initialError;
   final Future<void> Function()? onGuest;
 
   /// Facebook friends on the app; Facebook also connects these.
@@ -102,6 +104,12 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
   String? _passwordError;
   String? _confirmError;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _error = widget.initialError;
+  }
 
   @override
   void dispose() {
