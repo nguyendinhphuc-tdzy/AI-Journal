@@ -255,11 +255,12 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 24, 0),
             child: Row(children: [
-              IconButton(
-                onPressed: _busy ? null : widget.onBack,
-                tooltip: OnboardingSignInScreen.backTooltip,
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
+              if (!widget.realAuth)
+                IconButton(
+                  onPressed: _busy ? null : widget.onBack,
+                  tooltip: OnboardingSignInScreen.backTooltip,
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
               const Flexible(
                   child:
                       Text(OnboardingSignInScreen.brand, style: _Text.brand)),
