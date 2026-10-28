@@ -34,7 +34,9 @@ class GuestModeStore {
   Future<void> leaveAndDiscard() async {
     for (final key in _preferences.getKeys().toList()) {
       if ((key.startsWith(_guestDataPrefix) ||
-          key.startsWith('account.$userId.onboarding.')) &&
+          key.startsWith('account.$userId.onboarding.') ||
+          key == 'study.progress.$userId' ||
+          key.startsWith('album.pin.$userId.')) &&
           !await _preferences.remove(key)) {
         throw StateError('Could not remove local guest data');
       }
