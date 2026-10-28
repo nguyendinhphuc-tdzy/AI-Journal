@@ -118,6 +118,32 @@ def test_authenticated_ai_and_bounded_request_content():
         app.dependency_overrides.clear()
 
 
+def test_ai_per_user_rate_limit_does_not_affect_another_account():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    a = AuthenticatedUser(user_id=uuid4(), email="quota-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="quota-b@example.com")
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        for _ in range(12):
+            assert client.post("/api/v1/ai/go-deeper", json={
+                "content": "A short journal entry"
+            }).status_code == 200
+        blocked = client.post("/api/v1/ai/go-deeper", json={
+            "content": "One request too many"
+        })
+        assert blocked.status_code == 429
+        assert "journal entry" not in blocked.text
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post("/api/v1/ai/go-deeper", json={
+            "content": "Private second account"
+        }).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_journal_crud_requires_authentication():
     app.dependency_overrides.clear()
     assert client.get("/api/v1/journals").status_code == 401
