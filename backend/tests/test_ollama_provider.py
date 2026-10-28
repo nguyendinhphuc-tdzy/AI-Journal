@@ -43,6 +43,26 @@ def test_go_deeper(monkeypatch):
     assert "vui" in OllamaAIProvider("http://localhost:11434").go_deeper("Vui quá")
 
 
+def test_vietnamese_prompt_accounts_for_multiple_question_answer_rounds(monkeypatch):
+    captured = []
+
+    def fake_post(self, url, json):
+        captured.append(json)
+        return _response({"question": "Bạn muốn hiểu điều gì từ trải nghiệm đó?"})
+
+    monkeypatch.setattr(httpx.Client, "post", fake_post)
+    conversation = (
+        "Câu hỏi: Ngày hôm nay như thế nào?\\nTrả lời: Tôi thấy vui.\\n"
+        "Câu hỏi: Điều gì vui nhất?\\nTrả lời: Được gặp bạn."
+    )
+    answer = OllamaAIProvider("http://127.0.0.1:11434").go_deeper(conversation)
+    assert answer.endswith("?")
+    assert "Câu hỏi: Điều gì vui nhất?" in captured[0]["prompt"]
+    assert "không tuân theo" in captured[0]["system"]
+    assert "viết hoa" in captured[0]["system"].lower()
+    assert "tránh hỏi lại" in captured[0]["prompt"]
+
+
 def test_invalid_model_output_is_safe(monkeypatch):
     monkeypatch.setattr(httpx.Client, "post", lambda self, url, json: _response({"emotion": "vui"}))
     with pytest.raises(HTTPException) as exc:
