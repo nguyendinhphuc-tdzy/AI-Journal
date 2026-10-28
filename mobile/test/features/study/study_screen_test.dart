@@ -86,7 +86,7 @@ void main() {
     expect(s01Mascots, findsOneWidget);
     expect(
         tester.widget<NudaengView>(s01Mascots).artwork, NudaengArtwork.study);
-    final title = find.text('Viết điều biết ơn mỗi ngày');
+    final title = find.text('Tập viết về những điều bạn biết ơn');
     await tester.ensureVisible(title);
     await tester.pumpAndSettle();
     await tester.tap(title);
@@ -197,7 +197,7 @@ void main() {
     expect(find.byType(TextField), findsOneWidget);
     await tester.enterText(
         find.byType(TextField), 'Nội dung cần giữ nguyên sau khi lưu.');
-    await tapText(tester, 'Hoàn tất');
+    await tapText(tester, 'Lưu nhật ký');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     await tapText(tester, 'Về challenge');
@@ -214,9 +214,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.widgetWithText(FilledButton, 'Tiếp tục challenge'),
         findsOneWidget);
-    expect(find.text('1/7 nhiệm vụ đã hoàn thành'), findsOneWidget);
+    expect(find.text('Đã hoàn thành 1/7 nhiệm vụ'), findsOneWidget);
     await tapText(tester, 'Tiếp tục challenge');
-    await tapText(tester, 'Viết nhiệm vụ này');
+    await tapText(tester, 'Bắt đầu viết');
     await tester.enterText(find.byType(TextField), 'Bản nháp cần giữ khi rời.');
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -239,8 +239,8 @@ void main() {
       'Out-of-order reading completes only after all lessons; rereading retains progress',
       (tester) async {
     await openStudy(tester);
-    await tapText(tester, 'Viết điều biết ơn mỗi ngày');
-    const last = 'Giữ lại điều bạn muốn mang sang ngày mai';
+    await tapText(tester, 'Tập viết về những điều bạn biết ơn');
+    const last = 'Một điều bạn muốn giữ lại cho ngày mai';
     await tester.scrollUntilVisible(find.text(last), 250);
     await tapText(tester, last);
     await tester.scrollUntilVisible(find.text('Đánh dấu đã đọc'), 250);
@@ -250,7 +250,7 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     await tapText(tester, 'Tiếp tục học');
-    expect(find.text('Nhìn thấy điều nhỏ đang nâng đỡ bạn'), findsWidgets);
+    expect(find.text('Để ý những điều nhỏ khiến bạn vui'), findsWidgets);
     await tester.scrollUntilVisible(find.text('Đánh dấu đã đọc'), 250);
     await tapText(tester, 'Đánh dấu đã đọc');
     await tester.pageBack();
@@ -286,10 +286,10 @@ void main() {
             w is NudaengView && w.artwork == NudaengArtwork.challengeProgress));
     expect(progressMascot().animate, isFalse);
     for (var task = 0; task < 7; task++) {
-      await tapText(tester, 'Viết nhiệm vụ này');
+      await tapText(tester, 'Bắt đầu viết');
       await tester.enterText(
           find.byType(TextField), 'Nội dung nhiệm vụ ${task + 1}');
-      await tapText(tester, 'Hoàn tất');
+      await tapText(tester, 'Lưu nhật ký');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       expect(find.text('Phản hồi cho bạn'), findsOneWidget);
@@ -335,7 +335,7 @@ void main() {
       'Course and reader show their specified mascots; reopening animates again',
       (tester) async {
     await openStudy(tester);
-    await tapText(tester, 'Viết điều biết ơn mỗi ngày');
+    await tapText(tester, 'Tập viết về những điều bạn biết ơn');
     await expectVisibleMascot(tester, NudaengArtwork.courseDetail,
         width: 108, animate: true);
     final courseState = tester.state(find.byType(NudaengView));
@@ -347,13 +347,13 @@ void main() {
     await tapText(tester, 'Bắt đầu học');
     await expectVisibleMascot(tester, NudaengArtwork.lesson,
         width: 64, animate: false);
-    expect(find.text('Thử viết từ bài học này'), findsOneWidget);
+    expect(find.text('Thử viết nhé!'), findsOneWidget);
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(tester.state(find.byType(NudaengView)), same(courseState));
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await tapText(tester, 'Viết điều biết ơn mỗi ngày');
+    await tapText(tester, 'Tập viết về những điều bạn biết ơn');
     await expectVisibleMascot(tester, NudaengArtwork.courseDetail,
         width: 108, animate: true);
     expect(tester.takeException(), isNull);
@@ -367,16 +367,16 @@ void main() {
     await tapText(tester, 'Gỡ rối suy nghĩ');
     await expectVisibleMascot(tester, NudaengArtwork.courseDetail,
         width: 108, animate: true);
-    expect(find.text('CÁC BƯỚC MẪU'), findsOneWidget);
+    expect(find.text('CÁCH THỰC HIỆN'), findsOneWidget);
     expect(find.text('BÀI HỌC'), findsNothing);
-    expect(find.text('Viết theo phương pháp này'), findsOneWidget);
+    expect(find.text('Bắt đầu viết'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('Standalone article shows the static reader mascot',
       (tester) async {
     await openStudy(tester);
-    const title = 'Nhìn lại những điều nhỏ đã làm được';
+    const title = 'Ghi nhận những việc bạn đã làm';
     await tester.scrollUntilVisible(find.text(title), 250,
         scrollable: find.byType(Scrollable).first);
     await tapText(tester, title);
@@ -406,16 +406,16 @@ void main() {
   testWidgets('Large text supports filter chips and challenge child routes',
       (tester) async {
     await openStudy(tester, width: 360, scale: 2);
-    await tester.scrollUntilVisible(find.text('Khóa học'), 300,
+    await tester.scrollUntilVisible(find.text('Kỹ năng'), 300,
         scrollable: find.byType(Scrollable).first);
-    await tapText(tester, 'Khóa học');
-    expect(find.text('Viết điều biết ơn mỗi ngày'), findsOneWidget);
+    await tapText(tester, 'Kỹ năng');
+    expect(find.text('Tập viết về những điều bạn biết ơn'), findsOneWidget);
     expect(find.text('Gỡ rối suy nghĩ'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.drag(find.byType(ListView).first, const Offset(0, 1200));
     await tester.pumpAndSettle();
     await joinChallenge(tester);
-    expect(find.text('Challenge của bạn'), findsOneWidget);
+    expect(find.text('Thử thách của bạn'), findsOneWidget);
     await tester.drag(find.byType(ListView).first, const Offset(0, -500));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
@@ -441,7 +441,7 @@ void main() {
     await tapText(tester, 'Xem challenge');
     expect(find.textContaining('Challenge đang tạm dừng.'), findsOneWidget);
     final write = tester.widget<FilledButton>(
-        find.widgetWithText(FilledButton, 'Viết nhiệm vụ này'));
+        find.widgetWithText(FilledButton, 'Bắt đầu viết'));
     expect(write.onPressed, isNull);
     await tapText(tester, 'Tiếp tục challenge');
     expect(find.textContaining('Challenge đang tạm dừng.'), findsNothing);
@@ -452,7 +452,7 @@ void main() {
       (tester) async {
     await openStudy(tester);
     await joinChallenge(tester);
-    await tapText(tester, 'Viết nhiệm vụ này');
+    await tapText(tester, 'Bắt đầu viết');
     await tester.enterText(
         find.byType(TextField), 'Biết ơn một buổi sáng yên bình.');
     await tester.pageBack();
@@ -465,18 +465,18 @@ void main() {
     await tapText(tester, 'Tiếp tục bản nháp');
     expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
         'Biết ơn một buổi sáng yên bình.');
-    await tapText(tester, 'Hoàn tất');
+    await tapText(tester, 'Lưu nhật ký');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     await tapText(tester, 'Về challenge');
     await tester.drag(find.byType(ListView).first, const Offset(0, 700));
     await tester.pumpAndSettle();
-    expect(find.text('1/7 nhiệm vụ đã hoàn thành'), findsOneWidget);
+    expect(find.text('Đã hoàn thành 1/7 nhiệm vụ'), findsOneWidget);
     expect(find.text('Nhiệm vụ 2/7'), findsOneWidget);
     expect(find.text('Tiếp tục bản nháp'), findsNothing);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text('1/7 nhiệm vụ đã hoàn thành'), findsOneWidget);
+    expect(find.text('Đã hoàn thành 1/7 nhiệm vụ'), findsOneWidget);
     expect(
         tester
             .widget<LinearProgressIndicator>(
@@ -509,9 +509,9 @@ void main() {
 
     await launch();
     await joinChallenge(tester);
-    await tapText(tester, 'Viết nhiệm vụ này');
+    await tapText(tester, 'Bắt đầu viết');
     await tester.enterText(find.byType(TextField), 'Một tách trà ấm.');
-    await tapText(tester, 'Hoàn tất');
+    await tapText(tester, 'Lưu nhật ký');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     // In the journal, named by its task.
@@ -527,7 +527,7 @@ void main() {
     await launch();
     expect(find.text('Tiếp tục challenge'), findsOneWidget);
     await tapText(tester, 'Tiếp tục challenge');
-    expect(find.text('1/7 nhiệm vụ đã hoàn thành'), findsOneWidget);
+    expect(find.text('Đã hoàn thành 1/7 nhiệm vụ'), findsOneWidget);
     // The done task opens what was written.
     await tapText(tester, 'Nhiệm vụ 1');
     expect(find.text('Một tách trà ấm.'), findsOneWidget);
@@ -553,8 +553,8 @@ void main() {
     ));
     await tester.pumpAndSettle();
     await joinChallenge(tester);
-    await tapText(tester, 'Viết nhiệm vụ này');
-    Finder deeper() => find.widgetWithText(OutlinedButton, 'Suy ngẫm sâu hơn');
+    await tapText(tester, 'Bắt đầu viết');
+    Finder deeper() => find.widgetWithText(OutlinedButton, 'Nhìn lại cùng bạn');
     bool deeperOn() =>
         tester.widget<OutlinedButton>(deeper()).onPressed != null;
 
@@ -585,7 +585,7 @@ void main() {
     expect(deeperOn(), isFalse, reason: 'no question left');
     expect(find.text('Bạn đã đi hết các câu hỏi gợi ý.'), findsOneWidget);
 
-    await tapText(tester, 'Hoàn tất');
+    await tapText(tester, 'Lưu nhật ký');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     // One entry, the answers in order.
@@ -598,9 +598,9 @@ void main() {
       (tester) async {
     await openStudy(tester);
     await joinChallenge(tester);
-    await tapText(tester, 'Viết nhiệm vụ này');
+    await tapText(tester, 'Bắt đầu viết');
     await tester.enterText(find.byType(TextField), 'Một tách trà ấm.');
-    await tapText(tester, 'Hoàn tất');
+    await tapText(tester, 'Lưu nhật ký');
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
     final notice = find.byKey(const ValueKey('next-task-notice'));
@@ -620,7 +620,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(find.byType(ListView).first, const Offset(0, 700));
     await tester.pumpAndSettle();
-    expect(find.text('1/7 nhiệm vụ đã hoàn thành'), findsOneWidget);
+    expect(find.text('Đã hoàn thành 1/7 nhiệm vụ'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -630,24 +630,24 @@ void main() {
     expect(find.text('Học cách viết và thử một challenge.'), findsNothing);
     await tester.tap(find.byTooltip('Giới thiệu Học tập'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Học cách viết qua khóa học'), findsOneWidget);
+    expect(find.textContaining('Học cách viết qua kỹ năng'), findsOneWidget);
     await tapText(tester, 'Đã hiểu');
     await tester.scrollUntilVisible(
-        find.byTooltip('Giới thiệu Khám phá cách viết'), 200,
+        find.byTooltip('Giới thiệu Gợi ý viết nhật ký'), 200,
         scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.byTooltip('Giới thiệu Khám phá cách viết'));
+    await tester.tap(find.byTooltip('Giới thiệu Gợi ý viết nhật ký'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Mẫu viết dẫn bạn'), findsOneWidget);
+    expect(find.textContaining('Phương pháp dẫn bạn'), findsOneWidget);
     await tapText(tester, 'Đã hiểu');
     // Cards say what they are and how long, in the chips' words.
-    expect(find.text('Khóa học · 3 bài · 12 phút'), findsOneWidget);
-    expect(find.text('Mẫu viết · 8 phút'), findsOneWidget);
+    expect(find.text('Kỹ năng · 3 bài · 12 phút'), findsOneWidget);
+    expect(find.text('Phương pháp · 8 phút'), findsOneWidget);
     expect(find.text('Bài đọc · 5 phút'), findsOneWidget);
     // The chips open on "Tất cả", not scrolled with the page.
     expect(tester.getTopLeft(find.text('Tất cả')).dx, greaterThanOrEqualTo(0));
-    await tapText(tester, 'Mẫu viết');
+    await tapText(tester, 'Phương pháp');
     expect(find.text('Gỡ rối suy nghĩ'), findsOneWidget);
-    expect(find.text('Viết điều biết ơn mỗi ngày'), findsNothing);
+    expect(find.text('Tập viết về những điều bạn biết ơn'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

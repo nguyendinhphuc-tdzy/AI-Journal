@@ -91,7 +91,11 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 Future<void> _open(WidgetTester tester) async {
-  await tester.tap(find.text(AlbumScreen.createLabel));
+  // Empty library: the button is in the invitation; then it is docked.
+  final docked = find.text(AlbumScreen.createLabel);
+  await tester.tap(docked.evaluate().isEmpty
+      ? find.text(AlbumScreen.firstCreateLabel)
+      : docked);
   await _settle(tester);
 }
 

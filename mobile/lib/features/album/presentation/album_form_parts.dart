@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../data/album_theme.dart';
 import 'album_cover.dart';
@@ -321,6 +323,71 @@ class AlbumPrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       AppPrimaryButton(label: label, onPressed: onPressed, busy: busy);
+}
+
+/// One action in an album's sheet (a memory's options, its photo's): an
+/// icon and its label on Background, 56 high, as Home's actions. Deleting
+/// in the delete colour. Without [onTap] it is shown off, with [note]
+/// saying why.
+class AlbumSheetAction extends StatelessWidget {
+  const AlbumSheetAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.note,
+    this.color = AppColors.primaryAction,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final String? note;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final off = onTap == null;
+    final tint = off
+        ? AppColors.textSecondary
+        : color == AppColors.primaryAction
+            ? AppColors.textPrimary
+            : color;
+    final note = this.note;
+    return Material(
+      color: AppColors.background,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(AppRadius.input))),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md, vertical: 10),
+            child: Row(children: [
+              Icon(icon, color: off ? AppColors.textSecondary : color),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: AppText.body.copyWith(color: tint)),
+                    if (note != null) ...[
+                      const SizedBox(height: 2),
+                      Text(note, style: AlbumFormText.note),
+                    ],
+                  ],
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 abstract final class AlbumFormText {

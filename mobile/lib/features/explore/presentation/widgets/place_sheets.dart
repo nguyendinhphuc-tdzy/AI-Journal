@@ -5,36 +5,29 @@ import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text.dart';
 import '../../../../core/widgets/app_ui.dart';
+import '../../data/place_mood.dart';
+import '../../data/saved_places.dart';
+
+export '../../data/place_mood.dart';
+export '../../data/saved_places.dart';
 
 class PlaceDraft {
   const PlaceDraft({
     required this.name,
     required this.category,
-    required this.moodTag,
+    required this.mood,
     required this.note,
-    required this.moodAsset,
-    required this.moodLabel,
     required this.isAnonymousShare,
   });
 
   final String name;
   final String category;
-  final String moodTag;
+
+  /// Null when no Nudaeng was chosen: nothing is assumed.
+  final PlaceMood? mood;
   final String note;
-  final String moodAsset;
-  final String moodLabel;
   final bool isAnonymousShare;
 }
-
-/// Nudaeng's moods: the key (also the map marker's name) and its GIF.
-const moodOptions = [
-  ('Reading', 'assets/images/docsach.gif'),
-  ('On the road', 'assets/images/laixe.gif'),
-  ('Loved it', 'assets/images/like.gif'),
-  ('Taking a breath', 'assets/images/loading.gif'),
-];
-
-const moodTags = ['Yên tĩnh', 'Cần chữa lành', 'Vui vẻ', 'Xả stress'];
 
 /// What a place is for: the stored key and what it says.
 const placeCategories = [
@@ -43,13 +36,11 @@ const placeCategories = [
   ('Chill', 'Thư giãn'),
 ];
 
-/// A mood key ([moodOptions]) as it reads.
-String moodName(String key) => switch (key) {
-      'Reading' => 'Đọc sách',
-      'On the road' => 'Dạo phố',
-      'Loved it' => 'Thích lắm',
-      'Taking a breath' => 'Hít thở',
-      _ => key,
+/// A category key's icon, where a place has no Nudaeng.
+IconData categoryIcon(String key) => switch (key) {
+      'Food' => Icons.restaurant_outlined,
+      'Study' => Icons.menu_book_outlined,
+      _ => Icons.spa_outlined,
     };
 
 /// A category key ([placeCategories]) as it reads.
@@ -63,13 +54,19 @@ String categoryName(String key) {
 abstract final class PlaceSheetText {
   static const addTitle = 'Lưu một nơi mới';
   static const addHelp = 'Nơi này được ghim ở giữa bản đồ bạn đang xem.';
+  static const addHelpPinned = 'Nơi này được lưu ở chỗ bạn vừa ghim.';
   static const nameLabel = 'Tên địa điểm';
   static const nameHint = 'Ví dụ: Tiệm bánh cô Hai';
   static const nameMissing = 'Bạn đặt tên cho nơi này nhé.';
-  static const categoryLabel = 'Loại địa điểm';
-  static const moodTagLabel = 'Cảm xúc ở đây';
-  static const noteLabel = 'Bạn cảm thấy thế nào ở đây?';
-  static const moodLabel = 'Nudaeng của nơi này';
+  static const closeTooltip = 'Đóng';
+  static const categoryLabel = 'Nơi này dành cho…';
+  static const moodLabel = 'Nudaeng nào giống bạn lúc này?';
+  static const moodHelp = 'Chọn nếu bạn muốn';
+  static const noteLabel = 'Vài dòng về nơi này';
+  static const noteHint = 'Không bắt buộc';
+  static const filterTitle = 'Lọc theo cảm xúc';
+  static const filterHelp = 'Chỉ hiện những nơi bạn đã chọn Nudaeng này.';
+  static const filterAll = 'Mọi cảm xúc';
   static const anonymousTitle = 'Chia sẻ ẩn danh cho cộng đồng';
   static const anonymousHelp =
       'Bản thử: trạm ẩn danh chỉ hiện trên máy này, chưa gửi cho cộng đồng.';
@@ -84,27 +81,65 @@ abstract final class PlaceSheetText {
   static const openLabel = 'Mở và lưu vào bản đồ';
 }
 
-Future<PlaceDraft?> showAddPlaceSheet(BuildContext context) =>
-    showAppSheet<PlaceDraft>(context, builder: (_) => const _AddPlaceSheet());
+/// [pinned]: the user chose where the place goes (a pin, a search result)
+/// rather than the middle of the map. [name]: a name to start from, e.g. a
+/// search result's.
+Future<PlaceDraft?> showAddPlaceSheet(BuildContext context,
+        {bool pinned = false, String? name}) =>
+    showAppSheet<PlaceDraft>(context,
+        builder: (_) => _AddPlaceSheet(pinned: pinned, name: name));
+
+/// What was filled in before the sheet was closed without saving, for the
+/// session: opening it again carries on. Saving clears it.
+class _Unsaved {
+  static var name = '';
+  static var note = '';
+  static String category = placeCategories.first.$1;
+  static PlaceMood? mood;
+  static var anonymous = false;
+
+  static void clear() {
+    name = '';
+    note = '';
+    category = placeCategories.first.$1;
+    mood = null;
+    anonymous = false;
+  }
+}
+
+/// Forgets what [showAddPlaceSheet] kept from a closed sheet (tests).
+@visibleForTesting
+void clearUnsavedPlace() => _Unsaved.clear();
 
 class _AddPlaceSheet extends StatefulWidget {
-  const _AddPlaceSheet();
+  const _AddPlaceSheet({required this.pinned, this.name});
+
+  final bool pinned;
+  final String? name;
 
   @override
   State<_AddPlaceSheet> createState() => _AddPlaceSheetState();
 }
 
 class _AddPlaceSheetState extends State<_AddPlaceSheet> {
-  final _name = TextEditingController();
-  final _note = TextEditingController();
-  String _category = placeCategories.first.$1;
-  String _moodTag = moodTags.first;
-  var _mood = moodOptions.first;
-  bool _isAnonymousShare = false;
+  late final _name = TextEditingController(text: widget.name ?? _Unsaved.name);
+  final _note = TextEditingController(text: _Unsaved.note);
+  String _category = _Unsaved.category;
+  PlaceMood? _mood = _Unsaved.mood;
+  bool _isAnonymousShare = _Unsaved.anonymous;
   bool _nameMissing = false;
+  var _saved = false;
 
   @override
   void dispose() {
+    // Closed without saving (close button, back, tapping outside): keep it.
+    if (!_saved) {
+      _Unsaved.name = _name.text;
+      _Unsaved.note = _note.text;
+      _Unsaved.category = _category;
+      _Unsaved.mood = _mood;
+      _Unsaved.anonymous = _isAnonymousShare;
+    }
     _name.dispose();
     _note.dispose();
     super.dispose();
@@ -116,15 +151,15 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
       setState(() => _nameMissing = true);
       return;
     }
+    _saved = true;
+    _Unsaved.clear();
     Navigator.pop(
         context,
         PlaceDraft(
           name: name,
           category: _category,
-          moodTag: _moodTag,
+          mood: _mood,
           note: _note.text.trim(),
-          moodLabel: _mood.$1,
-          moodAsset: _mood.$2,
           isAnonymousShare: _isAnonymousShare,
         ));
   }
@@ -138,9 +173,27 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(PlaceSheetText.addTitle, style: AppText.sectionTitle),
-            const SizedBox(height: AppSpacing.xs),
-            const Text(PlaceSheetText.addHelp, style: AppText.meta),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(top: AppSpacing.sm),
+                  child: Text(PlaceSheetText.addTitle,
+                      style: AppText.sectionTitle),
+                ),
+              ),
+              // Always a way back to the map without saving.
+              IconButton(
+                tooltip: PlaceSheetText.closeTooltip,
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded,
+                    color: AppColors.textSecondary),
+              ),
+            ]),
+            Text(
+                widget.pinned
+                    ? PlaceSheetText.addHelpPinned
+                    : PlaceSheetText.addHelp,
+                style: AppText.meta),
             const SizedBox(height: AppSpacing.lg),
             TextField(
               controller: _name,
@@ -164,15 +217,13 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
                   onTap: () => setState(() => _category = value),
                 ),
             ]),
-            const _Section(PlaceSheetText.moodTagLabel),
-            Wrap(spacing: AppSpacing.sm, runSpacing: AppSpacing.sm, children: [
-              for (final moodTag in moodTags)
-                _Choice(
-                  label: moodTag,
-                  selected: _moodTag == moodTag,
-                  onTap: () => setState(() => _moodTag = moodTag),
-                ),
-            ]),
+            const _Section(PlaceSheetText.moodLabel,
+                help: PlaceSheetText.moodHelp),
+            MoodGrid(
+              selected: _mood,
+              // Tapping the chosen one again leaves it unchosen.
+              onChanged: (mood) => setState(() => _mood = mood),
+            ),
             const SizedBox(height: AppSpacing.lg),
             TextField(
               controller: _note,
@@ -180,25 +231,9 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
               maxLines: 4,
               textCapitalization: TextCapitalization.sentences,
               style: AppText.body,
-              decoration: _field(label: PlaceSheetText.noteLabel),
-            ),
-            const _Section(PlaceSheetText.moodLabel),
-            SizedBox(
-              height: 108,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: moodOptions.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (_, index) {
-                  final mood = moodOptions[index];
-                  return _MoodTile(
-                    asset: mood.$2,
-                    label: moodName(mood.$1),
-                    selected: mood == _mood,
-                    onTap: () => setState(() => _mood = mood),
-                  );
-                },
-              ),
+              decoration: _field(
+                  label: PlaceSheetText.noteLabel,
+                  hint: PlaceSheetText.noteHint),
             ),
             const SizedBox(height: AppSpacing.lg),
             SwitchListTile.adaptive(
@@ -247,19 +282,97 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
       );
 }
 
-/// A small label over a group of choices.
-class _Section extends StatelessWidget {
-  const _Section(this.text);
+/// Picks a Nudaeng mood for the map filter: the same six, and "Mọi cảm xúc".
+/// Null when closed without choosing; `(null,)` for every mood.
+Future<(PlaceMood?,)?> showMoodFilterSheet(
+        BuildContext context, PlaceMood? current) =>
+    showAppSheet<(PlaceMood?,)>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(top: AppSpacing.sm),
+                child: Text(PlaceSheetText.filterTitle,
+                    style: AppText.sectionTitle),
+              ),
+            ),
+            IconButton(
+              tooltip: PlaceSheetText.closeTooltip,
+              onPressed: () => Navigator.pop(sheet),
+              icon: const Icon(Icons.close_rounded,
+                  color: AppColors.textSecondary),
+            ),
+          ]),
+          const Text(PlaceSheetText.filterHelp, style: AppText.meta),
+          const SizedBox(height: AppSpacing.lg),
+          MoodGrid(
+            selected: current,
+            onChanged: (mood) => Navigator.pop(sheet, (mood,)),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppSecondaryButton(
+            label: PlaceSheetText.filterAll,
+            compact: true,
+            onPressed: () => Navigator.pop(sheet, (null,)),
+          ),
+        ],
+      ),
+    );
 
-  final String text;
+/// The six Nudaeng moods, three to a row, all in view at once. The chosen
+/// one has Primary Light behind it, a teal outline and a tick; every one
+/// keeps its name under it. Tapping the chosen one again gives null.
+class MoodGrid extends StatelessWidget {
+  const MoodGrid({super.key, required this.selected, required this.onChanged});
+
+  final PlaceMood? selected;
+  final ValueChanged<PlaceMood?> onChanged;
+
+  static const gap = AppSpacing.sm;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding:
-            const EdgeInsets.only(top: AppSpacing.lg, bottom: AppSpacing.sm),
-        child: Text(text,
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        final width = (box.maxWidth - gap * 2) / 3;
+        return Wrap(spacing: gap, runSpacing: gap, children: [
+          for (final mood in PlaceMood.values)
+            SizedBox(
+              width: width,
+              child: _MoodTile(
+                mood: mood,
+                selected: mood == selected,
+                onTap: () => onChanged(mood == selected ? null : mood),
+              ),
+            ),
+        ]);
+      });
+}
+
+/// A small label over a group of choices.
+class _Section extends StatelessWidget {
+  const _Section(this.text, {this.help});
+
+  final String text;
+  final String? help;
+
+  @override
+  Widget build(BuildContext context) {
+    final help = this.help;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.lg, bottom: AppSpacing.sm),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(text,
             style: AppText.label.copyWith(color: AppColors.textSecondary)),
-      );
+        if (help != null) ...[
+          const SizedBox(height: 2),
+          Text(help, style: AppText.meta.copyWith(fontSize: 12)),
+        ],
+      ]),
+    );
+  }
 }
 
 /// One of a few: Primary Light with an outline when chosen, as Journal's
@@ -305,18 +418,16 @@ class _Choice extends StatelessWidget {
       );
 }
 
-/// Nudaeng in one mood, with its name; Primary Light and an outline when
-/// chosen.
+/// Nudaeng in one mood with its name; chosen: Primary Light, a teal outline
+/// and a tick in the corner.
 class _MoodTile extends StatelessWidget {
   const _MoodTile({
-    required this.asset,
-    required this.label,
+    required this.mood,
     required this.selected,
     required this.onTap,
   });
 
-  final String asset;
-  final String label;
+  final PlaceMood mood;
   final bool selected;
   final VoidCallback onTap;
 
@@ -324,69 +435,96 @@ class _MoodTile extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
         button: true,
         selected: selected,
-        label: 'Nudaeng $label',
+        label: 'Nudaeng ${mood.label}',
         excludeSemantics: true,
-        child: Material(
-          color: selected ? AppColors.primaryLight : AppColors.background,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(AppRadius.input),
-            side: BorderSide(
-                color: selected ? AppColors.primaryAction : Colors.transparent,
-                width: 1.5),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: SizedBox(
-              width: 84,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Material(
+            color: selected ? AppColors.primaryLight : AppColors.background,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.input),
+              side: BorderSide(
+                  color:
+                      selected ? AppColors.primaryAction : Colors.transparent,
+                  width: 1.5),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
               child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.sm),
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xs, AppSpacing.sm, AppSpacing.xs, AppSpacing.sm),
                 child: Column(children: [
-                  Expanded(child: Image.asset(asset, fit: BoxFit.contain)),
+                  AspectRatio(
+                    aspectRatio: 1.25,
+                    child: Image.asset(mood.asset,
+                        fit: BoxFit.contain, cacheWidth: 260),
+                  ),
                   const SizedBox(height: AppSpacing.xs),
-                  Text(label,
+                  Text(mood.label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.meta.copyWith(
-                          fontSize: 12,
+                          fontSize: 13,
                           color: selected
                               ? AppColors.primaryAction
-                              : AppColors.textSecondary)),
+                              : AppColors.textPrimary,
+                          fontWeight: selected ? FontWeight.w600 : null)),
                 ]),
               ),
             ),
           ),
-        ),
+          if (selected)
+            const Positioned(
+              top: 6,
+              right: 6,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                    color: AppColors.primaryAction, shape: BoxShape.circle),
+                child: Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(Icons.check_rounded,
+                      size: 14, color: AppColors.surface),
+                ),
+              ),
+            ),
+        ]),
       );
 }
 
-/// Nudaeng in a Primary Light circle, as at the top of a place's sheet.
-class _NudaengBadge extends StatelessWidget {
-  const _NudaengBadge(this.asset);
+/// The place's Nudaeng in a Primary Light circle at the top of its sheet;
+/// without one, what the place is for.
+class _PlaceBadge extends StatelessWidget {
+  const _PlaceBadge(this.place);
 
-  final String asset;
+  final SavedPlace place;
   static const size = 88.0;
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: size,
-        height: size,
-        padding: const EdgeInsets.all(size * .12),
-        decoration: const BoxDecoration(
-            color: AppColors.primaryLight, shape: BoxShape.circle),
-        child: Image.asset(asset, fit: BoxFit.contain),
-      );
+  Widget build(BuildContext context) {
+    final mood = place.mood;
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(size * .1),
+      decoration: const BoxDecoration(
+          color: AppColors.primaryLight, shape: BoxShape.circle),
+      child: mood != null
+          ? Image.asset(mood.asset, fit: BoxFit.contain, cacheWidth: 260)
+          : Icon(categoryIcon(place.category),
+              size: 36, color: AppColors.primaryAction),
+    );
+  }
 }
 
 Future<void> showSavedPlaceSheet(BuildContext context, SavedPlace place,
-        {Future<void> Function()? onShare, Future<void> Function()? onDelete}) =>
+        {Future<void> Function()? onShare}) =>
     showAppSheet<void>(
       context,
       builder: (sheet) => Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Center(child: _NudaengBadge(place.moodAsset)),
+          Center(child: _PlaceBadge(place)),
           const SizedBox(height: AppSpacing.md),
           Text(place.name,
               textAlign: TextAlign.center, style: AppText.sectionTitle),
@@ -398,8 +536,7 @@ Future<void> showSavedPlaceSheet(BuildContext context, SavedPlace place,
             children: [
               for (final tag in [
                 categoryName(place.category),
-                place.moodTag,
-                moodName(place.moodLabel),
+                if (place.mood case final mood?) mood.label,
               ])
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -414,37 +551,6 @@ Future<void> showSavedPlaceSheet(BuildContext context, SavedPlace place,
             const SizedBox(height: AppSpacing.md),
             Text(place.note,
                 textAlign: TextAlign.center, style: AppText.bodySecondary),
-          ],
-          if (onDelete != null) ...[
-            const SizedBox(height: AppSpacing.md),
-            TextButton.icon(
-              onPressed: () async {
-                final confirmed = await showDialog<bool>(
-                  context: sheet,
-                  builder: (dialog) => AlertDialog(
-                    title: const Text('Xóa địa điểm đã lưu?'),
-                    content: const Text(
-                      'Địa điểm và các ghi chú đi kèm sẽ bị xóa khỏi tài khoản.',
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialog, false),
-                        child: const Text('Hủy'),
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialog, true),
-                        child: const Text('Xóa địa điểm'),
-                      ),
-                    ],
-                  ),
-                );
-                if (confirmed != true || !sheet.mounted) return;
-                Navigator.pop(sheet);
-                await onDelete();
-              },
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('Xóa khỏi địa điểm đã lưu'),
-            ),
           ],
           const SizedBox(height: AppSpacing.xl),
           AppPrimaryButton(
@@ -576,27 +682,3 @@ Future<bool?> showInboxSheet(BuildContext context) => showAppSheet<bool>(
         ],
       ),
     );
-
-class SavedPlace {
-  const SavedPlace({
-    required this.id,
-    required this.name,
-    required this.category,
-    required this.moodTag,
-    required this.note,
-    required this.latitude,
-    required this.longitude,
-    required this.moodAsset,
-    required this.moodLabel,
-  });
-
-  final String id;
-  final String name;
-  final String category;
-  final String moodTag;
-  final String note;
-  final double latitude;
-  final double longitude;
-  final String moodAsset;
-  final String moodLabel;
-}

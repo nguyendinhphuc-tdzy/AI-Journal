@@ -123,15 +123,16 @@ class _StreakScreenState extends State<StreakScreen> {
                               : const Duration(milliseconds: 900),
                           curve: Curves.easeInCubic,
                           builder: (context, count, _) => Text(
-                            'Chuỗi ${count.round()} ngày liên tiếp',
+                            'Bạn đã viết nhật ký ${count.round()} ngày liên tục!',
                             textAlign: TextAlign.center,
                             style: AppText.pageTitle
                                 .copyWith(color: AppColors.primaryAction),
                           ),
                         ),
                         const SizedBox(height: 12),
-                        const Text(
-                            'Hãy suy ngẫm mỗi ngày để tâm trí luôn khỏe mạnh và bình yên nhé...',
+                        Text(
+                            'Thật vui khi bạn đã dành thời gian nhìn lại bản '
+                            'thân trong $_newCount ngày qua.',
                             textAlign: TextAlign.center,
                             style: AppText.bodySecondary),
                         const SizedBox(height: 28),
@@ -171,7 +172,8 @@ class _StreakScreenState extends State<StreakScreen> {
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
-              child: AppPrimaryButton(label: 'Tiếp tục', onPressed: _continue),
+              child: AppPrimaryButton(
+                  label: 'Khám phá tiếp', onPressed: _continue),
             ),
           ]),
         ),

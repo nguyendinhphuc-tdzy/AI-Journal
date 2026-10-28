@@ -9,11 +9,9 @@ import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../../navigation/app_shell.dart';
 import '../data/journal_entry.dart';
-import '../data/api_ai_service.dart';
 import '../journal_scope.dart';
 import 'ai_reflection_screen.dart';
 import '../../onboarding/data/onboarding_store.dart';
-import '../../onboarding/data/onboarding_scope.dart';
 import '../../profile/data/writing_preferences.dart';
 import '../../sound/app_sound.dart';
 
@@ -21,11 +19,11 @@ class WriteJournalScreen extends StatefulWidget {
   const WriteJournalScreen({super.key, this.entry});
 
   static const title = 'Nhật ký hôm nay';
-  static const prompt = 'Hôm nay bạn nhận thấy tâm trạng mình thế nào?';
+  static const prompt = 'Hôm nay bạn cảm thấy thế nào?';
   static const followUpPrompt =
-      'Điều gì về chuyện học đang làm bạn nặng lòng lúc này?';
-  static const finishLabel = 'Hoàn tất';
-  static const deeperLabel = 'Suy ngẫm sâu hơn';
+      'Gần đây, điều gì trong chuyện học khiến bạn thấy áp lực?';
+  static const finishLabel = 'Lưu nhật ký';
+  static const deeperLabel = 'Nhìn lại cùng bạn';
   static const confirmTitle = 'Bạn đã hoàn tất chưa?';
   static const confirmBody =
       'Nhật ký sẽ được lưu. Bạn vẫn có thể mở lại để viết tiếp từ Trang chủ.';
@@ -45,8 +43,6 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   final _followUpFocus = FocusNode();
   final _scrollController = ScrollController();
   bool _hasFollowUp = false;
-  bool _askingDeeper = false;
-  String _followUpPrompt = WriteJournalScreen.followUpPrompt;
   JournalPaper _paper = JournalPaper.doPaper;
   bool _hasText = false;
   double _textSize = 16;
@@ -154,33 +150,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     ));
   }
 
-  Future<void> _goDeeper() async {
-    if (_askingDeeper || _hasFollowUp || _controller.text.trim().isEmpty) return;
-    final remote = AiRemoteScope.maybeOf(context);
-    if (remote != null) {
-      if (OnboardingScope.maybeOf(context)?.consentedToRemoteAi != true) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Bạn chưa bật phản hồi AI trong cài đặt.'),
-        ));
-        return;
-      }
-      setState(() => _askingDeeper = true);
-      try {
-        final question = await remote.goDeeper(_controller.text);
-        if (!mounted) return;
-        _followUpPrompt = question;
-      } catch (_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Chưa thể nhận câu hỏi AI. Hãy thử lại.'),
-          ));
-        }
-        return;
-      } finally {
-        if (mounted) setState(() => _askingDeeper = false);
-      }
-    }
-    if (!mounted) return;
+  void _goDeeper() {
+    if (_hasFollowUp || _controller.text.trim().isEmpty) return;
     setState(() => _hasFollowUp = true);
     _preferences?.feedback();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -253,12 +224,9 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     );
     bool useAi;
     try {
-      final remoteAvailable = AiRemoteScope.maybeOf(context) != null;
-      final scoped = OnboardingScope.maybeOf(context);
-      final settings = scoped ?? await OnboardingStore.open();
-      useAi = remoteAvailable
-          ? settings.consentedToRemoteAi
-          : settings.aiEnabled != false;
+      final settings = await OnboardingStore.open();
+      // Preserve the demo's existing flow when no choice has been recorded.
+      useAi = settings.aiEnabled != false;
       if (!mounted) return;
       final journals = JournalScope.of(context);
       _saved = saved == null
@@ -304,9 +272,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => AIReflectionScreen(
+        builder: (_) => AiReflectionScreen(
           journalContent: _entryText,
-          remote: AiRemoteScope.maybeOf(context),
         ),
       ),
     );
@@ -383,7 +350,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                     ),
                                     const SizedBox(height: AppSpacing.xl),
                                     _buildPrompt(
-                                        _followUpPrompt),
+                                        WriteJournalScreen.followUpPrompt),
                                     const SizedBox(height: AppSpacing.md),
                                   ],
                                   _RuledLines(
@@ -414,7 +381,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                       decoration: InputDecoration(
                                         isCollapsed: true,
                                         hintText: _hasFollowUp
-                                            ? 'Viết tại đây...'
+                                            ? 'Chia sẻ suy nghĩ của bạn...'
                                             : 'Bắt đầu viết...',
                                         hintStyle: _writingStyle.copyWith(
                                             color: AppColors.textSecondary),
@@ -547,7 +514,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       label: WriteJournalScreen.deeperLabel,
       icon: Icons.auto_awesome,
       // Something to go deeper on first.
-      onPressed: _askingDeeper || _hasFollowUp || !_hasText ? null : _goDeeper,
+      onPressed: _hasFollowUp || !_hasText ? null : _goDeeper,
       compact: compact,
     );
     if (compact) {

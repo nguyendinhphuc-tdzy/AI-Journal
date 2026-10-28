@@ -325,22 +325,43 @@ background/overlay transitions, ND13 timing, draft retention and large text.
   plugin or location permission yet (needs `pubspec.yaml` and the Android
   manifest, shared files).
 
-## A09 scrapbook browse and timeline
+## A09 scrapbook pile and grid
 
-- Back, the album name (kept current) and "Cài đặt album" (A03); "Thêm kỷ
-  niệm" (A06) docked at the bottom; "N kỷ niệm" with a small still Nudaeng
-  when there is room (never a large one behind the cards).
-- Stack: the front card (photo cropped as a thumbnail, title, date, two lines
-  of note; note-only: tape and the note on faint ruled lines) and at most two
-  behind, of which only a strip shows (thumbnail, title, date; never their
-  notes). Tap → A08.
-- Browse: a vertical drag that starts on the stack (follows the finger,
-  limited to 80 px, eases back when let go) moves after 48 px; the change
-  slides and fades (320 ms; reduced motion: at once). "Trước" / "Sau" with
-  "1 / N" do the same; at either end the button is disabled and the line
-  under them says "Đây là kỷ niệm mới nhất / cũ nhất".
-- "Xem tất cả": a static timeline by month (virtualized), 20 at a time with
-  "Xem thêm kỷ niệm". "Xếp chồng" goes back.
+- Back, the album name (kept current) and "Cài đặt album" (A03); "+ Thêm kỷ
+  niệm" (A06) docked at the bottom, the pile ending above it; "N kỷ niệm"
+  with a small still Nudaeng when there is room.
+- Each memory on ivory paper, no border. The date small on top ("28 tháng
+  10, 2026"), the photo at its own proportions (never cropped beyond
+  0.6–2:1) with its height giving way so the title (2 lines) and note (3
+  lines) always show, left aligned. Note-only memories are a text card only
+  as tall as its words. One strip of tape over the top edge (cream, mint or
+  striped, the same for a memory each time) and a small Nudaeng sticker off
+  the bottom corner, never over the words. Tap the top one → A08.
+- A pile of photos on a table: the memory shown on top, the next two under
+  it, each a little lower, off to one side and turned (±3°, the same for a
+  memory each time; the top one only a quarter of that). No gap between
+  them; what shows of the ones under says there are more.
+- Pick up the top photo and drag it anywhere: it follows the finger, turns
+  with where it was gripped (above or below the middle) and lifts (scale
+  1.03, a larger and softer shadow). Let go past 30 % of its width, or throw
+  it (900 px/s the way it was moving): it flies off, turning over to show
+  the back of the paper, and the ones under it move up. Otherwise it settles
+  back (a small overshoot). Pull down instead: the previous photo comes down
+  from above face down and turns over as it lands (past 30 % of the room or
+  700 px/s), else goes back up. The last photo, and a pull down on the
+  first, only give a little.
+- Each turn plays the interface's page-turn sound (`SoundCue.pageTurn`, so it
+  follows the sound settings) with a light haptic tap, once, when the finger
+  lifts. A drag that settles back, or the app moving the pile itself (a
+  memory added before it), is silent.
+- Reduced motion: no flying or turning over; the change is at once. Screen
+  readers get "Kỷ niệm tiếp theo" / "Kỷ niệm trước" custom actions. Only a
+  small "02 / 03" under the pile (read out as "Kỷ niệm 2 trên 3").
+- "Xem tất cả": a grid by month (two columns: photo or note, title, date),
+  20 at a time with "Xem thêm kỷ niệm". "Xấp ảnh" goes back to the photo
+  that was on top.
+- Artwork: `assets/images/scrapbook/` (tapes, Nudaeng hugging a photo),
+  decoded at a small size (`cacheWidth`).
 - Order from the repository: memory date, then creation, then id, newest
   first. Back from A08 keeps the card (by id), the mode and the list scroll.
 - A05 and A09 share one route: an empty album shows A05, one with memories
@@ -444,8 +465,14 @@ background/overlay transitions, ND13 timing, draft retention and large text.
   A04 first when locked.
 - States: skeleton on first load; a failed first load says so with "Thử
   lại" (never shown as an empty library); a failed refresh keeps the albums
-  shown with a notice. No album: Nudaeng holding a book over a paper card,
-  "Chưa có album nào", and the dock's "Tạo album".
+  shown with a notice. No album: one group a little above the middle (it
+  scrolls when space is short): the first page of a scrapbook (ivory paper,
+  two small white frames with a drawn sky and a drawn flower, never anything
+  like a user's photo; a mint and a striped strip of tape; Nudaeng hugging a
+  photo in the corner), "Những điều nhỏ, đáng nhớ", one line of invitation
+  and "+ Tạo album đầu tiên" right under it. The dock is hidden then, so the
+  button stays with its words. An album with no memory yet has its own page
+  (A05).
 - Background: teal-mint sky in theme colours (falls back to Background
   Mint). The floating Nudaeng of "Background 2" shows faintly only while
   there are one or two albums.
@@ -467,7 +494,8 @@ background/overlay transitions, ND13 timing, draft retention and large text.
 - `album-bg-nudaeng.png`: Nudaeng from "Background 2.png" without the slate
   frame and cyan square; the app paints the sky.
 - `album-empty-nudaeng.png`: first frame of "Chú chó ôm sách đầy yêu
-  thương-transparent.gif".
+  thương-transparent.gif" (no longer shown on A01; A01's empty page uses
+  `images/scrapbook/nudaeng-hugging-photo.png`).
 - `album-theme-<id>.png`: theme poses from
   `tool/artwork_sources/album-themes/` (copied from the supplied Nudaeng
   images), backdrop and copyright line removed, at most 360 px.

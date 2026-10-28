@@ -84,9 +84,9 @@ void main() {
     await select(tester, '24 px');
     await tester.tap(find.byTooltip('Đóng'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+    await tester.ensureVisible(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cùng suy ngẫm'));
+    await tester.tap(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
     expect(
         tester.widget<TextField>(find.byType(TextField)).style!.fontSize, 24);
@@ -105,12 +105,12 @@ void main() {
     final journals = InMemoryJournalRepository();
     await tester.pumpWidget(AiDiaryApp(journals: journals));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+    await tester.ensureVisible(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cùng suy ngẫm'));
+    await tester.tap(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Today I feel peaceful.');
-    await tester.tap(find.text('Hoàn tất'));
+    await tester.tap(find.text('Lưu nhật ký'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Xác nhận'));
     await tester.pumpAndSettle();

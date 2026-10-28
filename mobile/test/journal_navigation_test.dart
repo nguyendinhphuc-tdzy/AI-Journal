@@ -15,9 +15,9 @@ Future<void> _openJournal(WidgetTester tester) async {
   addTearDown(tester.view.resetPadding);
   await tester.pumpWidget(const AiDiaryApp());
   await tester.pumpAndSettle();
-  await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+  await tester.ensureVisible(find.text('Viết nhật ký'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Cùng suy ngẫm'));
+  await tester.tap(find.text('Viết nhật ký'));
   await tester.pumpAndSettle();
 }
 
@@ -32,22 +32,22 @@ void main() {
     for (final child in [
       find.text('Nhật ký hôm nay'),
       find.byType(TextField),
-      find.text('Hoàn tất'),
-      find.text('Suy ngẫm sâu hơn'),
+      find.text('Lưu nhật ký'),
+      find.text('Nhìn lại cùng bạn'),
     ]) {
       final rect = tester.getRect(child);
       expect(page.contains(rect.topLeft), isTrue);
       expect(page.contains(rect.bottomRight), isTrue);
     }
     // The actions sit above the home indicator.
-    expect(tester.getRect(find.text('Hoàn tất')).bottom,
+    expect(tester.getRect(find.text('Lưu nhật ký')).bottom,
         lessThanOrEqualTo(915 - 34));
     expect(find.byIcon(Icons.attach_file), findsNothing);
     expect(find.byIcon(Icons.image_outlined), findsOneWidget);
     expect(find.byIcon(Icons.mic_none_outlined), findsOneWidget);
     // Nothing to go deeper on yet.
     FilledButton deeper() => tester.widget<FilledButton>(find.ancestor(
-        of: find.text('Suy ngẫm sâu hơn'),
+        of: find.text('Nhìn lại cùng bạn'),
         matching: find.byType(FilledButton)));
     expect(deeper().onPressed, isNull);
     await tester.enterText(find.byType(TextField), 'Một ngày yên.');

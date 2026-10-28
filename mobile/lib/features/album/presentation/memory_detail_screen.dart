@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_delete_dialog.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../../onboarding/presentation/frame_sequence.dart';
 import '../album_scope.dart';
 import '../data/album.dart';
@@ -16,7 +19,7 @@ import 'album_form_parts.dart';
 
 /// A08: one memory on a sheet of paper over the Album scene.
 ///
-/// - Back and a "More" menu (Sửa, Xóa). Title when there is one (display
+/// - Back and a "More" sheet (Sửa, Chia sẻ, Xóa). Title when there is one (display
 ///   font), the date as a chip, the photo whole (its own proportions, never
 ///   cropped, never anything drawn over it), the note in the body font, the
 ///   place as a chip (E04), and "Chia sẻ trong 24 giờ" (A10) unless the album
@@ -66,6 +69,8 @@ class MemoryDetailScreen extends StatefulWidget {
   static const lockedShare =
       'Album đang khóa nên kỷ niệm này không chia sẻ được. Tắt khóa trong '
       'Cài đặt album nếu muốn chia sẻ.';
+  static const lockedShareShort =
+      'Album đang khóa. Tắt khóa trong Cài đặt album để chia sẻ.';
   static const gone = 'Kỷ niệm này không còn nữa.';
   static String sharedUntil(DateTime at) {
     final t = at.toLocal();
@@ -222,6 +227,63 @@ class _MemoryDetailScreenState extends State<MemoryDetailScreen>
     }
   }
 
+  /// Sửa, Chia sẻ, Xóa in the app's sheet, as the photo's options. In a
+  /// locked album sharing is shown off, saying why.
+  Future<void> _options(Memory memory) async {
+    final active = _active;
+    final locked = widget.album.locked;
+    final choice = await showAppSheet<String>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(MemoryDetailScreen.moreTooltip,
+              style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.md),
+          AlbumSheetAction(
+            icon: Icons.edit_outlined,
+            label: MemoryDetailScreen.editLabel,
+            onTap: () => Navigator.pop(sheet, 'edit'),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          if (active != null && widget.onManagePost != null)
+            AlbumSheetAction(
+              icon: Icons.public_rounded,
+              label: MemoryDetailScreen.manageLabel,
+              note: MemoryDetailScreen.sharedUntil(active.expiresAt),
+              onTap: () => Navigator.pop(sheet, 'manage'),
+            )
+          else
+            AlbumSheetAction(
+              icon: Icons.share_location_outlined,
+              label: MemoryDetailScreen.shareLabel,
+              note: locked ? MemoryDetailScreen.lockedShareShort : null,
+              onTap: locked ? null : () => Navigator.pop(sheet, 'share'),
+            ),
+          const SizedBox(height: AppSpacing.sm),
+          AlbumSheetAction(
+            icon: Icons.delete_outline_rounded,
+            label: MemoryDetailScreen.deleteLabel,
+            color: AppDeleteDialog.destructive,
+            onTap: () => Navigator.pop(sheet, 'delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || _deleted) return;
+    switch (choice) {
+      case 'edit':
+        _edit();
+      case 'share':
+        widget.onShare(memory);
+      case 'manage':
+        if (active != null) _manage(active);
+      case 'delete':
+        _delete();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final memory = _memory;
@@ -236,25 +298,10 @@ class _MemoryDetailScreenState extends State<MemoryDetailScreen>
             style: AlbumFormText.title),
         actions: [
           if (memory != null)
-            PopupMenuButton<String>(
+            IconButton(
               tooltip: MemoryDetailScreen.moreTooltip,
               icon: const Icon(Icons.more_vert_rounded),
-              enabled: !_deleted,
-              onSelected: (value) => value == 'edit' ? _edit() : _delete(),
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                    value: 'edit',
-                    child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.edit_outlined),
-                        title: Text(MemoryDetailScreen.editLabel))),
-                PopupMenuItem(
-                    value: 'delete',
-                    child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.delete_outline_rounded),
-                        title: Text(MemoryDetailScreen.deleteLabel))),
-              ],
+              onPressed: _deleted ? null : () => _options(memory),
             ),
         ],
       ),

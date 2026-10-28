@@ -15,7 +15,7 @@ void main() {
     StreakState.shared.reset();
   });
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
-    for (final action in ['Hoàn tất', 'Suy ngẫm sâu hơn']) {
+    for (final action in ['Lưu nhật ký', 'Nhìn lại cùng bạn']) {
       testWidgets('$action follows full reflection flow at $size',
           (tester) async {
         tester.view.devicePixelRatio = 1;
@@ -26,15 +26,15 @@ void main() {
         await tester.pumpAndSettle();
         final originalHome = tester.element(find.byType(HomeScreen));
         final expectedStreak = StreakState.shared.nextCount;
-        await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+        await tester.ensureVisible(find.text('Viết nhật ký'));
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Cùng suy ngẫm'));
+        await tester.tap(find.text('Viết nhật ký'));
         await tester.pumpAndSettle();
         expect(find.byType(WriteJournalScreen), findsOneWidget);
         await tester.enterText(find.byType(TextField), 'A quiet moment today.');
         // Going deeper turns on once there is something written.
         await tester.pump();
-        if (action != 'Hoàn tất') {
+        if (action != 'Lưu nhật ký') {
           await tester.tap(find.text(action));
           await tester.pumpAndSettle();
           expect(find.byType(AiReflectionScreen), findsNothing);
@@ -43,14 +43,14 @@ void main() {
           await tester.enterText(
               find.byType(TextField), 'School feels overwhelming.');
         }
-        await tester.tap(find.text('Hoàn tất'));
+        await tester.tap(find.text('Lưu nhật ký'));
         await tester.pumpAndSettle();
         expect(find.text('Bạn đã hoàn tất chưa?'), findsOneWidget);
         expect(find.byType(AiReflectionScreen), findsNothing);
         await tester.tap(find.text('Quay lại'));
         await tester.pumpAndSettle();
         expect(find.text('Bạn đã hoàn tất chưa?'), findsNothing);
-        await tester.tap(find.text('Hoàn tất'));
+        await tester.tap(find.text('Lưu nhật ký'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Xác nhận'));
         await tester.pumpAndSettle();
@@ -58,7 +58,7 @@ void main() {
             tester
                 .widget<AiReflectionScreen>(find.byType(AiReflectionScreen))
                 .journalContent,
-            action == 'Hoàn tất'
+            action == 'Lưu nhật ký'
                 ? 'A quiet moment today.'
                 : 'A quiet moment today.\n\nSchool feels overwhelming.');
 
@@ -67,10 +67,10 @@ void main() {
         await tester.pumpAndSettle();
         expect(
             tester.widget<TextField>(find.byType(TextField)).controller!.text,
-            action == 'Hoàn tất'
+            action == 'Lưu nhật ký'
                 ? 'A quiet moment today.'
                 : 'School feels overwhelming.');
-        await tester.tap(find.text('Hoàn tất'));
+        await tester.tap(find.text('Lưu nhật ký'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Xác nhận'));
         await tester.pumpAndSettle();
@@ -87,9 +87,9 @@ void main() {
         expect(find.byType(StreakScreen), findsOneWidget);
         expect(ModalRoute.of(tester.element(find.byType(StreakScreen))),
             isA<PageRouteBuilder<void>>());
-        expect(
-            find.text('Chuỗi $expectedStreak ngày liên tiếp'), findsOneWidget);
-        await tester.tap(find.text('Tiếp tục'));
+        expect(find.text('Bạn đã viết nhật ký $expectedStreak ngày liên tục!'),
+            findsOneWidget);
+        await tester.tap(find.text('Khám phá tiếp'));
         await tester.pumpAndSettle();
         expect(tester.element(find.byType(HomeScreen)), same(originalHome));
         // Home's streak pill (back at the top of Home): short text, the
@@ -113,12 +113,12 @@ void main() {
   testWidgets('A second entry the same day goes Home without the streak',
       (tester) async {
     Future<void> writeEntry(String text) async {
-      await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+      await tester.ensureVisible(find.text('Viết nhật ký'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Cùng suy ngẫm'));
+      await tester.tap(find.text('Viết nhật ký'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), text);
-      await tester.tap(find.text('Hoàn tất'));
+      await tester.tap(find.text('Lưu nhật ký'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Xác nhận'));
       await tester.pumpAndSettle();
@@ -137,7 +137,7 @@ void main() {
 
     await writeEntry('Buổi sáng yên.');
     expect(find.byType(StreakScreen), findsOneWidget);
-    await tester.tap(find.text('Tiếp tục'));
+    await tester.tap(find.text('Khám phá tiếp'));
     await tester.pumpAndSettle();
     expect(StreakState.shared.completedToday, isTrue);
 

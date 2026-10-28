@@ -78,3 +78,19 @@ class AppTheme {
     );
   }
 }
+
+/// How every list scrolls in the app: it stops at its ends, without the
+/// stretch (Android 12+) or bounce (iOS) when pulled past them, so pages
+/// never look like they are being pulled out of shape.
+class AppScrollBehavior extends MaterialScrollBehavior {
+  const AppScrollBehavior();
+
+  @override
+  Widget buildOverscrollIndicator(
+          BuildContext context, Widget child, ScrollableDetails details) =>
+      child;
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      const ClampingScrollPhysics();
+}

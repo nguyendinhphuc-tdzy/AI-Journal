@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/data/app_data.dart';
-import 'data/api_ai_service.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
@@ -13,12 +12,9 @@ import '../streak/streak_state.dart';
 enum _ReflectionStage { loading, quote, insight }
 
 class AIReflectionScreen extends StatefulWidget {
-  const AIReflectionScreen({super.key, required this.journalContent, this.remote});
+  const AIReflectionScreen({super.key, required this.journalContent});
 
   final String journalContent;
-
-  /// Real backend AI service when authenticated and opted in.
-  final ApiAIService? remote;
 
   @override
   State<AIReflectionScreen> createState() => _AIReflectionScreenState();
@@ -30,9 +26,6 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   bool _quoteSaved = false;
   bool? _helpful;
   bool _openingStreak = false;
-  AiAnalysis? _analysis;
-  bool _aiFailed = false;
-  int _aiRequest = 0;
 
   void _saveQuote() {
     if (_quoteSaved) return;
@@ -52,7 +45,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
       'Thg 12'
     ];
     const content =
-        'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.';
+        'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.';
     // One card per quote: saved again, it moves to the top with today's time.
     savedThisWeekItems.value = [
       {
@@ -78,47 +71,12 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.remote != null) {
-      _loadRemote();
-      return;
-    }
     // The pause while the entry is read. The quote then stays until the
     // reader moves on (Tiếp tục): never taken away mid-read.
     Future<void>.delayed(const Duration(seconds: 3), () {
       if (!mounted || _stage != _ReflectionStage.loading) return;
       setState(() => _stage = _ReflectionStage.quote);
     });
-  }
-
-  Future<void> _loadRemote() async {
-    final remote = widget.remote;
-    if (remote == null) return;
-    final request = ++_aiRequest;
-    setState(() {
-      _stage = _ReflectionStage.loading;
-      _aiFailed = false;
-      _analysis = null;
-    });
-    try {
-      final analysis = await remote.analyze(widget.journalContent);
-      if (!mounted || request != _aiRequest) return;
-      setState(() {
-        _analysis = analysis;
-        _stage = _ReflectionStage.insight;
-      });
-    } catch (_) {
-      if (!mounted || request != _aiRequest) return;
-      setState(() {
-        _aiFailed = true;
-        _stage = _ReflectionStage.insight;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _aiRequest++;
-    super.dispose();
   }
 
   void _showInsight() {
@@ -177,7 +135,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                       children: [
                         Text(
                           quote
-                              ? 'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'
+                              ? 'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'
                               : 'Hãy hít thở thật sâu và thư giãn tâm trí trong lúc chúng mình đọc nhật ký của bạn nhé...',
                           textAlign: TextAlign.center,
                           style: AppText.pageTitle.copyWith(
@@ -273,12 +231,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 Semantics(
                   header: true,
-                  child: Text(
-                    widget.remote == null
-                        ? 'Né tránh chuyện học hành'
-                        : (_analysis?.emotion ?? 'Phản hồi AI'),
-                    style: AppText.pageTitle,
-                  ),
+                  child: const Text('Chuyện học hành đang khiến bạn áp lực?',
+                      style: AppText.pageTitle),
                 ),
                 const SizedBox(height: AppSpacing.xl),
                 Container(
@@ -302,65 +256,53 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                         : widget.journalContent,
                     style: AppText.body.copyWith(height: 1.7),
                   )
-                else if (widget.remote != null) ...[
-                  if (_aiFailed || _analysis == null) ...[
-                    const Text(
-                      'Phản hồi AI chưa sẵn sàng. Bạn có thể thử lại; '
-                      'chúng mình sẽ không hiển thị phân tích mô phỏng thay cho AI thật.',
-                      style: AppText.body,
-                    ),
-                    const SizedBox(height: 16),
-                    AppSecondaryButton(
-                      onPressed: _loadRemote,
-                      label: 'Thử lại AI',
-                    ),
-                  ] else ...[
-                    Text(_analysis!.reflection, style: AppText.body.copyWith(height: 1.7)),
-                    const SizedBox(height: 32),
-                    _buildSectionTitle(Icons.push_pin_outlined, 'Chúng mình nhận thấy rằng'),
-                    const SizedBox(height: 12),
-                    Text(_analysis!.observation, style: AppText.body.copyWith(height: 1.7)),
-                    const SizedBox(height: 28),
-                    _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
-                    const SizedBox(height: 12),
-                    Text(_analysis!.emotion, style: AppText.body.copyWith(height: 1.7)),
-                    const SizedBox(height: 28),
-                    _buildSectionTitle(Icons.question_answer_outlined, 'Một câu hỏi cho bạn'),
-                    const SizedBox(height: 12),
-                    Text(_analysis!.question, style: AppText.body.copyWith(height: 1.7)),
+                else ...[
+                  // Mock insight for the prototype; replace with the API response.
+                  for (final (i, paragraph) in const [
+                    'Bạn chia sẻ rằng gần đây mình đang cố gắng không nghĩ đến '
+                        'chuyện học. Có thể bạn đang có nhiều việc phải lo, hoặc '
+                        'đơn giản là chưa muốn đối diện với những điều còn dang dở. '
+                        'Đôi khi, tạm gác một vấn đề sang một bên cũng là cách để '
+                        'chúng ta có thêm thời gian suy nghĩ.',
+                    'Nếu muốn, bạn có thể thử nhìn lại một chút: Điều gì trong '
+                        'chuyện học đang khiến bạn ngại nghĩ đến nhất? Khối lượng '
+                        'bài tập, kỳ vọng về kết quả, hay một lý do khác?',
+                    'Bạn không nhất thiết phải tìm ra câu trả lời ngay lúc này.',
+                  ].indexed) ...[
+                    if (i > 0) const SizedBox(height: AppSpacing.md),
+                    Text(paragraph, style: AppText.body.copyWith(height: 1.7)),
                   ],
-                ] else ...[
-                  // Device-only preview; authenticated AI never shows this text.
-                  Text(
-                    'Có lẽ chuyện học hành đang trở thành một gánh nặng trong lòng bạn. '
-                    'Ngay cả khi nghĩ về nó, bạn cũng có thể cảm thấy áp lực, bối rối, '
-                    'hoặc có những cảm xúc khó gọi thành tên. Giữ một khoảng cách đôi khi '
-                    'là cách để bạn kịp thở. Bạn không cần phải giải quyết mọi thứ ngay lập tức. '
-                    'Nhận ra điều gì đang nặng lòng và cho mình không gian để gọi tên nó '
-                    'có thể là một khởi đầu dịu dàng.',
-                    style: AppText.body.copyWith(height: 1.7),
-                  ),
                   const SizedBox(height: 32),
                   _buildSectionTitle(
-                      Icons.push_pin_outlined, 'Chúng mình nhận thấy rằng'),
+                      Icons.push_pin_outlined, 'Điều chúng mình nhận thấy'),
                   const SizedBox(height: 12),
                   Text(
-                    'Chuyện học hành đang mang nhiều cảm xúc đến mức tâm trí bạn muốn giữ một khoảng cách để tự bảo vệ mình.',
+                    'Bạn đang có xu hướng tránh nghĩ đến chuyện học. Tuy nhiên, '
+                    'từ những gì bạn chia sẻ, vẫn chưa rõ điều gì khiến bạn cảm '
+                    'thấy như vậy.',
                     style: AppText.body.copyWith(height: 1.7),
                   ),
                   const SizedBox(height: 28),
                   _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
                   const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    decoration: const ShapeDecoration(
-                      color: AppColors.primaryLight,
-                      shape: StadiumBorder(),
-                    ),
-                    child: const Text('😕  Bồn chồn · né tránh chuyện học hành',
-                        style: AppText.body),
-                  ),
+                  Wrap(
+                      spacing: AppSpacing.sm,
+                      runSpacing: AppSpacing.sm,
+                      children: [
+                        for (final tag in const [
+                          '😕  Tâm trạng: Bồn chồn',
+                          'Chủ đề: Áp lực học tập',
+                        ])
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 12),
+                            decoration: const ShapeDecoration(
+                              color: AppColors.primaryLight,
+                              shape: StadiumBorder(),
+                            ),
+                            child: Text(tag, style: AppText.body),
+                          ),
+                      ]),
                 ],
               ],
             ),

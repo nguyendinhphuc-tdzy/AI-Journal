@@ -74,12 +74,12 @@ void main() {
       expect(AlbumRoutes.unshared.value, isNull);
       expect(tester.widget<ExploreScreen>(find.byType(ExploreScreen)).highlight,
           isNull);
-      // A mood chip keeps that mood; tapped again, every mood is back.
-      final calm = find.widgetWithText(MapMoodChip, 'Yên tĩnh');
+      // A filter chip keeps those places; tapped again, every place is back.
+      final calm = find.widgetWithText(MapMoodChip, 'Thư giãn');
       await tester.ensureVisible(calm);
       await tester.tap(calm);
       await tester.pumpAndSettle();
-      expect(find.textContaining('Đang xem: Yên tĩnh · 1 địa điểm'),
+      expect(find.textContaining('Đang xem: Thư giãn · 1 địa điểm'),
           findsOneWidget);
       await tester.tap(calm);
       await tester.pumpAndSettle();

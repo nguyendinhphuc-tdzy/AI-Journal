@@ -1,3 +1,4 @@
+import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/home/presentation/home_screen.dart';
 import 'package:ai_diary/features/profile/profile_screen.dart';
 import 'package:ai_diary/main.dart';
@@ -35,10 +36,20 @@ void main() {
     expect(find.text(JournalingExperience.occasional.label), findsNothing);
     final scrollable = find.descendant(
         of: find.byType(ProfileScreen), matching: find.byType(Scrollable));
-    await tester.scrollUntilVisible(find.text('Nhắc nhở mỗi ngày'), 100,
+    await tester.scrollUntilVisible(find.text('Biểu tượng ứng dụng'), 100,
         scrollable: scrollable);
     expect(find.text('Đã chọn không dùng AI'), findsNothing);
-    expect(find.text('buổi sáng: 07:30\nbuổi tối: 21:15'), findsOneWidget);
+    // Settings that open nothing yet are not listed.
+    for (final gone in [
+      'Gói Nudaeng Plus',
+      'Nhắc nhở mỗi ngày',
+      'Ngôn ngữ',
+      'Bảo mật',
+      'Thông tin',
+      'Biểu tượng đặc biệt',
+    ]) {
+      expect(find.text(gone, skipOffstage: false), findsNothing);
+    }
     await tester.tap(find.byTooltip('Đóng'));
     await tester.pumpAndSettle();
     expect(store.completed, isTrue);
@@ -62,10 +73,22 @@ void main() {
     ]) {
       expect(find.text(removed), findsNothing);
     }
-    await tester.scrollUntilVisible(find.text('Nhắc nhở mỗi ngày'), 100);
-    expect(find.text('Chưa có lịch nhắc đã lưu'), findsOneWidget);
+
     expect(store.aiEnabled, isNull);
     expect(store.completed, isFalse);
+  });
+
+  testWidgets('Lists stop at their ends: no stretch, no bounce',
+      (tester) async {
+    await tester.pumpWidget(const AiDiaryApp());
+    await tester.pumpAndSettle();
+    final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(app.scrollBehavior, isA<AppScrollBehavior>());
+    final context = tester.element(find.byType(HomeScreen));
+    expect(app.scrollBehavior!.getScrollPhysics(context),
+        isA<ClampingScrollPhysics>());
+    expect(find.byType(StretchingOverscrollIndicator), findsNothing);
+    expect(find.byType(GlowingOverscrollIndicator), findsNothing);
   });
 
   for (final size in [
@@ -87,28 +110,16 @@ void main() {
       expect(find.byType(ProfileScreen), findsOneWidget);
       expect(find.text('Hồ sơ'), findsOneWidget);
       expect(find.text('Cài đặt chung'), findsOneWidget);
-      expect(find.text('Gói Nudaeng Plus'), findsOneWidget);
       // Left-aligned rows in a card, as elsewhere in the app: every name
       // starts at one edge, after its icon, in the left half.
-      final nameLeft = tester.getTopLeft(find.text('Gói Nudaeng Plus')).dx;
+      final nameLeft = tester.getTopLeft(find.text('Bạn bè gọi bạn là gì?')).dx;
       expect(
           nameLeft, lessThan(tester.getCenter(find.byType(ProfileScreen)).dx));
-      expect(tester.getTopLeft(find.text('Bạn bè gọi bạn là gì?')).dx,
+      expect(tester.getTopLeft(find.text('Chọn con đường truyền cảm hứng')).dx,
           closeTo(nameLeft, .01));
       expect(tester.takeException(), isNull);
       final scrollable = find.descendant(
           of: find.byType(ProfileScreen), matching: find.byType(Scrollable));
-      await tester.scrollUntilVisible(find.text('Khóa bằng mật mã'), 150,
-          scrollable: scrollable);
-      // Not built yet: said with "Sắp có", never a struck-through name.
-      expect(
-          tester.widget<Text>(find.text('Khóa bằng mật mã')).style!.decoration,
-          isNot(TextDecoration.lineThrough));
-      expect(
-          find.descendant(
-              of: find.byKey(const ValueKey('setting-item-lock with passcode')),
-              matching: find.text('Sắp có')),
-          findsOneWidget);
       await tester.scrollUntilVisible(
           find.byKey(const ValueKey('app-icon-1')), 150,
           scrollable: scrollable);
@@ -121,18 +132,10 @@ void main() {
       expect(
           tester.getCenter(find.byKey(const ValueKey('selected-icon-dot'))).dx,
           tester.getCenter(find.byKey(const ValueKey('app-icon-1'))).dx);
-      await tester.scrollUntilVisible(
-          find.byKey(const ValueKey('app-icon-4')), 100,
-          scrollable: scrollable);
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const ValueKey('app-icon-4')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('app-icon-4')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('selected-icon-dot')), findsOneWidget);
-      expect(
-          tester.getCenter(find.byKey(const ValueKey('selected-icon-dot'))).dx,
-          tester.getCenter(find.byKey(const ValueKey('app-icon-4'))).dx);
+      // Three Nudaeng icons, named for screen readers; no fourth.
+      expect(find.byKey(const ValueKey('app-icon-2')), findsOneWidget);
+      expect(find.byKey(const ValueKey('app-icon-3')), findsNothing);
+      expect(find.bySemanticsLabel('Nudaeng bình yên'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.tap(find.byTooltip('Đóng'));
       await tester.pumpAndSettle();
