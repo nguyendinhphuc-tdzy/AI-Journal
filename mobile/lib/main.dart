@@ -42,6 +42,11 @@ Future<void> main() async {
       url: AppConfig.supabaseUrl,
       publishableKey: AppConfig.supabasePublishableKey,
     );
+    // For emulator demos: explicitly require a fresh sign-in on every app start.
+    // Supabase session persistence is otherwise intentional by default.
+    if (const bool.fromEnvironment('FORCE_LOGIN_ON_START')) {
+      await Supabase.instance.client.auth.signOut();
+    }
     runApp(AiDiaryApp(
       auth: SupabaseAuthService(Supabase.instance.client),
     ));
