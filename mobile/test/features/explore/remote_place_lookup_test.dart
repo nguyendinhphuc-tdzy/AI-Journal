@@ -4,8 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:mobile/core/network/api_client.dart';
-import 'package:mobile/features/explore/data/place_lookup.dart';
+import 'package:ai_diary/core/network/api_client.dart';
+import 'package:ai_diary/features/explore/data/place_lookup.dart';
 
 void main() {
   test('authenticated search returns real candidates, never sample', () async {
