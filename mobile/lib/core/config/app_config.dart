@@ -26,5 +26,14 @@ class AppConfig {
   // Supabase session. Never enabled by default for existing device journals.
   static const bool journalCloudEnabled =
       bool.fromEnvironment('JOURNAL_CLOUD_ENABLED');
+  /// Opt-in for server Album/Memory. Existing local albums are never hidden.
+  /// Note-only Memory support until private photo storage is implemented.
+  static const bool albumCloudEnabled =
+      bool.fromEnvironment('ALBUM_CLOUD_ENABLED');
+
+  /// Private Saved Places and Place Notes, not anonymous community sharing.
+  static const bool placesCloudEnabled =
+      bool.fromEnvironment('PLACES_CLOUD_ENABLED');
+
   static const String oauthRedirectUrl = 'aijournal://auth-callback/';
 }

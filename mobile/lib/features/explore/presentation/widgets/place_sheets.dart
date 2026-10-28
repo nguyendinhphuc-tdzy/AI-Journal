@@ -379,7 +379,7 @@ class _NudaengBadge extends StatelessWidget {
 }
 
 Future<void> showSavedPlaceSheet(BuildContext context, SavedPlace place,
-        {Future<void> Function()? onShare}) =>
+        {Future<void> Function()? onShare, Future<void> Function()? onDelete}) =>
     showAppSheet<void>(
       context,
       builder: (sheet) => Column(
@@ -414,6 +414,37 @@ Future<void> showSavedPlaceSheet(BuildContext context, SavedPlace place,
             const SizedBox(height: AppSpacing.md),
             Text(place.note,
                 textAlign: TextAlign.center, style: AppText.bodySecondary),
+          ],
+          if (onDelete != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            TextButton.icon(
+              onPressed: () async {
+                final confirmed = await showDialog<bool>(
+                  context: sheet,
+                  builder: (dialog) => AlertDialog(
+                    title: const Text('Xóa địa điểm đã lưu?'),
+                    content: const Text(
+                      'Địa điểm và các ghi chú đi kèm sẽ bị xóa khỏi tài khoản.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialog, false),
+                        child: const Text('Hủy'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialog, true),
+                        child: const Text('Xóa địa điểm'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed != true || !sheet.mounted) return;
+                Navigator.pop(sheet);
+                await onDelete();
+              },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Xóa khỏi địa điểm đã lưu'),
+            ),
           ],
           const SizedBox(height: AppSpacing.xl),
           AppPrimaryButton(

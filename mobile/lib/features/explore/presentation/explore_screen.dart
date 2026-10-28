@@ -11,6 +11,7 @@ import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../data/explore_highlight.dart';
 import '../data/explore_places_repository.dart';
+import '../data/remote_saved_places_repository.dart';
 import 'map_style.dart';
 import 'widgets/map_overlay_parts.dart';
 import 'widgets/nudaeng_map_marker.dart';
@@ -121,6 +122,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     ),
   ];
   int _nextSavedPlaceId = 3;
+  RemoteSavedPlacesRepository? _cloudPlaces;
   bool _hasUnreadMail = true;
   bool _showAnonymous = false;
 
@@ -155,6 +157,36 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _isNight =
         ExploreMapStyle.isNightAt(widget.clock?.call() ?? DateTime.now());
     _search();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final cloud = SavedPlacesScope.maybeOf(context);
+    if (cloud == null || identical(cloud, _cloudPlaces)) return;
+    _cloudPlaces = cloud;
+    // Authenticated cloud screens never display the three local demo pins.
+    setState(() {
+      _savedPlaces.clear();
+    });
+    _syncMarkers();
+    _reloadSavedPlaces();
+  }
+
+  Future<void> _reloadSavedPlaces() async {
+    final cloud = _cloudPlaces;
+    if (cloud == null) return;
+    try {
+      final items = await cloud.all();
+      if (!mounted || !identical(cloud, _cloudPlaces)) return;
+      setState(() {
+        _savedPlaces..clear()..addAll(items);
+      });
+      await _syncMarkers();
+    } catch (_) {
+      if (!mounted || !identical(cloud, _cloudPlaces)) return;
+      _toast('Không tải được địa điểm đã lưu từ tài khoản. Thử mở lại bản đồ.');
+    }
   }
 
   @override
@@ -331,7 +363,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
         final selectedPlace = saved;
         if (selectedPlace != null) {
           showSavedPlaceSheet(context, selectedPlace,
-              onShare: () => _showShareBottomSheet(selectedPlace));
+              onShare: () => _showShareBottomSheet(selectedPlace),
+              onDelete: _cloudPlaces == null
+                  ? null : () => _deleteCloudPlace(selectedPlace));
         }
         return;
       }
@@ -490,6 +524,34 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// MapLibre renders annotations imperatively, so [_syncMarkers] is the
   /// equivalent of updating a GoogleMap `Set<Marker>` after `setState`.
   Future<void> _saveNewPlace(PlaceDraft draft) async {
+    final cloud = _cloudPlaces;
+    if (cloud != null && !draft.isAnonymousShare) {
+      final target = _draftPin ?? _currentCameraPosition;
+      try {
+        final saved = await cloud.create(
+          draft,
+          latitude: target.latitude,
+          longitude: target.longitude,
+        );
+        if (!mounted) return;
+        setState(() {
+          _savedPlaces.add(saved);
+          _draftPin = null;
+          _selected = null;
+        });
+        await _syncMarkers();
+        if (mounted) _toast('Đã lưu vào tài khoản');
+      } on PartiallySavedPlace {
+        // The pin was created; reloading prevents a retry from duplicating it.
+        await _reloadSavedPlaces();
+        if (mounted) {
+          _toast('Đã tạo ghim nhưng chưa lưu được ghi chú. Vui lòng kiểm tra lại.');
+        }
+      } catch (_) {
+        if (mounted) _toast('Không lưu được ghim trên cloud. Hãy thử lại.');
+      }
+      return;
+    }
     try {
       final markerIdVal = 'marker_${DateTime.now().millisecondsSinceEpoch}';
       final target = _currentCameraPosition;
@@ -541,7 +603,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 116),
     ));
 
+  Future<void> _deleteCloudPlace(SavedPlace place) async {
+    final cloud = _cloudPlaces;
+    if (cloud == null) return;
+    try {
+      await cloud.delete(place.id);
+      if (!mounted) return;
+      setState(() => _savedPlaces.removeWhere((e) => e.id == place.id));
+      await _syncMarkers();
+      if (mounted) _toast('Đã xóa địa điểm khỏi tài khoản');
+    } catch (_) {
+      if (mounted) _toast('Chưa thể xóa địa điểm. Hãy thử lại.');
+    }
+  }
+
   Future<void> _showShareBottomSheet(SavedPlace place) async {
+    if (_cloudPlaces != null) {
+      _toast('Chia sẻ địa điểm chưa được hỗ trợ trên cloud.');
+      return;
+    }
     final recipients =
         await showShareFriendsSheet(context, placeName: place.name);
     if (!mounted || recipients == null || recipients.isEmpty) return;
@@ -571,6 +651,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   Future<void> _showInbox() async {
+    if (_cloudPlaces != null) {
+      _toast('Hòm thư mẫu chưa kết nối với tài khoản.');
+      return;
+    }
     final accept = await showInboxSheet(context);
     if (!mounted || accept != true) return;
     final target =

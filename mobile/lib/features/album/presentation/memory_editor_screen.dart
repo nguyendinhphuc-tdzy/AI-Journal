@@ -359,11 +359,14 @@ class _MemoryEditorScreenState extends State<MemoryEditorScreen> {
       }
       _dirty = false;
       if (mounted) widget.onSaved(memory);
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(() {
           _saving = false;
-          _message = MemoryEditorScreen.saveFailed;
+          _message = error is UnsupportedError
+              ? 'Album cloud chưa hỗ trợ lưu ảnh. Bản nháp vẫn ở thiết bị; '
+                  'hãy giữ ảnh trên máy hoặc lưu kỷ niệm chỉ có ghi chú.'
+              : MemoryEditorScreen.saveFailed;
         });
       }
     }

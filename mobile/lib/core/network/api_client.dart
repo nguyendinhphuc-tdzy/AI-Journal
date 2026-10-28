@@ -43,6 +43,18 @@ class ApiClient {
     return _decode(response);
   }
 
+  /// Album and memory list endpoints return a top-level JSON array.
+  Future<List<dynamic>> getList(String path, {bool requireAuth = false}) async {
+    final response = await _client.get(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: await _headers(requireAuth: requireAuth),
+    );
+    _ensureSuccess(response);
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List) throw const FormatException('Expected JSON list');
+    return decoded;
+  }
+
   Future<Map<String, dynamic>> postJson(
     String path,
     Map<String, dynamic> body, {
@@ -69,6 +81,20 @@ class ApiClient {
     return _decode(response);
   }
 
+  /// Existing Album and Saved Places update APIs use PATCH (not PUT).
+  Future<Map<String, dynamic>> patchJson(
+    String path,
+    Map<String, dynamic> body, {
+    bool requireAuth = false,
+  }) async {
+    final response = await _client.patch(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: await _headers(jsonBody: true, requireAuth: requireAuth),
+      body: jsonEncode(body),
+    );
+    return _decode(response);
+  }
+
   Future<void> deleteNoContent(
     String path, {
     bool requireAuth = false,
@@ -84,11 +110,17 @@ class ApiClient {
   }
 
   Map<String, dynamic> _decode(http.Response response) {
+    _ensureSuccess(response);
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map<String, dynamic>) throw const FormatException('Expected JSON object');
+    return decoded;
+  }
+
+  void _ensureSuccess(http.Response response) {
+    // No private content, tokens, or upstream messages in exceptions.
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      // Never include server response bodies: they can contain private text.
       throw ApiException(response.statusCode);
     }
-    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   void close() => _client.close();
