@@ -56,20 +56,43 @@ def test_migration_applied():
     assert "album_memories" in tables
 
 
-def test_public_mock_ai_preserved():
-    deeper = client.post(
-        "/api/v1/ai/go-deeper",
-        json={"content": "I felt peaceful today."},
-    )
-    assert deeper.status_code == 200
-    assert deeper.json()["question"]
+def test_ai_requires_authentication_in_all_provider_modes():
+    app.dependency_overrides.clear()
+    for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
+        response = client.post(path, json={"content": "private entry"})
+        assert response.status_code == 401
+        assert response.headers.get("www-authenticate") == "Bearer"
 
-    reflection = client.post(
-        "/api/v1/ai/reflection",
-        json={"content": "I finished my task.", "mood": "relieved"},
-    )
-    assert reflection.status_code == 200
-    assert reflection.json()["emotion"] == "relieved"
+
+def test_authenticated_ai_and_bounded_request_content():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    user = AuthenticatedUser(user_id=uuid4(), email="test@example.com")
+    app.dependency_overrides[get_current_user] = lambda: user
+    # The developer may set AI_PROVIDER=ollama in backend/.env.
+    # Tests must not make requests to their actual Ollama instance.
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        deeper = client.post(
+            "/api/v1/ai/go-deeper", json={"content": "I felt peaceful today."}
+        )
+        assert deeper.status_code == 200
+        assert deeper.json()["question"]
+
+        reflection = client.post(
+            "/api/v1/ai/reflection",
+            json={"content": "I finished my task.", "mood": "relieved"},
+        )
+        assert reflection.status_code == 200
+        assert reflection.json()["emotion"] == "relieved"
+
+        for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
+            assert client.post(path, json={"content": " "}).status_code == 422
+            assert client.post(path, json={"content": "x" * 8001}).status_code == 422
+            assert client.post(path, json={"content": "ok", "mood": "m" * 65}).status_code == 422
+            assert client.post(path, json={"content": "x" * 8000}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_journal_crud_requires_authentication():
