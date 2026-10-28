@@ -99,6 +99,16 @@ class ApiClient {
     return _decode(response);
   }
 
+  Future<void> postNoContent(String path, Map<String, dynamic> body,
+      {bool requireAuth = false}) async {
+    final response = await _client.post(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: await _headers(jsonBody: true, requireAuth: requireAuth),
+      body: jsonEncode(body),
+    );
+    _ensureSuccess(response);
+  }
+
   /// Existing Album and Saved Places update APIs use PATCH (not PUT).
   Future<Map<String, dynamic>> patchJson(
     String path,
