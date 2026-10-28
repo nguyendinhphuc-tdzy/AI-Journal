@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:ai_diary/core/network/api_client.dart';
 import 'package:ai_diary/features/album/data/album_repository.dart';
@@ -113,7 +114,7 @@ void main() {
     api.close();
   });
 
-  test('photo-only or attached photo refuses network before data loss', () async {
+  test('photo-only is rejected until cloud note-or-photo contract is added', () async {
     var count = 0;
     final api = ApiClient(
       accessTokenProvider: () async => 'jwt',
@@ -125,11 +126,47 @@ void main() {
       repo.createMemory('cloud-$_albumId', MemoryContent(
         photoPath: '/private/device/photo.jpg', displayDate: DateTime(2026),
       )),
-      throwsUnsupportedError,
+      throwsArgumentError,
     );
     expect(count, 0);
     repo.dispose();
     api.close();
+  });
+
+  test('authenticated Memory photo uploads bytes after note creation', () async {
+    final folder = await Directory.systemTemp.createTemp('cloud-photo-test');
+    final photo = File('${folder.path}/sample.jpg');
+    await photo.writeAsBytes([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'test-user-token',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'PUT' && request.url.path.endsWith('/photo')) {
+          return _response({'photo_available': true});
+        }
+        return _response(_memory(), 201);
+      }),
+    );
+    final local = await LocalAlbumRepository.open(userId: 'photo-user');
+    final repo = RemoteAlbumRepository(
+        client: api, localDrafts: local, userId: '12345678-1234-1234-1234-1234567890ab');
+    try {
+      final created = await repo.createMemory('cloud-$_albumId', MemoryContent(
+        note: 'Một ngày vui',
+        photoPath: photo.path,
+        displayDate: DateTime(2026, 10, 27),
+      ));
+      expect(created.content.photoPath, photo.path);
+      final upload = requests.singleWhere((req) => req.method == 'PUT');
+      expect(upload.headers['authorization'], 'Bearer test-user-token');
+      expect(upload.headers['content-type'], 'image/jpeg');
+      expect(upload.bodyBytes, photo.readAsBytesSync());
+    } finally {
+      repo.dispose();
+      api.close();
+      await folder.delete(recursive: true);
+    }
   });
 
   test('without JWT, private albums fail before network', () async {
