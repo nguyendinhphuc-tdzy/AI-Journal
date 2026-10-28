@@ -37,8 +37,9 @@ def enforce_ai_quota(
             history.popleft()
         # Never keep empty histories from users who stopped calling AI.
         if len(_recent) > 4096:
-            for stale_uid in list(_recent):
-                if not _recent[stale_uid] and stale_uid not in _active:
+            for stale_uid, events in list(_recent.items()):
+                if (stale_uid != uid and stale_uid not in _active
+                        and (not events or events[-1] <= now - _WINDOW_SECONDS)):
                     _recent.pop(stale_uid, None)
         if len(history) >= _MAX_REQUESTS_PER_MINUTE or _active.get(uid, 0) >= _MAX_IN_FLIGHT_PER_USER:
             raise HTTPException(429, "AI request limit reached; try again later")
