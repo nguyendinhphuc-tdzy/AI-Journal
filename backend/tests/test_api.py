@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261028_09"
+    assert revision == "20261028_10"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -1112,5 +1112,82 @@ def test_study_journal_source_roundtrip_and_rejects_invalid_metadata():
         assert client.put(f"/api/v1/journals/{journal_id}", json={
             "source": dict(source, extra="not permitted"),
         }).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
+    """JWT owner check precedes every Storage API request."""
+    import httpx
+    from app.modules.albums import photos_router
+
+    owner = AuthenticatedUser(user_id=uuid4(), email="photo-a@example.com")
+    other = AuthenticatedUser(user_id=uuid4(), email="photo-b@example.com")
+    calls = []
+
+    def fake_storage(method, path, token, **kwargs):
+        calls.append((method, path, token))
+        if method == "GET":
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nphoto",
+                                  headers={"content-type": "image/png"})
+        return httpx.Response(201 if method == "POST" else 200, json={})
+
+    monkeypatch.setattr(photos_router, "_storage_request", fake_storage)
+    app.dependency_overrides[get_current_user] = lambda: owner
+    album_id = memory_id = None
+    try:
+        album = client.post("/api/v1/albums", json={"name": "Private photos"})
+        assert album.status_code == 201
+        album_id = album.json()["id"]
+        memory = client.post(f"/api/v1/albums/{album_id}/memories", json={
+            "note": "Private photo",
+            "display_date": "2026-10-28",
+        })
+        assert memory.status_code == 201
+        memory_id = memory.json()["id"]
+        url = f"/api/v1/albums/{album_id}/memories/{memory_id}/photo"
+        headers = {"Authorization": "Bearer valid-test-token"}
+        bad = client.put(url, content=b"<svg>", headers={
+            **headers, "Content-Type": "image/png",
+        })
+        assert bad.status_code == 415
+        assert calls == []
+        image = b"\x89PNG\r\n\x1a\nphoto"
+        uploaded = client.put(url, content=image, headers={
+            **headers, "Content-Type": "image/png",
+        })
+        assert uploaded.status_code == 200, uploaded.text
+        assert calls[-1][0] == "POST"
+        assert calls[-1][2] == "Bearer valid-test-token"
+        info = client.get(f"/api/v1/albums/{album_id}/memories/{memory_id}")
+        assert info.json()["photo_path"].startswith(str(owner.user_id) + "/")
+        response = client.get(url, headers=headers)
+        assert response.status_code == 200
+        assert response.content == image
+    finally:
+        app.dependency_overrides.clear()
+
+    # Other user must see 404 and must not trigger a Storage call.
+    prior = len(calls)
+    app.dependency_overrides[get_current_user] = lambda: other
+    try:
+        for method in ("GET", "PUT", "DELETE"):
+            response = client.request(method, url, headers={
+                "Authorization": "Bearer other-test-token",
+                "Content-Type": "image/png",
+            }, content=image if method == "PUT" else None)
+            assert response.status_code == 404
+        assert len(calls) == prior
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        removed = client.delete(f"/api/v1/albums/{album_id}/memories/{memory_id}",
+                                headers={"Authorization": "Bearer valid-test-token"})
+        assert removed.status_code == 204
+        assert calls[-1][0] == "DELETE"
+        assert client.get(url, headers={"Authorization": "Bearer valid-test-token"}).status_code == 404
+        assert client.delete(f"/api/v1/albums/{album_id}").status_code == 204
     finally:
         app.dependency_overrides.clear()

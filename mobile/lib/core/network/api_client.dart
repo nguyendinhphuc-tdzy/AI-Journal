@@ -95,6 +95,31 @@ class ApiClient {
     return _decode(response);
   }
 
+  /// Raw private media transfer, using the same fresh Supabase bearer token.
+  Future<void> putBytes(
+    String path, List<int> bytes, {
+    required String contentType,
+    bool requireAuth = true,
+  }) async {
+    final headers = await _headers(requireAuth: requireAuth);
+    headers['Content-Type'] = contentType;
+    final response = await _client.put(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: headers,
+      body: bytes,
+    );
+    _ensureSuccess(response);
+  }
+
+  Future<List<int>> getBytes(String path, {bool requireAuth = true}) async {
+    final response = await _client.get(
+      Uri.parse('${AppConfig.apiBaseUrl}$path'),
+      headers: await _headers(requireAuth: requireAuth),
+    );
+    _ensureSuccess(response);
+    return response.bodyBytes;
+  }
+
   Future<void> deleteNoContent(
     String path, {
     bool requireAuth = false,
