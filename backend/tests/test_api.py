@@ -1319,3 +1319,36 @@ def test_friends_only_memory_shares_revoke_expire_and_unfriend():
         assert client.delete(f"/api/v1/memory-shares/{new_share}").status_code == 204
     finally:
         app.dependency_overrides.clear()
+
+
+def test_community_disabled_by_default_and_moderation():
+    from app.core.config import Settings, get_settings
+    a = AuthenticatedUser(user_id=uuid4(), email="community-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="community-b@example.com")
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.get("/api/v1/community/feed").status_code == 503
+        app.dependency_overrides[get_settings] = lambda: Settings(
+            database_url="sqlite://", community_feed_enabled=True,
+            community_moderator_ids=str(b.user_id))
+        post = client.post("/api/v1/community/posts", json={"body": "Hôm nay tôi thấy rất vui vì điều nhỏ bé."})
+        assert post.status_code == 201, post.text
+        pid = post.json()["id"]
+        assert post.json()["status"] == "pending"
+        assert client.get("/api/v1/community/feed").json() == []
+        assert client.get("/api/v1/community/moderation/pending").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert len(client.get("/api/v1/community/moderation/pending").json()) >= 1
+        approved = client.post(f"/api/v1/community/moderation/{pid}/approve")
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "approved"
+        assert any(row["id"] == pid for row in client.get("/api/v1/community/feed").json())
+        assert client.post(f"/api/v1/community/posts/{pid}/reports", json={
+            "reason": "Nội dung cần kiểm tra"
+        }).status_code == 204
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/community/posts/{pid}").status_code == 204
+        assert client.get("/api/v1/community/feed").json() == []
+    finally:
+        app.dependency_overrides.clear()
