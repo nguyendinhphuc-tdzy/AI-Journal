@@ -25,6 +25,9 @@ abstract interface class JournalRepository implements Listenable {
   /// Same id; [JournalEntry.bodyVersion] goes up when the content changed.
   Future<JournalEntry> update(String id, JournalContent content);
 
+  /// Gone for good (`DELETE /api/v1/journals/{id}` on the API).
+  Future<void> delete(String id);
+
   Future<JournalDraft?> draft(String key);
 
   Future<void> saveDraft(String key, JournalDraft draft);
@@ -101,6 +104,15 @@ abstract class _JsonJournalRepository extends ChangeNotifier
     all[index] = entry;
     await _store(all);
     return entry;
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    final all = _all();
+    final before = all.length;
+    all.removeWhere((entry) => entry.id == id);
+    if (all.length == before) throw StateError('No journal entry $id');
+    await _store(all);
   }
 
   @override

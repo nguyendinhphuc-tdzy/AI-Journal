@@ -10,10 +10,12 @@ void main() {
     state.addListener(() => notifications++);
     expect(state.value, 2);
     expect(state.nextCount, 3);
+    expect(state.completedToday, isFalse);
     state.completeToday();
     state.completeToday();
     expect(state.value, 3);
     expect(state.nextCount, 3);
+    expect(state.completedToday, isTrue);
     expect(notifications, 1);
   });
 

@@ -9,9 +9,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    // Each test is a fresh day: yesterday done, today not yet.
+    StreakState.shared.reset();
+  });
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
-    for (final action in ['Hoàn tất', '✨ Suy ngẫm sâu hơn']) {
+    for (final action in ['Hoàn tất', 'Suy ngẫm sâu hơn']) {
       testWidgets('$action follows full reflection flow at $size',
           (tester) async {
         tester.view.devicePixelRatio = 1;
@@ -22,10 +26,14 @@ void main() {
         await tester.pumpAndSettle();
         final originalHome = tester.element(find.byType(HomeScreen));
         final expectedStreak = StreakState.shared.nextCount;
-        await tester.tap(find.text('Cùng suy ngẫm ➔'));
+        await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Cùng suy ngẫm'));
         await tester.pumpAndSettle();
         expect(find.byType(WriteJournalScreen), findsOneWidget);
         await tester.enterText(find.byType(TextField), 'A quiet moment today.');
+        // Going deeper turns on once there is something written.
+        await tester.pump();
         if (action != 'Hoàn tất') {
           await tester.tap(find.text(action));
           await tester.pumpAndSettle();
@@ -68,6 +76,12 @@ void main() {
         await tester.pumpAndSettle();
         await tester.pump(const Duration(seconds: 7));
         await tester.pumpAndSettle();
+        // The quote waits for the reader, then the reflection.
+        expect(find.text('Theodore Roosevelt'), findsOneWidget);
+        expect(find.text('Góc suy ngẫm'), findsNothing);
+        await tester.tap(find.text('Tiếp tục'));
+        await tester.pumpAndSettle();
+        expect(find.text('Góc suy ngẫm'), findsOneWidget);
         await tester.tap(find.text('Tiếp tục'));
         await tester.pumpAndSettle();
         expect(find.byType(StreakScreen), findsOneWidget);
@@ -78,7 +92,12 @@ void main() {
         await tester.tap(find.text('Tiếp tục'));
         await tester.pumpAndSettle();
         expect(tester.element(find.byType(HomeScreen)), same(originalHome));
-        expect(find.text('$expectedStreak ngày liên tiếp'), findsOneWidget);
+        // Home's streak pill (back at the top of Home): short text, the
+        // full words for screen readers.
+        await tester.drag(find.byKey(const PageStorageKey('home-scroll')),
+            const Offset(0, 2000));
+        await tester.pumpAndSettle();
+        expect(find.text('$expectedStreak ngày'), findsOneWidget);
         expect(
             find.byType(WriteJournalScreen, skipOffstage: false), findsNothing);
         expect(
@@ -90,4 +109,45 @@ void main() {
       });
     }
   }
+
+  testWidgets('A second entry the same day goes Home without the streak',
+      (tester) async {
+    Future<void> writeEntry(String text) async {
+      await tester.ensureVisible(find.text('Cùng suy ngẫm'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cùng suy ngẫm'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), text);
+      await tester.tap(find.text('Hoàn tất'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Xác nhận'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tiếp tục')); // the quote
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tiếp tục')); // the reflection
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(const AiDiaryApp());
+    await tester.pumpAndSettle();
+    final home = tester.element(find.byType(HomeScreen));
+    final count = StreakState.shared.nextCount;
+
+    await writeEntry('Buổi sáng yên.');
+    expect(find.byType(StreakScreen), findsOneWidget);
+    await tester.tap(find.text('Tiếp tục'));
+    await tester.pumpAndSettle();
+    expect(StreakState.shared.completedToday, isTrue);
+
+    await writeEntry('Buổi tối cũng ổn.');
+    expect(find.byType(StreakScreen, skipOffstage: false), findsNothing);
+    expect(tester.element(find.byType(HomeScreen)), same(home));
+    expect(find.byType(AiReflectionScreen, skipOffstage: false), findsNothing);
+    expect(Navigator.of(home).canPop(), isFalse);
+    // Still counted once.
+    expect(StreakState.shared.value, count);
+    expect(tester.takeException(), isNull);
+  });
 }

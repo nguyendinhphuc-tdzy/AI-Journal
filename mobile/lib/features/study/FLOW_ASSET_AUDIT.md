@@ -62,7 +62,7 @@ do người dùng yêu cầu tạo; không thay nguồn khác bằng hình AI. M
 
 | Phần | Trạng thái |
 | --- | --- |
-| Persistence / API | Entries, enrollment, completion và drafts chỉ tồn tại trong session. Chưa có ghi disk/server, Retry lỗi network hoặc partial commit. |
+| Persistence / API | Từ 27/10/2026: bài viết lưu vào nhật ký chung trên máy (kèm nguồn), tiến độ và bản nháp lưu trên máy. Chưa đồng bộ server, chưa có Retry lỗi network hoặc partial commit. |
 | AI | Reflection và Go Deeper vẫn là dữ liệu mẫu. |
 | Video | Mock hiện có chỉ gồm article, chưa có video source/player/subtitle/error-retry; đã bỏ biểu tượng play gây hiểu nhầm khỏi card course. |
 | Nhiều enrollment | Chỉ một challenge fixture; chưa có sheet chuyển giữa nhiều challenge hoặc xử lý catalog mất ID. |

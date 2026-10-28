@@ -5,6 +5,7 @@
 ## What does and does not require a key
 
 - **Map rendering:** `maplibre_gl` with `https://tiles.openfreemap.org/styles/liberty` — no Google Maps API key, Google billing, or Google Android SHA-1 required.
+- **Map look:** Explore and the place picker use the app's own styles (`features/explore/presentation/map_style.dart`: one light style in the app palette at any hour; the night style was dropped as hard to read) on OpenFreeMap's `planet` tiles and fonts, instead of the `liberty`/`dark` style URLs.
 - **Manual marker/drop pin:** MapLibre built-in map gestures and annotations; no location permission for a manually selected point.
 - **Address/POI search:** MapLibre alone does not provide it. MVP proposes Geoapify from **FastAPI backend** (`/api/v1/geo/search`), with Geoapify key in untracked `backend/.env`. Test with mock results until B09.
 - **Saved markers/notes:** call FastAPI endpoints only after B09/B10; Supabase PostgreSQL remains backend-only. Auth via Supabase Auth SDK is a separate B03 task.

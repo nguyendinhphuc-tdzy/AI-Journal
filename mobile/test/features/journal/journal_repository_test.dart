@@ -57,6 +57,20 @@ void main() {
       expect((await journals.entries()).single.body, 'Có lẽ vì b.');
     });
 
+    test('delete removes only that entry', () async {
+      final journals = InMemoryJournalRepository();
+      final first = await journals.create(_content({'cause': 'a'}));
+      final second = await journals.create(_content({'cause': 'b'}));
+      var notified = 0;
+      journals.addListener(() => notified++);
+      await journals.delete(first.id);
+      expect([for (final entry in await journals.entries()) entry.id],
+          [second.id]);
+      expect(await journals.entry(first.id), isNull);
+      expect(notified, 1);
+      expect(() => journals.delete(first.id), throwsStateError);
+    });
+
     test('drafts are never entries', () async {
       final journals = InMemoryJournalRepository();
       await journals.saveDraft(

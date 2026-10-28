@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../core/data/app_data.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_text.dart';
+import '../../core/widgets/app_ui.dart';
 import '../streak/streak_screen.dart';
+import '../sound/app_sound.dart';
+import '../streak/streak_state.dart';
 
 enum _ReflectionStage { loading, quote, insight }
 
@@ -39,35 +44,38 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
       'Thg 11',
       'Thg 12'
     ];
+    const content =
+        'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.';
+    // One card per quote: saved again, it moves to the top with today's time.
     savedThisWeekItems.value = [
       {
         'type': 'quote',
-        'content':
-            'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.',
+        'content': content,
         'author': 'Theodore Roosevelt',
         'date': 'Hôm nay',
         'timestamp': '${months[now.month - 1]} ${now.day} - '
             '${now.hour.toString().padLeft(2, '0')}:'
             '${now.minute.toString().padLeft(2, '0')}',
       },
-      ...savedThisWeekItems.value,
+      for (final item in savedThisWeekItems.value)
+        if (item['type'] != 'quote' || item['content'] != content) item,
     ];
     setState(() => _quoteSaved = true);
+    AppSound.instance.play(SoundCue.paper);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Đã lưu vào mục Tuần này!')),
+      const SnackBar(
+          content: Text('Đã lưu. Xem lại ở mục Đã lưu trên Trang chủ.')),
     );
   }
 
   @override
   void initState() {
     super.initState();
+    // The pause while the entry is read. The quote then stays until the
+    // reader moves on (Tiếp tục): never taken away mid-read.
     Future<void>.delayed(const Duration(seconds: 3), () {
       if (!mounted || _stage != _ReflectionStage.loading) return;
       setState(() => _stage = _ReflectionStage.quote);
-    });
-    Future<void>.delayed(const Duration(seconds: 7), () {
-      if (!mounted || _stage == _ReflectionStage.insight) return;
-      _showInsight();
     });
   }
 
@@ -75,18 +83,18 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     setState(() => _stage = _ReflectionStage.insight);
   }
 
+  /// After the reflection: the streak celebrates the day's first entry;
+  /// later entries the same day go straight back Home.
   Future<void> _continueToStreak() async {
     if (_openingStreak) return;
+    if (StreakState.shared.completedToday) {
+      StreakScreen.returnHome(context);
+      return;
+    }
     setState(() => _openingStreak = true);
     await Navigator.of(context).push(StreakScreen.route());
     if (mounted) setState(() => _openingStreak = false);
   }
-
-  ButtonStyle get _blackButton => ElevatedButton.styleFrom(
-        backgroundColor: AppColors.primaryDark,
-        foregroundColor: Colors.white,
-        minimumSize: const Size.fromHeight(52),
-      );
 
   @override
   Widget build(BuildContext context) {
@@ -111,7 +119,6 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   }
 
   Widget _buildPause(bool quote) {
-    final textTheme = Theme.of(context).textTheme;
     return LayoutBuilder(
       key: ValueKey(_stage),
       builder: (context, constraints) {
@@ -131,19 +138,15 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                               ? 'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'
                               : 'Hãy hít thở thật sâu và thư giãn tâm trí trong lúc chúng mình đọc nhật ký của bạn nhé...',
                           textAlign: TextAlign.center,
-                          style: textTheme.headlineMedium?.copyWith(
-                            fontSize: compact ? 23 : 30,
+                          style: AppText.pageTitle.copyWith(
+                            fontSize: compact ? 22 : 28,
                             height: 1.45,
                             fontWeight: FontWeight.w500,
-                            color: Colors.black87,
                           ),
                         ),
                         if (quote) ...[
                           const SizedBox(height: 20),
-                          Text('Theodore Roosevelt',
-                              style: textTheme.bodyMedium?.copyWith(
-                                color: Colors.black54,
-                              )),
+                          const Text('Theodore Roosevelt', style: AppText.meta),
                         ],
                         SizedBox(height: compact ? 12 : 24),
                         _buildMascot(quote, compact ? 80 : 150),
@@ -156,37 +159,30 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
               if (quote)
                 Row(children: [
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: AppSecondaryButton(
                       onPressed: _quoteSaved ? null : _saveQuote,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.black,
-                        side: const BorderSide(color: Colors.black),
-                        minimumSize: const Size.fromHeight(52),
-                      ),
-                      icon: Icon(
-                          _quoteSaved ? Icons.bookmark : Icons.bookmark_border),
-                      label: Text(_quoteSaved ? 'Đã lưu' : 'Lưu'),
+                      icon:
+                          _quoteSaved ? Icons.bookmark : Icons.bookmark_border,
+                      label: _quoteSaved ? 'Đã lưu' : 'Lưu',
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: ElevatedButton(
+                    child: AppPrimaryButton(
                       onPressed: _showInsight,
-                      style: _blackButton,
-                      child: const Text('Tiếp tục'),
+                      label: 'Tiếp tục',
                     ),
                   ),
                 ])
               else
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text(
-                    'Hủy phân tích',
-                    style: TextStyle(
-                      color: Colors.black,
-                      decoration: TextDecoration.underline,
-                    ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.textPrimary,
+                    minimumSize: const Size(48, 48),
+                    textStyle: AppText.label,
                   ),
+                  child: const Text('Hủy phân tích'),
                 ),
             ],
           ),
@@ -222,7 +218,6 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   }
 
   Widget _buildInsight() {
-    final textTheme = Theme.of(context).textTheme;
     return Column(
       key: const ValueKey('reflection-insight'),
       children: [
@@ -232,26 +227,18 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Góc suy ngẫm', style: textTheme.labelLarge),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: FittedBox(
-                    alignment: Alignment.centerLeft,
-                    fit: BoxFit.scaleDown,
-                    child: Text('Né tránh chuyện học hành',
-                        maxLines: 1,
-                        style: textTheme.headlineLarge?.copyWith(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                        )),
-                  ),
+                const AppEyebrow('Góc suy ngẫm', icon: Icons.auto_awesome),
+                const SizedBox(height: AppSpacing.sm),
+                Semantics(
+                  header: true,
+                  child: const Text('Né tránh chuyện học hành',
+                      style: AppText.pageTitle),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: AppSpacing.xl),
                 Container(
                   padding: const EdgeInsets.all(4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8E8E8),
+                    color: AppColors.primaryLight,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(children: [
@@ -267,7 +254,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     widget.journalContent.isEmpty
                         ? 'Chưa có nội dung nhật ký.'
                         : widget.journalContent,
-                    style: textTheme.bodyLarge?.copyWith(height: 1.7),
+                    style: AppText.body.copyWith(height: 1.7),
                   )
                 else ...[
                   // Mock insight for the prototype; replace with the API response.
@@ -278,7 +265,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     'là cách để bạn kịp thở. Bạn không cần phải giải quyết mọi thứ ngay lập tức. '
                     'Nhận ra điều gì đang nặng lòng và cho mình không gian để gọi tên nó '
                     'có thể là một khởi đầu dịu dàng.',
-                    style: textTheme.bodyLarge?.copyWith(height: 1.7),
+                    style: AppText.body.copyWith(height: 1.7),
                   ),
                   const SizedBox(height: 32),
                   _buildSectionTitle(
@@ -286,7 +273,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                   const SizedBox(height: 12),
                   Text(
                     'Chuyện học hành đang mang nhiều cảm xúc đến mức tâm trí bạn muốn giữ một khoảng cách để tự bảo vệ mình.',
-                    style: textTheme.bodyLarge?.copyWith(height: 1.7),
+                    style: AppText.body.copyWith(height: 1.7),
                   ),
                   const SizedBox(height: 28),
                   _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
@@ -294,12 +281,12 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFECEFF1),
-                      borderRadius: BorderRadius.circular(24),
+                    decoration: const ShapeDecoration(
+                      color: AppColors.primaryLight,
+                      shape: StadiumBorder(),
                     ),
-                    child:
-                        const Text('😕  Bồn chồn · né tránh chuyện học hành'),
+                    child: const Text('😕  Bồn chồn · né tránh chuyện học hành',
+                        style: AppText.body),
                   ),
                 ],
               ],
@@ -318,9 +305,12 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
         child: TextButton(
           onPressed: onTap,
           style: TextButton.styleFrom(
-            backgroundColor: selected ? Colors.white : Colors.transparent,
-            foregroundColor: Colors.black,
+            backgroundColor: selected ? AppColors.surface : Colors.transparent,
+            foregroundColor: AppColors.textPrimary,
             minimumSize: const Size.fromHeight(48),
+            textStyle: selected
+                ? AppText.label
+                : AppText.label.copyWith(fontWeight: FontWeight.w400),
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -332,14 +322,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
 
   Widget _buildSectionTitle(IconData icon, String title) {
     return Row(children: [
-      Icon(icon, size: 20),
-      const SizedBox(width: 8),
-      Expanded(
-        child: Text(title,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                )),
-      ),
+      Icon(icon, size: 20, color: AppColors.primaryAction),
+      const SizedBox(width: AppSpacing.sm),
+      Expanded(child: Text(title, style: AppText.cardTitle)),
     ]);
   }
 
@@ -347,17 +332,16 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
       decoration: const BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-              color: Color(0x10000000), blurRadius: 20, offset: Offset(0, -4))
-        ],
+        color: AppColors.surface,
+        border: Border(top: BorderSide(color: AppColors.border)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(children: [
-            const Expanded(child: Text('Góc suy ngẫm này có ích cho bạn chứ?')),
+            const Expanded(
+                child: Text('Góc suy ngẫm này có ích cho bạn chứ?',
+                    style: AppText.body)),
             IconButton(
               tooltip: 'Hữu ích',
               isSelected: _helpful == true,
@@ -378,10 +362,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
+            child: AppPrimaryButton(
               onPressed: _openingStreak ? null : _continueToStreak,
-              style: _blackButton,
-              child: const Text('Tiếp tục'),
+              label: 'Tiếp tục',
             ),
           ),
         ],

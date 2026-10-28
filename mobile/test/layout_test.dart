@@ -37,7 +37,9 @@ void main() {
       home: const WriteJournalScreen(),
     ));
     await tester.enterText(find.byType(TextField), 'A peaceful afternoon.');
-    await tester.tap(find.text('✨ Suy ngẫm sâu hơn'));
+    // Going deeper turns on once there is something written.
+    await tester.pump();
+    await tester.tap(find.text('Suy ngẫm sâu hơn'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(seconds: 3));
     expect(find.byType(WriteJournalScreen), findsOneWidget);
