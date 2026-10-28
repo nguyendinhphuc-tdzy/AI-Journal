@@ -1,6 +1,6 @@
 """Authenticated address autocomplete through FastAPI, never through Flutter keys."""
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from threading import Lock
 from uuid import UUID
 
@@ -22,6 +22,38 @@ RATE_WINDOW_SECONDS = 60.0
 RATE_LIMIT = 30
 _recent_requests: dict[UUID, deque[float]] = {}
 _rate_lock = Lock()
+
+# Owner-isolated, bounded in-process cache; rate limit still applies to hits.
+GEO_CACHE_TTL_SECONDS = 60.0
+GEO_CACHE_MAX_ITEMS = 500
+_geo_cache: OrderedDict[tuple, tuple[float, list[dict]]] = OrderedDict()
+_geo_cache_lock = Lock()
+
+
+def _cached_geo_result(key: tuple) -> list[dict] | None:
+    now = time.monotonic()
+    with _geo_cache_lock:
+        entry = _geo_cache.get(key)
+        if entry is None:
+            return None
+        expires_at, items = entry
+        if expires_at <= now:
+            del _geo_cache[key]
+            return None
+        _geo_cache.move_to_end(key)
+        return [dict(item) for item in items]
+
+
+def _store_geo_result(key: tuple, items: list[dict]) -> None:
+    with _geo_cache_lock:
+        _geo_cache[key] = (
+            time.monotonic() + GEO_CACHE_TTL_SECONDS,
+            [dict(item) for item in items],
+        )
+        _geo_cache.move_to_end(key)
+        while len(_geo_cache) > GEO_CACHE_MAX_ITEMS:
+            _geo_cache.popitem(last=False)
+
 
 
 def enforce_geo_rate_limit(
@@ -75,7 +107,7 @@ async def search_locations(
     settings: Settings = Depends(get_settings),
     client: httpx.AsyncClient = Depends(get_geo_client),
 ):
-    del user, _rate_limited
+    del _rate_limited
     if (lat is None) != (lon is None):
         raise HTTPException(
             status_code=422, detail="lat and lon must be supplied together"
@@ -87,7 +119,13 @@ async def search_locations(
         raise HTTPException(
             status_code=503, detail="Place search is not configured"
         )
+    normalized = " ".join(q.strip().split())
+    cache_key = (user.user_id, api_key, normalized.casefold(), limit, lat, lon)
+    cached = _cached_geo_result(cache_key)
+    if cached is not None:
+        return GeoResults(items=cached)
     items = await geoapify_search(
-        client, api_key, query=q.strip(), limit=limit, lat=lat, lon=lon
+        client, api_key, query=normalized, limit=limit, lat=lat, lon=lon
     )
+    _store_geo_result(cache_key, items)
     return GeoResults(items=items)
