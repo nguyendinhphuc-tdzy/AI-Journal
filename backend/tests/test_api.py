@@ -1001,6 +1001,47 @@ def test_pr17_album_memory_owner_isolation_and_e05_place():
         app.dependency_overrides.clear()
 
 
+def test_album_and_memory_offset_pagination_remains_owner_scoped():
+    a = AuthenticatedUser(user_id=uuid4(), email="paged@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="other@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        ids = []
+        for index in range(4):
+            result = client.post("/api/v1/albums", json={"name": f"Album {index}"})
+            assert result.status_code == 201, result.text
+            ids.append(result.json()["id"])
+        first = client.get("/api/v1/albums?limit=2&offset=0")
+        second = client.get("/api/v1/albums?limit=2&offset=2")
+        assert first.status_code == second.status_code == 200
+        assert len(first.json()) == len(second.json()) == 2
+        assert set(x["id"] for x in first.json()).isdisjoint(
+            x["id"] for x in second.json()
+        )
+        assert client.get("/api/v1/albums?offset=-1").status_code == 422
+        assert client.get("/api/v1/albums?offset=100001").status_code == 422
+
+        aid = ids[0]
+        for index in range(5):
+            result = client.post(f"/api/v1/albums/{aid}/memories", json={
+                "note": f"Entry {index}", "display_date": "2026-10-29",
+            })
+            assert result.status_code == 201
+        page1 = client.get(f"/api/v1/albums/{aid}/memories?limit=3&offset=0")
+        page2 = client.get(f"/api/v1/albums/{aid}/memories?limit=3&offset=3")
+        assert len(page1.json()) == 3
+        assert len(page2.json()) == 2
+        assert set(x["id"] for x in page1.json()).isdisjoint(
+            x["id"] for x in page2.json()
+        )
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/albums?limit=2&offset=0").json() == []
+        assert client.get(f"/api/v1/albums/{aid}/memories?offset=2").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_guided_journal_roundtrip_version_and_owner_isolation():
     """Structured guided fields survive server JSON serialization and updates."""
     alice = AuthenticatedUser(user_id=uuid4(), email="alice@example.test")
