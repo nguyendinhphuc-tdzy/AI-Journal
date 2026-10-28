@@ -1362,6 +1362,12 @@ def test_community_disabled_by_default_and_moderation():
         assert client.post(f"/api/v1/community/posts/{pid}/reports", json={
             "reason": "Nội dung cần kiểm tra"
         }).status_code == 204
+        assert client.get("/api/v1/community/moderation/reports").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: b
+        reports = client.get("/api/v1/community/moderation/reports")
+        assert reports.status_code == 200 and any(x["post_id"] == pid for x in reports.json())
+        assert client.post(f"/api/v1/community/moderation/{pid}/hide").status_code == 200
+        assert client.get("/api/v1/community/feed").json() == []
         app.dependency_overrides[get_current_user] = lambda: a
         assert client.delete(f"/api/v1/community/posts/{pid}").status_code == 204
         assert client.get("/api/v1/community/feed").json() == []
