@@ -64,7 +64,7 @@ async def upload_memory_photo(
     memory = _memory_or_404(db, album_id, memory_id, user.user_id)
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     # Bounded read prevents loading unbounded request bodies into application memory.
-    data = await request.stream().__anext__() if False else b""
+    data = b""
     async for chunk in request.stream():
         data += chunk
         if len(data) > MAX_BYTES:
