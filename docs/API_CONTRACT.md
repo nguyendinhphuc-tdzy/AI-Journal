@@ -2,6 +2,12 @@
 
 **Base:** `/api/v1`. **Owner:** Phúc (FastAPI + PostgreSQL). **Flutter integrators:** Trâm (auth, Journal, streak, map UI) and Vy (remaining assigned Flutter features). This document is the proposed contract for B01; **do not assume new endpoints work until their owning PR merges**.
 
+## Integration Album/Memory pagination
+
+- `GET /api/v1/albums` and `GET /api/v1/albums/{album_id}/memories` support `limit` (1–100) and `offset` (0–100000), returning the same JSON **array** as existing clients expect. Stable descending order breaks ties by IDs.
+- The Flutter cloud repository fetches sequential pages of 100 until the final short page. A paging error is reported rather than silently displaying only the first 100.
+- Offset pagination is an MVP compatibility step. Concurrent inserts or deletions between requests may shift page boundaries; migrate to cursor-based pagination for strong snapshot guarantees.
+
 ## Implementation status and backward compatibility
 
 - **LIVE in base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`; unauthenticated mock `POST /api/v1/ai/go-deeper` and `POST /api/v1/ai/reflection`; unauthenticated `GET/POST/GET-by-id/PUT/DELETE /api/v1/journals` (old `GET` returns a **bare array**).
