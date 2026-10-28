@@ -227,9 +227,14 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
   // Only real authenticated Supabase sessions can request remote AI.
   // Never attach a network provider to guest or test fake-auth sessions.
   late final ApiClient? _api = widget.auth is SupabaseAuthService
-      ? ApiClient(accessTokenProvider: () async =>
-          (widget.auth as SupabaseAuthService)
-              .client.auth.currentSession?.accessToken)
+      ? ApiClient(
+          accessTokenProvider: () async => (widget.auth as SupabaseAuthService)
+              .client.auth.currentSession?.accessToken,
+          accessTokenRefresher: () async =>
+              (await (widget.auth as SupabaseAuthService)
+                      .client.auth.refreshSession())
+                  .session?.accessToken,
+        )
       : null;
   late final ApiAIService? _ai = _api == null ? null : ApiAIService(_api);
 
