@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     # Public project URL, NOT a key. Required to verify Supabase Auth JWT.
     # Example: https://your-project-ref.supabase.co
     supabase_url: str | None = None
+    # Public API key only; bearer user token enforces storage RLS.
+    supabase_publishable_key: str | None = None
     # Server-side Geoapify key. Leave unset to disable external search.
     geoapify_api_key: str | None = None
 
