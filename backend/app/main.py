@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.modules.community.router import router as community_router
 from app.modules.shares.router import router as shares_router
 from app.modules.friends.router import router as friends_router
 from app.modules.ai.router import router as ai_router
