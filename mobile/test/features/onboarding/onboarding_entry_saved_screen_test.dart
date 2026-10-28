@@ -8,7 +8,6 @@ import 'package:ai_diary/features/journal/journal_scope.dart';
 import 'package:ai_diary/features/onboarding/data/data_policy.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
-import 'package:ai_diary/features/onboarding/presentation/onboarding_ai_data_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_entry_saved_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_first_entry_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_preparing_screen.dart';
@@ -221,25 +220,6 @@ void main() {
     await _settle(tester);
     expect(_reflections.calls, hasLength(1));
     expect(find.text('Một góc nhìn.'), findsOneWidget);
-  });
-
-  testWidgets('AI switched off while waiting: the answer is ignored',
-      (tester) async {
-    await _pump(tester, ai: true);
-    await _writeAndSave(tester, 'x');
-    await tester.tap(find.byTooltip('Quay lại')); // OB07
-    await _settle(tester);
-    await tester.tap(find.byTooltip('Quay lại')); // OB06
-    await _settle(tester);
-    await tester.tap(find.text(OnboardingAiDataScreen.journalOnlyLabel));
-    await _settle(tester);
-    await tester.tap(_ctaIn(OnboardingFirstEntryScreen)); // "Tiếp tục"
-    await _settle(tester);
-    _reflections.answer(0, 'Không được hiện.');
-    await _settle(tester);
-    expect(find.text(OnboardingEntrySavedScreen.plainTitle), findsOneWidget);
-    expect(find.text('Không được hiện.'), findsNothing);
-    expect(_reflections.calls, hasLength(1), reason: 'nothing new sent');
   });
 
   test('Stand-in reflection: tentative, never the screenshot text', () {

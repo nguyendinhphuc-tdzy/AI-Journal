@@ -11,6 +11,7 @@ import '../onboarding/data/onboarding_store.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
 import '../explore/data/place_mood.dart';
+import '../journal/data/api_ai_service.dart';
 import '../home/data/home_scene_settings.dart';
 import '../social/data/friends_account.dart';
 import '../social/data/friend_space.dart';
@@ -42,6 +43,9 @@ class ProfileScreen extends StatefulWidget {
   static const disconnectLabel = 'Ngắt kết nối';
   static const keepLabel = 'Giữ kết nối';
   static const signOutLabel = 'Đăng xuất';
+  static const aiRepliesNote = 'Khi bật, nội dung bạn lưu hoặc dùng Nhìn lại '
+      'cùng bạn được gửi tới AI của nhóm để phân tích và đặt câu hỏi. Khi tắt, '
+      'nhật ký không được gửi tới AI.';
   static const guestSignOutTitle = 'Thoát chế độ khách?';
   static const guestSignOutBody =
       'Bạn chưa có tài khoản, nên nhật ký, kỷ niệm và ảnh chỉ nằm trên máy '
@@ -103,6 +107,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           };
           save =
               (value) => store.saveGoal(JournalGoal.values.asNameMap()[value]);
+        case 'ai replies':
+          initial = store.aiInApp ? 'on' : 'off';
+          options = {'on': 'Bật', 'off': 'Tắt'};
+          note = ProfileScreen.aiRepliesNote;
+          save = (value) => store.saveAiInApp(value == 'on');
         case 'text size':
           initial = prefs.textSize.toString();
           options = {
@@ -251,10 +260,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final store = snapshot.data;
         final loading = store == null;
         // Only settings that open something; the rest (Plus, reminders,
-        // language) come back once they work.
-        return _buildSettingsGroup('Cài đặt chung', const [
+        // language) come back once they work. "Phản hồi AI" only where there
+        // is AI: a signed-in account.
+        return _buildSettingsGroup('Cài đặt chung', [
           'what do friends call you?',
           'pick your inspirations path',
+          if (AiRemoteScope.maybeOf(context) != null) 'ai replies',
         ], values: {
           'what do friends call you?': loading
               ? 'Đang tải…'
@@ -263,6 +274,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   : 'Chưa đặt biệt danh'),
           'pick your inspirations path':
               loading ? 'Đang tải…' : store.goal?.label ?? 'Chưa chọn mục tiêu',
+          'ai replies': loading ? 'Đang tải…' : (store.aiInApp ? 'Bật' : 'Tắt'),
         });
       },
     );
@@ -560,6 +572,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'pen sound' => 'Tiếng bút',
         'interface sounds' => 'Âm thanh giao diện',
         'haptic' => 'Rung phản hồi',
+        'ai replies' => 'Phản hồi AI',
         'lock with passcode' => 'Khóa bằng mật mã',
         'lock with face id' => 'Khóa bằng Face ID',
         'notes for you' => 'Ghi chú cho bạn',
@@ -586,6 +599,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'pen sound' => Icons.edit_outlined,
         'interface sounds' => Icons.touch_app_outlined,
         'haptic' => Icons.vibration_rounded,
+        'ai replies' => Icons.psychology_outlined,
         'lock with passcode' => Icons.pin_outlined,
         'lock with face id' => Icons.face_outlined,
         'notes for you' => Icons.mail_outline_rounded,

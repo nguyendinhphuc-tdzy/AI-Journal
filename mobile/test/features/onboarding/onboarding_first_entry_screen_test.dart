@@ -303,8 +303,8 @@ void main() {
     await tester.tap(find.byTooltip('Quay lại'));
     await _settle(tester);
     expect(find.text(OnboardingAiDataScreen.title), findsOneWidget);
-    // Change the AI choice on the way back: the text stays.
-    await tester.tap(find.text(OnboardingAiDataScreen.withAiLabel));
+    // Through OB06 again on the way back: the text stays.
+    await tester.tap(find.text(OnboardingAiDataScreen.continueLabel));
     await _settle(tester);
     expect(find.text('Mệt'), findsOneWidget);
     expect(find.text('deadline'), findsOneWidget);

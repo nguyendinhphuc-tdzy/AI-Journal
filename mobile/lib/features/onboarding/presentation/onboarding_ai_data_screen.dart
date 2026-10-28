@@ -7,15 +7,16 @@ import '../data/data_policy.dart';
 import '../data/onboarding_store.dart';
 import 'onboarding_widgets.dart';
 
-/// OB06: how AI and data work, and the user's choice, before anything is
-/// sent. Two explicit paths and no pre-set toggle: "Tiếp tục với AI" or
-/// "Chỉ viết nhật ký". Nothing is sent to AI from this screen.
+/// OB06: how AI and data work, before anything is sent. Nothing is sent to
+/// AI from this screen, and there is one way on: "Tiếp tục".
 ///
-/// The copy comes from [DataPolicy]; while it is not approved the screen
-/// says it is a demo build with simulated AI.
+/// - Signed in ([aiAvailable]): AI is on in the app; the copy from
+///   [DataPolicy] says what is sent, when, to whom, and that Hồ sơ can turn
+///   it off. "Tiếp tục" records AI on with the policy version.
+/// - Without AI (guest mode): the screen says AI needs an account and goes
+///   on, AI off.
 ///
-/// Without AI here ([aiAvailable] false, e.g. guest mode) there is nothing
-/// to choose: the screen says AI needs an account and goes on, AI off.
+/// While the copy is not approved it is labelled a demo build.
 class OnboardingAiDataScreen extends StatelessWidget {
   const OnboardingAiDataScreen({
     super.key,
@@ -32,18 +33,15 @@ class OnboardingAiDataScreen extends StatelessWidget {
 
   final VoidCallback onBack;
 
-  /// true: "Tiếp tục với AI"; false: "Chỉ viết nhật ký".
+  /// "Tiếp tục": true with AI ([aiAvailable]), false without.
   final ValueChanged<bool> onChoose;
 
-  static const title = 'Bạn chọn cách dùng AI.';
-  static const guestTitle = 'AI và nhật ký của bạn.';
+  static const title = 'AI và nhật ký của bạn.';
   static const demoLabel = 'Bản thử nghiệm: phản hồi AI là mô phỏng';
   static const realAiLabel = 'Bản thử nghiệm: AI chạy trên máy tính của nhóm';
   static const storageHeading = 'Nhật ký của bạn';
   static const aiHeading = 'Khi yêu cầu phản hồi AI';
   static const choiceHeading = 'Quyền lựa chọn';
-  static const withAiLabel = 'Tiếp tục với AI';
-  static const journalOnlyLabel = 'Chỉ viết nhật ký';
   static const needsAccountLabel = 'Phản hồi AI cần tài khoản';
   static const needsAccountBody =
       'Phản hồi AI chỉ có khi bạn đăng nhập. Ở chế độ khách, bạn vẫn viết và '
@@ -68,8 +66,7 @@ class OnboardingAiDataScreen extends StatelessWidget {
                 order: 1,
                 child: Semantics(
                   header: true,
-                  child: Text(aiAvailable ? title : guestTitle,
-                      style: _Text.title),
+                  child: const Text(title, style: _Text.title),
                 ),
               ),
               if (!aiAvailable || !policy.approved) ...[
@@ -91,7 +88,7 @@ class OnboardingAiDataScreen extends StatelessWidget {
                   (Icons.menu_book_outlined, storageHeading, policy.storage),
                   if (aiAvailable) ...[
                     (Icons.send_outlined, aiHeading, policy.aiRequest),
-                    (Icons.tune_rounded, choiceHeading, DataPolicy.choiceNote),
+                    (Icons.tune_rounded, choiceHeading, policy.choice),
                   ] else
                     (Icons.send_outlined, aiHeading, needsAccountBody),
                 ]),
@@ -100,27 +97,13 @@ class OnboardingAiDataScreen extends StatelessWidget {
           ),
         ),
         stage: const StaggerItem(order: 5, child: _Stage()),
-        actions: aiAvailable
-            ? [
-                StaggerItem(
-                  order: 6,
-                  child: OnboardingCta(
-                      label: withAiLabel, onPressed: () => onChoose(true)),
-                ),
-                StaggerItem(
-                  order: 6,
-                  child: OnboardingTextAction(
-                      label: journalOnlyLabel,
-                      onPressed: () => onChoose(false)),
-                ),
-              ]
-            : [
-                StaggerItem(
-                  order: 6,
-                  child: OnboardingCta(
-                      label: continueLabel, onPressed: () => onChoose(false)),
-                ),
-              ],
+        actions: [
+          StaggerItem(
+            order: 6,
+            child: OnboardingCta(
+                label: continueLabel, onPressed: () => onChoose(aiAvailable)),
+          ),
+        ],
       );
 }
 

@@ -55,6 +55,7 @@ class OnboardingStore {
   static const _experienceKey = 'onboarding.experience';
   static const _aiKey = 'onboarding.ai';
   static const _aiPolicyKey = 'onboarding.aiPolicyVersion';
+  static const _aiInAppKey = 'onboarding.aiInApp';
   static const _firstEntryKey = 'onboarding.firstEntryId';
   static const _remindersKey = 'onboarding.reminders';
 
@@ -115,6 +116,14 @@ class OnboardingStore {
       await _prefs.remove(_key(_aiPolicyKey));
     }
   }
+
+  /// Hồ sơ's "Phản hồi AI": AI in the app (on save, "Nhìn lại cùng bạn")
+  /// for a signed-in account. On unless turned off there; the onboarding
+  /// choice does not turn it off.
+  bool get aiInApp => _prefs.getString(_key(_aiInAppKey)) != 'off';
+
+  Future<void> saveAiInApp(bool on) =>
+      _prefs.setString(_key(_aiInAppKey), on ? 'on' : 'off');
 
   /// Id of the entry saved in OB07; Back to OB07 then edits that entry
   /// instead of creating another.
