@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.config import Settings, get_settings
-from app.modules.geo.service import geoapify_search
+from app.modules.geo.service import geoapify_search, geoapify_reverse
 from app.schemas.place import Latitude, Longitude
 
 
@@ -129,3 +129,33 @@ async def search_locations(
     )
     _store_geo_result(cache_key, items)
     return GeoResults(items=items)
+
+
+class GeoReverseResult(BaseModel):
+    label: str = Field(max_length=160)
+    formatted_address: str | None
+    latitude: Latitude
+    longitude: Longitude
+
+
+@router.get("/reverse", response_model=GeoReverseResult | None)
+async def reverse_location(
+    lat: Latitude,
+    lon: Longitude,
+    user: AuthenticatedUser = Depends(get_current_user),
+    _rate_limited: None = Depends(enforce_geo_rate_limit),
+    settings: Settings = Depends(get_settings),
+    client: httpx.AsyncClient = Depends(get_geo_client),
+):
+    del _rate_limited
+    api_key = settings.geoapify_api_key
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Place search is not configured")
+    # Rounded coordinates avoid duplicate requests for sub-meter pin movements.
+    cache_key = (user.user_id, api_key, "reverse", round(lat, 5), round(lon, 5))
+    cached = _cached_geo_result(cache_key)
+    if cached is not None:
+        return GeoReverseResult(**cached[0]) if cached else None
+    result = await geoapify_reverse(client, api_key, lat=lat, lon=lon)
+    _store_geo_result(cache_key, [result] if result is not None else [])
+    return GeoReverseResult(**result) if result is not None else None
