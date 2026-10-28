@@ -7,14 +7,16 @@ import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_ui.dart';
 import '../streak/streak_screen.dart';
 import '../sound/app_sound.dart';
+import 'data/api_ai_service.dart';
 import '../streak/streak_state.dart';
 
 enum _ReflectionStage { loading, quote, insight }
 
 class AIReflectionScreen extends StatefulWidget {
-  const AIReflectionScreen({super.key, required this.journalContent});
+  const AIReflectionScreen({super.key, required this.journalContent, this.remote});
 
   final String journalContent;
+  final ApiAIService? remote;
 
   @override
   State<AIReflectionScreen> createState() => _AIReflectionScreenState();
@@ -26,6 +28,29 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   bool _quoteSaved = false;
   bool? _helpful;
   bool _openingStreak = false;
+  AiAnalysis? _remoteInsight;
+  bool _remoteFailed = false;
+
+  Future<void> _fetchRemote() async {
+    final service = widget.remote;
+    if (service == null) return;
+    try {
+      final result = await service.analyze(widget.journalContent);
+      if (!mounted) return;
+      setState(() {
+        _remoteInsight = result;
+        _remoteFailed = false;
+        _stage = _ReflectionStage.insight;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _remoteFailed = true;
+        _stage = _ReflectionStage.insight;
+      });
+    }
+  }
+
 
   void _saveQuote() {
     if (_quoteSaved) return;
@@ -71,6 +96,10 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.remote != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fetchRemote());
+      return;
+    }
     // The pause while the entry is read. The quote then stays until the
     // reader moves on (Tiếp tục): never taken away mid-read.
     Future<void>.delayed(const Duration(seconds: 3), () {
@@ -218,6 +247,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   }
 
   Widget _buildInsight() {
+    if (widget.remote != null) {
+      return _buildRemoteInsight();
+    }
     return Column(
       key: const ValueKey('reflection-insight'),
       children: [
@@ -311,6 +343,46 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
         _buildFeedback(),
       ],
     );
+  }
+
+  Widget _buildRemoteInsight() {
+    if (_remoteFailed) {
+      return Center(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Không thể kết nối AI lúc này.'),
+          const SizedBox(height: 12),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _remoteFailed = false;
+                _stage = _ReflectionStage.loading;
+              });
+              _fetchRemote();
+            },
+            child: const Text('Thử lại AI'),
+          ),
+        ],
+      ));
+    }
+    final result = _remoteInsight;
+    if (result == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return Column(children: [
+      Expanded(child: ListView(padding: const EdgeInsets.all(24), children: [
+        const AppEyebrow('Góc suy ngẫm', icon: Icons.auto_awesome),
+        const SizedBox(height: 16),
+        Text(result.emotion, style: AppText.pageTitle),
+        const SizedBox(height: 20),
+        Text(result.observation, style: AppText.body),
+        const SizedBox(height: 16),
+        Text(result.reflection, style: AppText.body),
+        const SizedBox(height: 16),
+        Text(result.question, style: AppText.body),
+      ])),
+      _buildFeedback(),
+    ]);
   }
 
   Widget _buildTab(String label, bool selected, VoidCallback onTap) {
