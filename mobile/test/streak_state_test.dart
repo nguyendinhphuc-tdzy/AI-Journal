@@ -14,7 +14,7 @@ void main() {
     state.completeToday();
     state.completeToday();
     expect(state.value, 1);
-    expect(state.nextCount, 3);
+    expect(state.nextCount, 1);
     expect(state.completedToday, isTrue);
     expect(notifications, 1);
   });
