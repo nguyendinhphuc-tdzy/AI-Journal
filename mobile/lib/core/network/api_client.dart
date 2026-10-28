@@ -52,7 +52,7 @@ class ApiClient {
         _accessTokenRefresher != null) {
       String? fresh;
       try {
-        fresh = await _accessTokenRefresher!()
+        fresh = await _accessTokenRefresher()
             .timeout(const Duration(seconds: 15));
       } catch (_) {
         return response;
