@@ -1340,6 +1340,7 @@ def test_community_disabled_by_default_and_moderation():
     from app.core.config import Settings, get_settings
     a = AuthenticatedUser(user_id=uuid4(), email="community-a@example.com")
     b = AuthenticatedUser(user_id=uuid4(), email="community-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="community-c@example.com")
     app.dependency_overrides.clear()
     app.dependency_overrides[get_current_user] = lambda: a
     try:
@@ -1359,6 +1360,7 @@ def test_community_disabled_by_default_and_moderation():
         assert approved.status_code == 200, approved.text
         assert approved.json()["status"] == "approved"
         assert any(row["id"] == pid for row in client.get("/api/v1/community/feed").json())
+        app.dependency_overrides[get_current_user] = lambda: c
         assert client.post(f"/api/v1/community/posts/{pid}/reports", json={
             "reason": "Nội dung cần kiểm tra"
         }).status_code == 204
