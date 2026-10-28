@@ -28,6 +28,7 @@ Map<String, Object?> _memory() => {
   'id': _memoryId, 'album_id': _albumId,
   'title': 'Buổi sáng', 'note': 'Cà phê ở đây',
   'display_date': '2026-10-27', 'place': null,
+  'photo_available': false,
   'created_at': '2026-10-28T00:00:00Z',
   'updated_at': '2026-10-28T00:00:00Z',
 };
@@ -166,6 +167,35 @@ void main() {
       repo.dispose();
       api.close();
       await folder.delete(recursive: true);
+    }
+  });
+
+  test('photo availability metadata deletes via owner-scoped endpoint', () async {
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'DELETE') return http.Response('', 204);
+        if (request.method == 'PATCH') {
+          return _response({..._memory(), 'photo_available': true});
+        }
+        return _response(_memory());
+      }),
+    );
+    final local = await LocalAlbumRepository.open(userId: 'photo-user');
+    final repo = RemoteAlbumRepository(client: api, localDrafts: local);
+    try {
+      await repo.updateMemory(
+        'cloud-$_albumId', 'cloud-$_memoryId',
+        MemoryContent(note: 'No photo', displayDate: DateTime(2026, 10, 27)),
+      );
+      expect(requests.map((r) => r.method), ['PATCH', 'DELETE']);
+      expect(requests.last.url.path, endsWith('/photo'));
+      expect(requests.last.headers['authorization'], 'Bearer jwt');
+    } finally {
+      repo.dispose();
+      api.close();
     }
   });
 
