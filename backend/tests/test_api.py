@@ -217,6 +217,18 @@ def test_me_creates_and_updates_owned_profiles():
         invalid_tz = client.patch("/api/v1/me", json={"timezone": "Fake/Timezone"})
         assert invalid_tz.status_code == 422
 
+        # Null must be rejected with a client error rather than a database
+        # integrity error (500); omitting discoverable remains valid.
+        assert client.patch("/api/v1/me", json={"discoverable": None}).status_code == 422
+        enabled = client.patch("/api/v1/me", json={"discoverable": True})
+        assert enabled.status_code == 200
+        assert enabled.json()["discoverable"] is True
+        assert client.patch("/api/v1/me", json={"discoverable": None}).status_code == 422
+        assert client.get("/api/v1/me").json()["discoverable"] is True
+        disabled = client.patch("/api/v1/me", json={"discoverable": False})
+        assert disabled.status_code == 200
+        assert disabled.json()["discoverable"] is False
+
         invalid_owner = client.patch(
             "/api/v1/me", json={"user_id": str(second.user_id)}
         )
