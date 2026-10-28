@@ -5,7 +5,7 @@ Private Memory photo bytes are deliberately never returned here.
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
@@ -13,9 +13,15 @@ from app.core.database import get_db
 from app.models.album import AlbumMemory
 from app.models.friendship import Friendship
 from app.models.memory_share import MemoryShare
+from app.models.memory_share_recipient import MemoryShareRecipient
 from app.modules.friends.router import blocked, pair
 
 router = APIRouter(prefix="/memory-shares", tags=["memory-shares"])
+
+
+class ShareCreate(BaseModel):
+    memory_id: UUID
+    recipient_ids: list[UUID] = Field(min_length=1, max_length=20)
 
 
 class ShareInfo(BaseModel):
@@ -54,17 +60,25 @@ def _friend(db: Session, owner: UUID, reader: UUID) -> bool:
 
 
 @router.post("", response_model=ShareInfo, status_code=status.HTTP_201_CREATED)
-def create_share(memory_id: UUID, user: AuthenticatedUser = Depends(get_current_user),
+def create_share(payload: ShareCreate, user: AuthenticatedUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     memory = db.scalar(select(AlbumMemory).where(
-        AlbumMemory.id == memory_id, AlbumMemory.user_id == user.user_id
+        AlbumMemory.id == payload.memory_id, AlbumMemory.user_id == user.user_id
     ))
     if memory is None:
         raise HTTPException(status_code=404, detail="Memory not found")
+    recipients = payload.recipient_ids
+    if len(set(recipients)) != len(recipients) or any(
+        target == user.user_id or not _friend(db, user.user_id, target)
+        for target in recipients
+    ):
+        raise HTTPException(status_code=422, detail="Invalid or ineligible share recipients")
     now = datetime.now(timezone.utc)
-    share = MemoryShare(memory_id=memory_id, owner_id=user.user_id,
+    share = MemoryShare(memory_id=payload.memory_id, owner_id=user.user_id,
                         created_at=now, expires_at=now + timedelta(hours=24))
     db.add(share)
+    db.flush()
+    db.add_all(MemoryShareRecipient(share_id=share.id, owner_id=user.user_id, recipient_id=target) for target in recipients)
     db.commit()
     db.refresh(share)
     return ShareInfo(id=share.id, memory_id=share.memory_id,
@@ -78,7 +92,9 @@ def read_shared_memory(share_id: UUID,
     share = _share(db, share_id)
     if share.revoked_at is not None or utc(share.expires_at) <= datetime.now(timezone.utc):
         raise HTTPException(status_code=404, detail="Share not found")
-    if not _friend(db, share.owner_id, user.user_id):
+    if (user.user_id != share.owner_id and
+        (db.get(MemoryShareRecipient, (share.id, user.user_id)) is None or
+         not _friend(db, share.owner_id, user.user_id))):
         raise HTTPException(status_code=404, detail="Share not found")
     memory = db.scalar(select(AlbumMemory).where(
         AlbumMemory.id == share.memory_id,

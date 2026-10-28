@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261028_13"
+    assert revision == "20261028_15"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -1284,38 +1284,94 @@ def test_friends_only_memory_shares_revoke_expire_and_unfriend():
         })
         assert memory.status_code == 201, memory.text
         memory_id = memory.json()["id"]
-        share = client.post("/api/v1/memory-shares", params={"memory_id": memory_id})
-        assert share.status_code == 201, share.text
-        sid = share.json()["id"]
-        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 200
-        app.dependency_overrides[get_current_user] = lambda: b
-        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
-        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 404
-        app.dependency_overrides[get_current_user] = lambda: c
-        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
-        app.dependency_overrides[get_current_user] = lambda: a
+        # No share to non-friends, no share without explicit recipients.
+        assert client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+        }).status_code == 422
+        assert client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": []
+        }).status_code == 422
         assert client.post("/api/v1/friends/requests", json={
             "user_id": str(b.user_id)
         }).status_code == 201
         app.dependency_overrides[get_current_user] = lambda: b
         assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        share = client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+        })
+        assert share.status_code == 201, share.text
+        sid = share.json()["id"]
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: b
         view = client.get(f"/api/v1/memory-shares/{sid}")
-        assert view.status_code == 200
+        assert view.status_code == 200, view.text
         assert view.json()["note"] == "A private day"
         assert "photo_path" not in view.json()
+        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
         with SessionLocal() as db:
             item = db.get(MemoryShare, UUID(sid))
             item.created_at = datetime.now(timezone.utc) - timedelta(hours=25)
             item.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
             db.commit()
+        app.dependency_overrides[get_current_user] = lambda: b
         assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
         app.dependency_overrides[get_current_user] = lambda: a
-        new_share = client.post("/api/v1/memory-shares", params={"memory_id": memory_id}).json()["id"]
+        new_share = client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+        })
+        assert new_share.status_code == 201, new_share.text
+        sid2 = new_share.json()["id"]
         app.dependency_overrides[get_current_user] = lambda: b
-        assert client.get(f"/api/v1/memory-shares/{new_share}").status_code == 200
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 200
         assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
-        assert client.get(f"/api/v1/memory-shares/{new_share}").status_code == 404
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
         app.dependency_overrides[get_current_user] = lambda: a
-        assert client.delete(f"/api/v1/memory-shares/{new_share}").status_code == 204
+        assert client.delete(f"/api/v1/memory-shares/{sid2}").status_code == 204
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_community_disabled_by_default_and_moderation():
+    from app.core.config import Settings, get_settings
+    a = AuthenticatedUser(user_id=uuid4(), email="community-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="community-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="community-c@example.com")
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.get("/api/v1/community/feed").status_code == 503
+        app.dependency_overrides[get_settings] = lambda: Settings(
+            database_url="sqlite://", community_feed_enabled=True,
+            community_moderator_ids=str(b.user_id))
+        post = client.post("/api/v1/community/posts", json={"body": "Hôm nay tôi thấy rất vui vì điều nhỏ bé."})
+        assert post.status_code == 201, post.text
+        pid = post.json()["id"]
+        assert post.json()["status"] == "pending"
+        assert client.get("/api/v1/community/feed").json() == []
+        assert client.get("/api/v1/community/moderation/pending").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert len(client.get("/api/v1/community/moderation/pending").json()) >= 1
+        approved = client.post(f"/api/v1/community/moderation/{pid}/approve")
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "approved"
+        assert any(row["id"] == pid for row in client.get("/api/v1/community/feed").json())
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.post(f"/api/v1/community/posts/{pid}/reports", json={
+            "reason": "Nội dung cần kiểm tra"
+        }).status_code == 204
+        assert client.get("/api/v1/community/moderation/reports").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: b
+        reports = client.get("/api/v1/community/moderation/reports")
+        assert reports.status_code == 200 and any(x["post_id"] == pid for x in reports.json())
+        assert client.post(f"/api/v1/community/moderation/{pid}/hide").status_code == 200
+        assert client.get("/api/v1/community/feed").json() == []
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/community/posts/{pid}").status_code == 204
+        assert client.get("/api/v1/community/feed").json() == []
     finally:
         app.dependency_overrides.clear()
