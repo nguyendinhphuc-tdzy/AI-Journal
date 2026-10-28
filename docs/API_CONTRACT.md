@@ -7,7 +7,7 @@
 - **Historical base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`, public mock AI and unscoped journal CRUD. The **current integration branch** requires a Supabase JWT for `/api/v1/ai/*` and all Journal operations; never use the v0.1 descriptions as the live runtime contract.
 - **PLANNED for MVP v1 (B02/B04/B06/B09/B10):** Supabase JWT authentication, owner-scoped Journal APIs, profile, completed-action streak, search and saved places, multiple notes, journal-place linking.
 - B04 changes `GET /journals` from a bare list to a paginated object `{items,next_cursor}`. Trâm must switch at the same integration milestone; **do not silently deploy a breaking change to active Flutter clients**. Preserve existing integer Journal IDs and basic input fields.
-- There is **no** production AI integration in MVP v1; mock responses remain in the separate AI module.
+- **Integration runtime:** AI endpoints route through the backend to either the deterministic mock provider (for tests/offline use) or local Ollama (`AI_PROVIDER=ollama`). The backend requires verified Supabase JWT for both; the Flutter app never calls Ollama directly. Production deployment and quota limits remain pending.
 - **STAGED B14 (not merged):** unified runtime branch `integration/journal-cloud-runtime-20261027` contains reviewed backend Phase 2 (PR #26), Flutter Phase 2 (PR #27), and manual runtime launchers. Shared Supabase Dev has Alembic `20261026_08`, but runtime E2E on Android is **not yet verified**. This does not change the API in the default GitHub branch.
 
 ## Transport, authentication and error conventions
