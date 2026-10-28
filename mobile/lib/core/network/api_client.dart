@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -5,16 +6,64 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 
 typedef AccessTokenProvider = Future<String?> Function();
+typedef AccessTokenRefresher = Future<String?> Function();
 
 /// One network boundary. Private endpoints require a verified Supabase session.
 /// Avoid leaking tokens into logs or exception messages.
 class ApiClient {
-  ApiClient({http.Client? client, AccessTokenProvider? accessTokenProvider})
-      : _client = client ?? http.Client(),
-        _accessTokenProvider = accessTokenProvider;
+  ApiClient({
+    http.Client? client,
+    AccessTokenProvider? accessTokenProvider,
+    AccessTokenRefresher? accessTokenRefresher,
+    this.requestTimeout = const Duration(seconds: 30),
+    this.aiRequestTimeout = const Duration(seconds: 105),
+  })  : _client = client ?? http.Client(),
+        _accessTokenProvider = accessTokenProvider,
+        _accessTokenRefresher = accessTokenRefresher;
 
   final http.Client _client;
   final AccessTokenProvider? _accessTokenProvider;
+  final AccessTokenRefresher? _accessTokenRefresher;
+  /// Network timeouts do not retry writes: a timed-out operation may have
+  /// succeeded on the backend. The longer AI limit covers local inference.
+  final Duration requestTimeout;
+  final Duration aiRequestTimeout;
+
+  Future<http.Response> _send(
+    String path, {
+    required Future<http.Response> Function(Uri, Map<String, String>) send,
+    bool requireAuth = false,
+    bool jsonBody = false,
+    String? contentType,
+  }) async {
+    final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
+    final headers = await _headers(jsonBody: jsonBody, requireAuth: requireAuth);
+    if (contentType != null) headers['Content-Type'] = contentType;
+    final limit = path.startsWith('/ai/') ? aiRequestTimeout : requestTimeout;
+    Future<http.Response> attempt() => send(uri, headers).timeout(
+          limit,
+          onTimeout: () => throw const ApiTimeoutException(),
+        );
+    final response = await attempt();
+    // A 401 is rejected before the backend performs authorized mutations.
+    // Retry just once with a *new* JWT; never retry a timed-out write.
+    if (response.statusCode == 401 &&
+        requireAuth &&
+        _accessTokenRefresher != null) {
+      String? fresh;
+      try {
+        fresh = await _accessTokenRefresher!()
+            .timeout(const Duration(seconds: 15));
+      } catch (_) {
+        return response;
+      }
+      if (fresh != null && fresh.trim().isNotEmpty) {
+        headers['Authorization'] = 'Bearer $fresh';
+        return attempt();
+      }
+    }
+    return response;
+  }
 
   Future<Map<String, String>> _headers({
     bool jsonBody = false,
@@ -36,10 +85,8 @@ class ApiClient {
     String path, {
     bool requireAuth = false,
   }) async {
-    final response = await _client.get(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(requireAuth: requireAuth),
-    );
+    final response = await _send(path, requireAuth: requireAuth,
+        send: (uri, headers) => _client.get(uri, headers: headers));
     return _decode(response);
   }
 
@@ -48,10 +95,8 @@ class ApiClient {
     String path, {
     bool requireAuth = false,
   }) async {
-    final response = await _client.get(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(requireAuth: requireAuth),
-    );
+    final response = await _send(path, requireAuth: requireAuth,
+        send: (uri, headers) => _client.get(uri, headers: headers));
     _ensureSuccess(response);
     final decoded = jsonDecode(response.body);
     if (decoded == null) return null;
@@ -63,10 +108,8 @@ class ApiClient {
 
   /// Album and memory list endpoints return a top-level JSON array.
   Future<List<dynamic>> getList(String path, {bool requireAuth = false}) async {
-    final response = await _client.get(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(requireAuth: requireAuth),
-    );
+    final response = await _send(path, requireAuth: requireAuth,
+        send: (uri, headers) => _client.get(uri, headers: headers));
     _ensureSuccess(response);
     final decoded = jsonDecode(response.body);
     if (decoded is! List) throw const FormatException('Expected JSON list');
@@ -78,11 +121,8 @@ class ApiClient {
     Map<String, dynamic> body, {
     bool requireAuth = false,
   }) async {
-    final response = await _client.post(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(jsonBody: true, requireAuth: requireAuth),
-      body: jsonEncode(body),
-    );
+    final response = await _send(path, requireAuth: requireAuth, jsonBody: true,
+        send: (uri, headers) => _client.post(uri, headers: headers, body: jsonEncode(body)));
     return _decode(response);
   }
 
@@ -91,11 +131,8 @@ class ApiClient {
     Map<String, dynamic> body, {
     bool requireAuth = false,
   }) async {
-    final response = await _client.put(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(jsonBody: true, requireAuth: requireAuth),
-      body: jsonEncode(body),
-    );
+    final response = await _send(path, requireAuth: requireAuth, jsonBody: true,
+        send: (uri, headers) => _client.put(uri, headers: headers, body: jsonEncode(body)));
     return _decode(response);
   }
 
@@ -105,11 +142,8 @@ class ApiClient {
     Map<String, dynamic> body, {
     bool requireAuth = false,
   }) async {
-    final response = await _client.patch(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(jsonBody: true, requireAuth: requireAuth),
-      body: jsonEncode(body),
-    );
+    final response = await _send(path, requireAuth: requireAuth, jsonBody: true,
+        send: (uri, headers) => _client.patch(uri, headers: headers, body: jsonEncode(body)));
     return _decode(response);
   }
 
@@ -119,21 +153,15 @@ class ApiClient {
     required String contentType,
     bool requireAuth = true,
   }) async {
-    final headers = await _headers(requireAuth: requireAuth);
-    headers['Content-Type'] = contentType;
-    final response = await _client.put(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: headers,
-      body: bytes,
-    );
+    final response = await _send(path, requireAuth: requireAuth,
+        contentType: contentType,
+        send: (uri, headers) => _client.put(uri, headers: headers, body: bytes));
     _ensureSuccess(response);
   }
 
   Future<List<int>> getBytes(String path, {bool requireAuth = true}) async {
-    final response = await _client.get(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(requireAuth: requireAuth),
-    );
+    final response = await _send(path, requireAuth: requireAuth,
+        send: (uri, headers) => _client.get(uri, headers: headers));
     _ensureSuccess(response);
     return response.bodyBytes;
   }
@@ -142,10 +170,8 @@ class ApiClient {
     String path, {
     bool requireAuth = false,
   }) async {
-    final response = await _client.delete(
-      Uri.parse('${AppConfig.apiBaseUrl}$path'),
-      headers: await _headers(requireAuth: requireAuth),
-    );
+    final response = await _send(path, requireAuth: requireAuth,
+        send: (uri, headers) => _client.delete(uri, headers: headers));
     // Private error bodies are never logged or copied into exceptions.
     if (response.statusCode != 200 && response.statusCode != 204) {
       throw ApiException(response.statusCode);
@@ -183,4 +209,12 @@ class MissingAccessTokenException implements Exception {
 
   @override
   String toString() => 'Authentication required for private AI requests';
+}
+
+/// A request timed out; no retry is attempted because the server may have
+/// committed the operation even if the response was lost.
+class ApiTimeoutException implements Exception {
+  const ApiTimeoutException();
+  @override
+  String toString() => 'API request timed out';
 }
