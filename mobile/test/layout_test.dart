@@ -1,9 +1,12 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_diary/main.dart';
 import 'package:ai_diary/core/theme/app_theme.dart';
+import 'package:ai_diary/features/journal/data/api_ai_service.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/fake_ai.dart';
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -32,9 +35,12 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetViewInsets);
-    await tester.pumpWidget(MaterialApp(
-      theme: AppTheme.light,
-      home: const WriteJournalScreen(),
+    await tester.pumpWidget(AiRemoteScope(
+      service: FakeAi().service,
+      child: MaterialApp(
+        theme: AppTheme.light,
+        home: const WriteJournalScreen(),
+      ),
     ));
     await tester.enterText(find.byType(TextField), 'A peaceful afternoon.');
     // Going deeper turns on once there is something written.

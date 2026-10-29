@@ -146,6 +146,8 @@ void main() {
       (tester) async {
     final albums = InMemoryAlbumRepository();
     await _seed(albums, 'Đà Lạt', memories: 3);
+    // The repository breaks equal timestamps by ID, not insertion order.
+    await tester.pump(const Duration(milliseconds: 25));
     await _seed(albums, 'Mùa thu');
     await _pump(tester, repository: albums);
 

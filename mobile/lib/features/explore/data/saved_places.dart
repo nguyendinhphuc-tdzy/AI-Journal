@@ -91,10 +91,14 @@ abstract interface class SavedPlacesStore {
 /// On this device, via shared_preferences, until saved places have a
 /// backend (B09 has no mood or category fields yet).
 class LocalSavedPlacesStore implements SavedPlacesStore {
-  const LocalSavedPlacesStore();
+  const LocalSavedPlacesStore({this.userId});
 
+  /// Null is for the standalone demo only; signed-in users get scoped data.
+  final String? userId;
   static const placesKey = 'explore.savedPlaces';
   static const stopsKey = 'explore.communityStops';
+
+  String _key(String key) => userId == null ? key : 'users.$userId.$key';
 
   static Future<List<T>?> _read<T>(
       String key, T Function(Map<String, Object?>) parse) async {
@@ -113,11 +117,11 @@ class LocalSavedPlacesStore implements SavedPlacesStore {
   }
 
   @override
-  Future<List<SavedPlace>?> places() => _read(placesKey, SavedPlace.fromJson);
+  Future<List<SavedPlace>?> places() => _read(_key(placesKey), SavedPlace.fromJson);
 
   @override
   Future<void> keepPlaces(List<SavedPlace> places) =>
-      _write(placesKey, [for (final place in places) place.toJson()]);
+      _write(_key(placesKey), [for (final place in places) place.toJson()]);
 
   @override
   Future<List<CommunityStop>?> stops() =>
@@ -125,7 +129,7 @@ class LocalSavedPlacesStore implements SavedPlacesStore {
 
   @override
   Future<void> keepStops(List<CommunityStop> stops) =>
-      _write(stopsKey, [for (final stop in stops) stop.toJson()]);
+      _write(_key(stopsKey), [for (final stop in stops) stop.toJson()]);
 }
 
 /// In memory only, for tests.

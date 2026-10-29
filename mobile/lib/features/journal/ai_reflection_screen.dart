@@ -8,14 +8,33 @@ import '../../core/widgets/app_ui.dart';
 import '../streak/streak_screen.dart';
 import '../sound/app_sound.dart';
 import 'data/api_ai_service.dart';
+import 'presentation/sentence_case.dart';
 import '../streak/streak_state.dart';
 
 enum _ReflectionStage { loading, quote, insight }
 
+/// After saving: the AI's analysis of the entry ("Phân tích", with the
+/// entry under "Nhật ký"), then, when the backend picked one, a quote
+/// related to it, then the streak.
 class AIReflectionScreen extends StatefulWidget {
-  const AIReflectionScreen({super.key, required this.journalContent, this.remote});
+  const AIReflectionScreen({
+    super.key,
+    required this.journalContent,
+    this.analysisContent,
+    this.entryParts,
+    this.remote,
+  });
 
+  /// The entry as saved.
   final String journalContent;
+
+  /// What the AI reads, when more than the entry: "Nhìn lại cùng bạn"'s
+  /// questions with the answers.
+  final String? analysisContent;
+
+  /// "Nhật ký" as written: each question with its answer.
+  final List<({String question, String answer})>? entryParts;
+
   final ApiAIService? remote;
 
   @override
@@ -35,7 +54,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     final service = widget.remote;
     if (service == null) return;
     try {
-      final result = await service.analyze(widget.journalContent);
+      final result =
+          await service.analyze(widget.analysisContent ?? widget.journalContent);
       if (!mounted) return;
       setState(() {
         _remoteInsight = result;
@@ -51,6 +71,17 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     }
   }
 
+
+  /// The quote on screen: the backend's for a real analysis, else the
+  /// prototype's.
+  ({String text, String author}) get _quote => switch (_remoteInsight?.quote) {
+        final quote? => (text: quote.text, author: quote.author),
+        null => (
+            text: 'Hãy làm những gì bạn có thể, bằng những gì bạn có, '
+                'ngay tại nơi bạn đang đứng.',
+            author: 'Theodore Roosevelt',
+          ),
+      };
 
   void _saveQuote() {
     if (_quoteSaved) return;
@@ -69,14 +100,14 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
       'Thg 11',
       'Thg 12'
     ];
-    const content =
-        'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.';
+    final (:text, :author) = _quote;
+    final content = text;
     // One card per quote: saved again, it moves to the top with today's time.
     savedThisWeekItems.value = [
       {
         'type': 'quote',
         'content': content,
-        'author': 'Theodore Roosevelt',
+        'author': author,
         'date': 'Hôm nay',
         'timestamp': '${months[now.month - 1]} ${now.day} - '
             '${now.hour.toString().padLeft(2, '0')}:'
@@ -110,6 +141,17 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
 
   void _showInsight() {
     setState(() => _stage = _ReflectionStage.insight);
+  }
+
+  /// "Tiếp tục" under the analysis: the quote first when there is one.
+  void _afterInsight() {
+    if (widget.remote != null &&
+        _remoteInsight?.quote != null &&
+        _stage == _ReflectionStage.insight) {
+      setState(() => _stage = _ReflectionStage.quote);
+    } else {
+      _continueToStreak();
+    }
   }
 
   /// After the reflection: the streak celebrates the day's first entry;
@@ -164,7 +206,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                       children: [
                         Text(
                           quote
-                              ? 'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'
+                              ? _quote.text
                               : 'Hãy hít thở thật sâu và thư giãn tâm trí trong lúc chúng mình đọc nhật ký của bạn nhé...',
                           textAlign: TextAlign.center,
                           style: AppText.pageTitle.copyWith(
@@ -175,7 +217,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                         ),
                         if (quote) ...[
                           const SizedBox(height: 20),
-                          const Text('Theodore Roosevelt', style: AppText.meta),
+                          Text(_quote.author, style: AppText.meta),
                         ],
                         SizedBox(height: compact ? 12 : 24),
                         _buildMascot(quote, compact ? 80 : 150),
@@ -198,7 +240,10 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                   const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: AppPrimaryButton(
-                      onPressed: _showInsight,
+                      // A real quote comes after the analysis.
+                      onPressed: widget.remote != null
+                          ? (_openingStreak ? null : _continueToStreak)
+                          : _showInsight,
                       label: 'Tiếp tục',
                     ),
                   ),
@@ -369,21 +414,99 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     if (result == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    return Column(children: [
+    const reading = TextStyle(height: 1.7);
+    return Column(key: const ValueKey('reflection-insight'), children: [
       Expanded(child: ListView(padding: const EdgeInsets.all(24), children: [
         const AppEyebrow('Góc suy ngẫm', icon: Icons.auto_awesome),
-        const SizedBox(height: 16),
-        Text(result.emotion, style: AppText.pageTitle),
-        const SizedBox(height: 20),
-        Text(result.observation, style: AppText.body),
-        const SizedBox(height: 16),
-        Text(result.reflection, style: AppText.body),
-        const SizedBox(height: 16),
-        Text(result.question, style: AppText.body),
+        const SizedBox(height: AppSpacing.sm),
+        Semantics(
+          header: true,
+          child: Text(sentenceCase(result.title ?? result.emotion),
+              style: AppText.pageTitle),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        _buildTabs(),
+        const SizedBox(height: 28),
+        if (_showEntry)
+          ..._buildEntry()
+        else ...[
+          for (final (i, paragraph) in [
+            result.analysis ?? result.reflection,
+            result.question,
+          ].indexed) ...[
+            if (i > 0) const SizedBox(height: AppSpacing.md),
+            Text(sentenceCase(paragraph), style: AppText.body.merge(reading)),
+          ],
+          const SizedBox(height: 32),
+          _buildSectionTitle(
+              Icons.push_pin_outlined, 'Điều chúng mình nhận thấy'),
+          const SizedBox(height: 12),
+          Text(sentenceCase(result.observation),
+              style: AppText.body.merge(reading)),
+          const SizedBox(height: 28),
+          _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
+          const SizedBox(height: 12),
+          Wrap(spacing: AppSpacing.sm, runSpacing: AppSpacing.sm, children: [
+            _buildChip('Tâm trạng: ${sentenceCase(result.emotion)}'),
+            for (final topic in result.topics)
+              _buildChip('Chủ đề: ${sentenceCase(topic)}'),
+          ]),
+        ],
       ])),
       _buildFeedback(),
     ]);
   }
+
+  Widget _buildTabs() => Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: AppColors.primaryLight,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(children: [
+          _buildTab(
+              'Nhật ký', _showEntry, () => setState(() => _showEntry = true)),
+          _buildTab('Phân tích', !_showEntry,
+              () => setState(() => _showEntry = false)),
+        ]),
+      );
+
+  /// "Nhật ký": what was written, under each question it answers.
+  List<Widget> _buildEntry() {
+    const reading = TextStyle(height: 1.7);
+    final parts = [
+      for (final part in widget.entryParts ?? const [])
+        if (part.answer.trim().isNotEmpty) part,
+    ];
+    if (parts.isEmpty) {
+      return [
+        SelectableText(
+          widget.journalContent.isEmpty
+              ? 'Chưa có nội dung nhật ký.'
+              : widget.journalContent,
+          style: AppText.body.merge(reading),
+        ),
+      ];
+    }
+    return [
+      for (final (i, part) in parts.indexed) ...[
+        if (i > 0) const SizedBox(height: AppSpacing.lg),
+        Text(part.question,
+            style: AppText.cardTitle.copyWith(color: AppColors.primaryAction)),
+        const SizedBox(height: AppSpacing.xs),
+        SelectableText(part.answer.trim(), style: AppText.body.merge(reading)),
+      ],
+    ];
+  }
+
+  Widget _buildChip(String label) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const ShapeDecoration(
+          color: AppColors.primaryLight,
+          shape: StadiumBorder(),
+        ),
+        child: Text(label, style: AppText.body),
+      );
 
   Widget _buildTab(String label, bool selected, VoidCallback onTap) {
     return Expanded(
@@ -450,7 +573,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
           SizedBox(
             width: double.infinity,
             child: AppPrimaryButton(
-              onPressed: _openingStreak ? null : _continueToStreak,
+              onPressed: _openingStreak ? null : _afterInsight,
               label: 'Tiếp tục',
             ),
           ),

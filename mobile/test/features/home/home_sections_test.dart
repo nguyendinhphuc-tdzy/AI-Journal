@@ -95,7 +95,10 @@ void main() {
     await _scrollTo(tester, find.byKey(const ValueKey('this-week-summary')));
     expect(find.text('2 bài viết · 1 ngày có viết'), findsOneWidget);
     expect(find.byKey(const ValueKey('this-week-written')), findsOneWidget);
-    expect(find.text(HomeScreen.insightLabel), findsOneWidget);
+    expect(find.text('Ghi chú tuần này'), findsOneWidget);
+    expect(
+        find.text('Bạn đã dành thời gian viết nhật ký 1 ngày trong tuần này.'),
+        findsOneWidget);
   });
 
   testWidgets('A new week starts empty', (tester) async {

@@ -16,8 +16,7 @@ void main() {
   });
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
     for (final action in ['Lưu nhật ký', 'Nhìn lại cùng bạn']) {
-      testWidgets('$action saves, then the streak, at $size',
-          (tester) async {
+      testWidgets('$action saves, then the streak, at $size', (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = size;
         addTearDown(tester.view.resetDevicePixelRatio);
@@ -35,11 +34,22 @@ void main() {
         // Going deeper turns on once there is something written.
         await tester.pump();
         if (action != 'Lưu nhật ký') {
+          // No account here: no AI question, never a made-up one.
           await tester.tap(find.text(action));
           await tester.pumpAndSettle();
           expect(find.byType(AiReflectionScreen), findsNothing);
-          expect(find.text('A quiet moment today.'), findsOneWidget);
+          expect(
+              find.text(WriteJournalScreen.deeperNeedsAccount), findsOneWidget);
           expect(find.byType(TextField), findsOneWidget);
+          expect(
+              tester
+                  .widget<TextField>(find.byType(TextField))
+                  .decoration!
+                  .hintText,
+              'Bắt đầu viết...');
+          ScaffoldMessenger.of(tester.element(find.byType(TextField)))
+              .removeCurrentSnackBar();
+          await tester.pumpAndSettle();
           await tester.enterText(
               find.byType(TextField), 'School feels overwhelming.');
         }
@@ -74,8 +84,8 @@ void main() {
         expect(find.byType(StreakScreen), findsOneWidget);
         expect(ModalRoute.of(tester.element(find.byType(StreakScreen))),
             isA<PageRouteBuilder<void>>());
-        expect(find.text('Bạn đã viết nhật ký $expectedStreak ngày liên tục!'),
-            findsOneWidget);
+        // Local mode celebrates the save without claiming a verified streak.
+        expect(find.text('Bạn đã lưu nhật ký hôm nay!'), findsOneWidget);
         await tester.tap(find.text('Khám phá tiếp'));
         await tester.pumpAndSettle();
         expect(tester.element(find.byType(HomeScreen)), same(originalHome));

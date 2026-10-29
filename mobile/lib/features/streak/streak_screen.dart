@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/network/api_client.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_ui.dart';
 import '../../navigation/app_shell.dart';
@@ -37,8 +38,12 @@ class StreakScreen extends StatefulWidget {
 }
 
 class _StreakScreenState extends State<StreakScreen> {
-  late final int _previousCount;
-  late final int _newCount;
+  int _previousCount = 0;
+  int _newCount = 0;
+  bool _remoteRequested = false;
+  bool _serverCountVerified = false;
+  bool _hasAuthenticatedScope = false;
+  bool _waitingOnServer = false;
   static const _days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
   static const _dayNames = [
     'Chủ nhật',
@@ -57,13 +62,52 @@ class _StreakScreenState extends State<StreakScreen> {
     _newCount = StreakState.shared.nextCount;
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final api = StreakApiScope.maybeOf(context)?.client;
+    if (api == null || _remoteRequested) return;
+    _remoteRequested = true;
+    _hasAuthenticatedScope = true;
+    _waitingOnServer = true;
+    _fetchServerStreak(api);
+  }
+
+  Future<void> _fetchServerStreak(ApiClient api) async {
+    try {
+      final data = await api.getJson('/streak', requireAuth: true);
+      final count = data['current_streak'];
+      final completed = data['today_completed'];
+      if (count is! int || count < 0 || completed is! bool) {
+        throw const FormatException('Invalid streak response');
+      }
+      if (!mounted) return;
+      StreakState.shared
+          .applyServerSnapshot(currentStreak: count, todayCompleted: completed);
+      setState(() {
+        _previousCount = completed && count > 0 ? count - 1 : count;
+        _newCount = count;
+        _serverCountVerified = true;
+        _waitingOnServer = false;
+      });
+    } catch (_) {
+      // No invented numbers if the authenticated service cannot be reached.
+      if (mounted) {
+        setState(() {
+          _serverCountVerified = false;
+          _waitingOnServer = false;
+        });
+      }
+    }
+  }
+
   void _continue() {
-    StreakState.shared.completeToday();
+    if (!_hasAuthenticatedScope) StreakState.shared.completeToday();
     StreakScreen.returnHome(context);
   }
 
   void _selectTab(int index) {
-    StreakState.shared.completeToday();
+    if (!_hasAuthenticatedScope) StreakState.shared.completeToday();
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => AppShell(initialIndex: index)),
       (_) => false,
@@ -114,25 +158,36 @@ class _StreakScreenState extends State<StreakScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        TweenAnimationBuilder<double>(
-                          tween: Tween(
-                              begin: _previousCount.toDouble(),
-                              end: _newCount.toDouble()),
-                          duration: MediaQuery.disableAnimationsOf(context)
-                              ? Duration.zero
-                              : const Duration(milliseconds: 900),
-                          curve: Curves.easeInCubic,
-                          builder: (context, count, _) => Text(
-                            'Bạn đã viết nhật ký ${count.round()} ngày liên tục!',
+                        if (_serverCountVerified && _newCount > 0)
+                          TweenAnimationBuilder<double>(
+                            tween: Tween(
+                                begin: _previousCount.toDouble(),
+                                end: _newCount.toDouble()),
+                            duration: MediaQuery.disableAnimationsOf(context)
+                                ? Duration.zero
+                                : const Duration(milliseconds: 900),
+                            curve: Curves.easeInCubic,
+                            builder: (context, count, _) => Text(
+                              'Bạn đã viết nhật ký ${count.round()} ngày liên tục!',
+                              textAlign: TextAlign.center,
+                              style: AppText.pageTitle
+                                  .copyWith(color: AppColors.primaryAction),
+                            ),
+                          )
+                        else
+                          Text(
+                            _hasAuthenticatedScope && _waitingOnServer
+                                ? 'Đang kiểm tra chuỗi ngày...'
+                                : 'Bạn đã lưu nhật ký hôm nay!',
                             textAlign: TextAlign.center,
                             style: AppText.pageTitle
                                 .copyWith(color: AppColors.primaryAction),
                           ),
-                        ),
                         const SizedBox(height: 12),
                         Text(
-                            'Thật vui khi bạn đã dành thời gian nhìn lại bản '
-                            'thân trong $_newCount ngày qua.',
+                            _serverCountVerified && _newCount > 0
+                                ? 'Thật vui khi bạn đã dành thời gian nhìn lại bản thân trong $_newCount ngày qua.'
+                                : 'Một trang nhật ký nữa đã được lưu. Cảm ơn bạn đã dành thời gian cho bản thân.',
                             textAlign: TextAlign.center,
                             style: AppText.bodySecondary),
                         const SizedBox(height: 28),

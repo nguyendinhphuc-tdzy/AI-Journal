@@ -144,6 +144,7 @@ void main() {
     final day = DateTime(2026, 10, 5);
     final first = await albums.createMemory(
         album.id, MemoryContent(note: 'trước', displayDate: day));
+    await tester.pump(const Duration(milliseconds: 1));
     final second = await albums.createMemory(
         album.id, MemoryContent(note: 'sau', displayDate: day));
     await albums.createMemory(

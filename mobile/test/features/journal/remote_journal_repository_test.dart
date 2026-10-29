@@ -155,6 +155,39 @@ void main() {
     api.close();
   });
 
+  test('legacy local entries remain visible while new entries use cloud', () async {
+    final requests = <http.Request>[];
+    final local = await LocalJournalRepository.open(userId: 'existing-user');
+    final old = await local.create(
+        const JournalContent(body: 'Nhật ký cũ trên thiết bị'));
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'POST') return _json(_serverEntry(), 201);
+        return _json({'items': [_serverEntry()], 'next_cursor': null}, 200);
+      }),
+    );
+    final remote = RemoteJournalRepository(client: api, localDrafts: local);
+    final combined = CombinedJournalRepository(local: local, remote: remote);
+    try {
+      final entries = await combined.entries();
+      expect(entries.map((e) => e.id), containsAll([old.id, 'cloud-42']));
+      expect((await combined.entry(old.id))!.body, 'Nhật ký cũ trên thiết bị');
+      final created = await combined.create(
+          const JournalContent(body: 'Bài mới được lưu vào cloud'));
+      expect(created.id, 'cloud-42');
+      expect((await local.entries()).single.id, old.id);
+      expect(requests.any((r) => r.method == 'POST'), isTrue);
+      expect(requests.every((r) => r.headers['authorization'] == 'Bearer jwt'),
+          isTrue);
+    } finally {
+      combined.dispose();
+      remote.dispose();
+      api.close();
+    }
+  });
+
   test('missing Supabase JWT fails closed before transmitting private content',
       () async {
     var networkCalls = 0;

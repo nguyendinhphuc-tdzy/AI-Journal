@@ -647,14 +647,13 @@ class _ThisWeek extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           const Divider(height: 1, color: AppColors.softAccent),
           const SizedBox(height: AppSpacing.md),
-          const _JournalEyebrow(HomeScreen.insightLabel,
+          const _JournalEyebrow('Ghi chú tuần này',
               icon: Icons.auto_awesome, accent: true),
           const SizedBox(height: AppSpacing.sm),
-          // Mock suggestion for the prototype; replace with the API's.
-          const Text(
-            'Tuần này, bạn có vẻ khá hào hứng với những trải nghiệm mới. '
-            'Những điều bạn chia sẻ cho thấy đây là một tuần có nhiều khoảnh '
-            'khắc vui vẻ. Cảm ơn bạn đã dành thời gian viết nhật ký hôm nay.',
+          Text(
+            week.isEmpty
+                ? 'Khi bạn viết nhật ký, các ngày đã viết sẽ hiện ở đây.'
+                : 'Bạn đã dành thời gian viết nhật ký ${written.length} ngày trong tuần này.',
             style: _Journal.preview,
           ),
         ],

@@ -71,6 +71,29 @@ class _Location implements DeviceLocation {
   }
 }
 
+class _ScopedLookup implements PlaceLookup {
+  final queries = <String>[];
+
+  @override
+  Future<List<PlaceCandidate>> search(String query) async {
+    queries.add(query);
+    if (query.trim().isEmpty) return [];
+    return const [
+      PlaceCandidate(
+        id: 'real-place',
+        name: 'Hồ Con Rùa',
+        latitude: 10.786,
+        longitude: 106.696,
+        source: PlaceSource.search,
+      ),
+    ];
+  }
+
+  @override
+  Future<PlaceCandidate?> nameAt(double latitude, double longitude) async =>
+      null;
+}
+
 SavedPlace _at(String id, double lat, double lng) => SavedPlace(
     id: id,
     name: id,
@@ -99,6 +122,22 @@ void main() {
   setUp(() {
     clearUnsavedPlace();
     SharedPreferences.setMockInitialValues({});
+  });
+
+  testWidgets('Explore search uses the scoped lookup and labels a real result',
+      (tester) async {
+    final lookup = _ScopedLookup();
+    await tester.pumpWidget(PlaceLookupScope(
+      lookup: lookup,
+      child: const MaterialApp(home: ExploreScreen()),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Hồ Con Rùa');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(lookup.queries, contains('Hồ Con Rùa'));
+    expect(find.widgetWithText(ListTile, 'Hồ Con Rùa'), findsOneWidget);
+    expect(find.text('Địa điểm · ${ExploreScreen.sample}'), findsNothing);
   });
 
   testWidgets('Saved at the pin, kept on the device, there after a restart',

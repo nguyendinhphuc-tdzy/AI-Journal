@@ -2,12 +2,24 @@
 
 **Base:** `/api/v1`. **Owner:** Phúc (FastAPI + PostgreSQL). **Flutter integrators:** Trâm (auth, Journal, streak, map UI) and Vy (remaining assigned Flutter features). This document is the proposed contract for B01; **do not assume new endpoints work until their owning PR merges**.
 
+## Integration runtime: private Memory photos (current branch)
+
+- `GET /api/v1/albums/{album_id}/memories`, `GET /api/v1/albums/{album_id}/memories/{memory_id}`, `POST /api/v1/albums/{album_id}/memories`, and `PATCH /api/v1/albums/{album_id}/memories/{memory_id}` return a `MemoryRead` containing `photo_available: boolean`, **never** the private Storage object key `photo_path`.
+- Photo bytes are retrieved through authenticated `GET /api/v1/albums/{album_id}/memories/{memory_id}/photo`; upload/delete use the same owner-scoped endpoint with `PUT`/`DELETE`. The backend keeps private keys internally, with owner checks on each request.
+- This replaces the old `photo_path` response field and requires a matched Flutter client update. It does **not** alter the database schema or the existing Storage objects.
+
+## Integration Album/Memory pagination
+
+- `GET /api/v1/albums` and `GET /api/v1/albums/{album_id}/memories` support `limit` (1–100) and `offset` (0–100000), returning the same JSON **array** as existing clients expect. Stable descending order breaks ties by IDs.
+- The Flutter cloud repository fetches sequential pages of 100 until the final short page. A paging error is reported rather than silently displaying only the first 100.
+- Offset pagination is an MVP compatibility step. Concurrent inserts or deletions between requests may shift page boundaries; migrate to cursor-based pagination for strong snapshot guarantees.
+
 ## Implementation status and backward compatibility
 
-- **LIVE in base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`; unauthenticated mock `POST /api/v1/ai/go-deeper` and `POST /api/v1/ai/reflection`; unauthenticated `GET/POST/GET-by-id/PUT/DELETE /api/v1/journals` (old `GET` returns a **bare array**).
+- **Historical base branch (v0.1):** `GET /health`, `GET /api/v1/prompts/daily`, public mock AI and unscoped journal CRUD. The **current integration branch** requires a Supabase JWT for `/api/v1/ai/*` and all Journal operations; never use the v0.1 descriptions as the live runtime contract.
 - **PLANNED for MVP v1 (B02/B04/B06/B09/B10):** Supabase JWT authentication, owner-scoped Journal APIs, profile, completed-action streak, search and saved places, multiple notes, journal-place linking.
 - B04 changes `GET /journals` from a bare list to a paginated object `{items,next_cursor}`. Trâm must switch at the same integration milestone; **do not silently deploy a breaking change to active Flutter clients**. Preserve existing integer Journal IDs and basic input fields.
-- There is **no** production AI integration in MVP v1; mock responses remain in the separate AI module.
+- **Integration runtime:** AI endpoints route through the backend to either the deterministic mock provider (for tests/offline use) or local Ollama (`AI_PROVIDER=ollama`). The backend requires verified Supabase JWT for both; the Flutter app never calls Ollama directly. Production deployment and quota limits remain pending.
 - **STAGED B14 (not merged):** unified runtime branch `integration/journal-cloud-runtime-20261027` contains reviewed backend Phase 2 (PR #26), Flutter Phase 2 (PR #27), and manual runtime launchers. Shared Supabase Dev has Alembic `20261026_08`, but runtime E2E on Android is **not yet verified**. This does not change the API in the default GitHub branch.
 
 ## Transport, authentication and error conventions
@@ -33,11 +45,13 @@
 {"id":"daily-001","text":"What is something you want to remember about today?"}
 ```
 
-### `POST /api/v1/ai/go-deeper` (mock)
+### `POST /api/v1/ai/go-deeper` (authenticated; mock or Ollama)
+
+**Current integration contract:** Both AI endpoints require `Authorization: Bearer <Supabase access token>`. Missing or invalid auth returns 401. If Supabase signing keys are temporarily inaccessible, authentication can return 503. `content` is a nonblank string of at most 8000 characters; optional `mood` is at most 64 characters. Invalid input returns 422. In the single-process development backend, each authenticated user is limited to 12 AI requests per rolling minute and one concurrent request, with at most two active inference requests globally; excess receives HTTP 429. This in-memory limiter is **not** a cross-worker/replica production quota. Neither endpoint persists the generated response. Server configuration controls the mock/Ollama provider.
 Request: `{"content":"I felt peaceful today."}`; response: `{"question":"What made today feel different?"}` (exact mock question may differ).
 
-### `POST /api/v1/ai/reflection` (mock)
-Request: `{"content":"I finished my task.","mood":"relieved"}`; response fields: `emotion`, `observation`, `reflection`, `question`. The existing AI mock module is not a private journal archive.
+### `POST /api/v1/ai/reflection` (authenticated; mock or Ollama)
+Request: `{"content":"I finished my task.","mood":"relieved"}`; response fields: `emotion`, `observation`, `reflection`, `question`. The mock AI module remains test-only and is no longer reachable without authentication on the current integration branch.
 
 ## B02 — Profile / authenticated session
 

@@ -64,6 +64,11 @@ class AlbumMemory(Base):
     # PR17's MemoryPlace snapshot: name/coords/address/provider ID.
     place: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     photo_path: Mapped[str | None] = mapped_column(String(400), nullable=True)
+
+    @property
+    def photo_available(self) -> bool:
+        """Public read-only state; never serialize the private Storage object key."""
+        return self.photo_path is not None
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now
