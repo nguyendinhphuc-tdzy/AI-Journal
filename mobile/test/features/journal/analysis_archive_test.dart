@@ -197,11 +197,60 @@ void main() {
     expect((await SavedQuotes.open(userId: _user)).all(), isEmpty);
   });
 
-  testWidgets('An entry without a kept analysis offers none', (tester) async {
+  testWidgets('Without AI, an entry without a kept analysis offers neither',
+      (tester) async {
     final entry =
         await _journals.create(const JournalContent(body: 'Không có AI.'));
     await _pump(tester, WriteJournalScreen(entry: entry));
     expect(find.text(WriteJournalScreen.reviewLabel), findsNothing);
+    expect(find.text(WriteJournalScreen.analyzeLabel), findsNothing,
+        reason: 'a guest has no AI');
+  });
+
+  testWidgets('An older entry: "Phân tích bài này" analyses it as saved, '
+      'keeps it and goes back to it', (tester) async {
+    final ai = FakeAi();
+    final entry = await _journals
+        .create(const JournalContent(body: 'Bài viết từ hôm trước.'));
+    await _pump(tester, WriteJournalScreen(entry: entry), ai: ai);
+    expect(find.text(WriteJournalScreen.reviewLabel), findsNothing);
+    // An edit not saved yet is not what is analysed.
+    await tester.enterText(find.byType(TextField), 'Đang sửa dở');
+    await tester.tap(find.text(WriteJournalScreen.analyzeLabel));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(ai.reflectionSent.single,
+        'Câu hỏi: Hôm nay bạn cảm thấy thế nào?\n'
+        'Trả lời: Bài viết từ hôm trước.');
+    expect(find.text('Nhẹ nhõm'), findsOneWidget);
+    final kept = (await AnalysisArchive.open(userId: _user)).of(entry.id);
+    expect(kept?.bodyVersion, entry.bodyVersion);
+
+    // Through the quote, if one fits, then back to the entry, not the
+    // streak; it now offers to read the analysis again.
+    await tester.tap(find.text('Tiếp tục'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    if (find.byType(AiReflectionScreen).evaluate().isNotEmpty) {
+      await tester.tap(find.text('Tiếp tục'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+    expect(find.byType(AiReflectionScreen), findsNothing);
+    expect(find.byType(WriteJournalScreen), findsOneWidget);
+    await tester.pump();
+    expect(find.text(WriteJournalScreen.reviewLabel), findsOneWidget);
+    expect(find.text(WriteJournalScreen.analyzeLabel), findsNothing);
+    expect(await _journals.entries(), hasLength(1), reason: 'nothing saved');
+  });
+
+  testWidgets('AI turned off in Hồ sơ: no "Phân tích bài này"',
+      (tester) async {
+    await (await OnboardingStore.open(userId: _user)).saveAiInApp(false);
+    final entry =
+        await _journals.create(const JournalContent(body: 'Tắt AI.'));
+    await _pump(tester, WriteJournalScreen(entry: entry), ai: FakeAi());
+    expect(find.text(WriteJournalScreen.analyzeLabel), findsNothing);
   });
 
   testWidgets('Edited since: the analysis says it read an earlier version',

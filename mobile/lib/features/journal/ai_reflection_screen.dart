@@ -30,6 +30,7 @@ class AIReflectionScreen extends StatefulWidget {
     this.remote,
     this.entry,
     this.saved,
+    this.backOnContinue = false,
   });
 
   /// Read again from an entry: the kept analysis, no new request; "Tiếp
@@ -41,7 +42,8 @@ class AIReflectionScreen extends StatefulWidget {
     this.entryParts,
     this.entry,
   })  : remote = null,
-        analysisContent = null;
+        analysisContent = null,
+        backOnContinue = true;
 
   /// The entry as saved.
   final String journalContent;
@@ -60,6 +62,10 @@ class AIReflectionScreen extends StatefulWidget {
 
   /// A kept analysis to show again ([AIReflectionScreen.review]).
   final SavedAnalysis? saved;
+
+  /// Asked for from an entry written before (not right after a save):
+  /// "Tiếp tục" goes back to it, never to the streak.
+  final bool backOnContinue;
 
   @override
   State<AIReflectionScreen> createState() => _AIReflectionScreenState();
@@ -276,8 +282,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   /// later entries the same day go straight back Home.
   Future<void> _continueToStreak() async {
     if (_openingStreak) return;
-    if (widget.saved != null) {
-      // Read again: back to the entry.
+    if (widget.saved != null || widget.backOnContinue) {
+      // Read again, or asked for from an older entry: back to it.
       Navigator.of(context).pop();
       return;
     }
