@@ -1,5 +1,6 @@
 import '../../auth/data/auth_service.dart';
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -133,10 +134,26 @@ class SupabaseSignInAdapter implements SignInService {
   }
 
   @override
-  Future<void> signInGoogle() => auth.signInGoogle();
+  /// Opening a browser is not a successful login. Wait for Supabase's
+  /// callback session; propagate async OAuth errors and cancelled flows.
+  Future<void> _awaitOAuth(Future<void> Function() openBrowser) async {
+    await openBrowser();
+    if (auth.currentUserId != null) return;
+    try {
+      await auth.userChanges
+          .firstWhere((id) => id != null)
+          .timeout(const Duration(minutes: 2));
+    } on TimeoutException {
+      throw const SignInFailed(
+          'Không nhận được phiên đăng nhập. Kiểm tra trình duyệt và thử lại.');
+    }
+  }
 
   @override
-  Future<void> signInFacebook() => auth.signInFacebook();
+  Future<void> signInGoogle() => _awaitOAuth(auth.signInGoogle);
+
+  @override
+  Future<void> signInFacebook() => _awaitOAuth(auth.signInFacebook);
 
   @override
   Future<void> signOut() => auth.signOut();

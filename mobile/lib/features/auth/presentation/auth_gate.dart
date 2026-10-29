@@ -105,6 +105,13 @@ class _AuthGateState extends State<AuthGate> {
           _guestSelected = id == null ? _guestSelected : false;
         });
       }
+    }, onError: (Object error, StackTrace stack) {
+      // OAuth can fail after returning from an external browser; surface a
+      // helpful error on the login screen rather than silently ignoring it.
+      if (mounted) {
+        setState(() => _localError =
+            'Đăng nhập chưa hoàn tất. Vui lòng thử lại.');
+      }
     });
   }
 

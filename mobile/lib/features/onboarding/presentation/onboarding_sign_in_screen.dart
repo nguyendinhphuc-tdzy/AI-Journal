@@ -8,6 +8,8 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../social/data/friends_account.dart';
+import '../../auth/presentation/auth_screen.dart';
+import '../../../core/config/app_config.dart';
 import '../../social/presentation/facebook_login_screen.dart';
 import '../data/sign_in_service.dart';
 import 'onboarding_widgets.dart';
@@ -33,12 +35,16 @@ class OnboardingSignInScreen extends StatefulWidget {
     required this.onDone,
     this.friends,
     this.realAuth = false,
+    this.facebookOAuthEnabled = AppConfig.facebookOAuthEnabled,
+    this.phoneOtpEnabled = AppConfig.phoneOtpEnabled,
     this.initialError,
     this.onGuest,
   });
 
   final SignInService service;
   final bool realAuth;
+  final bool facebookOAuthEnabled;
+  final bool phoneOtpEnabled;
   final String? initialError;
   final Future<void> Function()? onGuest;
 
@@ -69,6 +75,7 @@ class OnboardingSignInScreen extends StatefulWidget {
   static const or = 'hoặc';
   static const google = 'Tiếp tục với Google';
   static const facebook = 'Tiếp tục với Facebook';
+  static const phone = 'Đăng nhập bằng số điện thoại (OTP)';
   static const later = 'Để sau';
   static const backTooltip = 'Quay lại';
   static const mockNote =
@@ -192,6 +199,17 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _phoneOtp() {
+    final service = widget.service;
+    if (!widget.realAuth || !widget.phoneOtpEnabled ||
+        service is! SupabaseSignInAdapter) return;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => AuthScreen(
+        auth: service.auth, startWithPhone: true,
+      ),
+    ));
   }
 
   Future<void> _facebook() async {
@@ -486,13 +504,24 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                     onPressed:
                         _busy ? null : () => _run(widget.service.signInGoogle),
                   ),
-                  const SizedBox(height: 12),
-                  _ProviderButton(
-                    label: OnboardingSignInScreen.facebook,
-                    icon: const Icon(Icons.facebook_rounded,
-                        size: 22, color: facebookBlue),
-                    onPressed: _busy ? null : _facebook,
-                  ),
+                  if (!widget.realAuth || widget.facebookOAuthEnabled) ...[
+                    const SizedBox(height: 12),
+                    _ProviderButton(
+                      label: OnboardingSignInScreen.facebook,
+                      icon: const Icon(Icons.facebook_rounded,
+                          size: 22, color: facebookBlue),
+                      onPressed: _busy ? null : _facebook,
+                    ),
+                  ],
+                  if (widget.realAuth && widget.phoneOtpEnabled &&
+                      widget.service is SupabaseSignInAdapter) ...[
+                    const SizedBox(height: 12),
+                    _ProviderButton(
+                      label: OnboardingSignInScreen.phone,
+                      icon: const Icon(Icons.phone_android_outlined),
+                      onPressed: _busy ? null : _phoneOtp,
+                    ),
+                  ],
                   const SizedBox(height: AppSpacing.sm),
                   OnboardingTextAction(
                     label: OnboardingSignInScreen.later,

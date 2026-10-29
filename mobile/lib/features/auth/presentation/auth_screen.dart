@@ -15,6 +15,7 @@ class AuthScreen extends StatefulWidget {
     this.onContinueAsGuest,
     this.initialError,
     this.facebookOAuthEnabled = AppConfig.facebookOAuthEnabled,
+    this.startWithPhone = false,
   });
 
   final AuthService auth;
@@ -23,6 +24,8 @@ class AuthScreen extends StatefulWidget {
 
   /// Only show this login method if the app explicitly enables OAuth.
   final bool facebookOAuthEnabled;
+  /// Open the existing SMS OTP form directly from Vy's sign-in screen.
+  final bool startWithPhone;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -45,6 +48,7 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.startWithPhone) _method = _AuthMethod.phone;
     _message = widget.initialError;
     _error = widget.initialError != null;
   }
