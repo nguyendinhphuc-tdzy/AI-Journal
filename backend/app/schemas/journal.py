@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.analysis import AnalysisRead
+
 
 class GuidedContent(BaseModel):
     """The Flutter guided-template snapshot, never regenerated on the server."""
@@ -88,6 +90,7 @@ class JournalRead(BaseModel):
     body_version: int
     created_at: datetime
     updated_at: datetime
+    analysis: AnalysisRead | None = None
 
     @field_validator("created_at", "updated_at")
     @classmethod
