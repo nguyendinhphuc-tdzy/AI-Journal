@@ -2,12 +2,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 /// A home-screen icon to pick in Hồ sơ: Nudaeng in a profession, or the
-/// app's own. Generic names only, never a brand's.
+/// app's own (Nudaeng with a gull on its head, on the sky). Generic names
+/// only, never a brand's.
 ///
 /// [id] must match MainActivity.ICONS and the `Launcher_<id>` aliases in
 /// AndroidManifest.xml; art and tints come from tool/app_icons/export.py.
 enum AppIcon {
-  standard('default', 'Mặc định', Color(0xFFEEF4F1)),
+  standard('default', 'Mặc định', Color(0xFFCEEFFF)),
   security('security', 'Bảo vệ', Color(0xFFDCE6F0)),
   student('student', 'Học sinh', Color(0xFFF1E4CE)),
   guide('guide', 'Hướng dẫn viên', Color(0xFFD6E9E4)),

@@ -60,8 +60,7 @@ Future<void> _pick(WidgetTester tester, AppIcon icon,
   final sheet = find.text(ProfileScreen.iconConfirmTitle(icon));
   if (sheet.evaluate().isEmpty) return;
   expect(find.text(ProfileScreen.iconConfirmBody), findsOneWidget);
-  await tester.tap(
-      find.text(confirm ? ProfileScreen.iconConfirmLabel : 'Hủy'));
+  await tester.tap(find.text(confirm ? ProfileScreen.iconConfirmLabel : 'Hủy'));
   await tester.pumpAndSettle();
 }
 
@@ -127,8 +126,9 @@ void main() {
     await _pump(tester, launcher);
     expect(find.text(ProfileScreen.iconPreviewOnly), findsOneWidget);
     await _pick(tester, AppIcon.guide);
-    expect(find.text(ProfileScreen.iconConfirmTitle(AppIcon.guide)),
-        findsNothing, reason: 'nothing closes on a preview');
+    expect(
+        find.text(ProfileScreen.iconConfirmTitle(AppIcon.guide)), findsNothing,
+        reason: 'nothing closes on a preview');
     expect(launcher.sets, isEmpty);
     expect(_selected(tester, AppIcon.guide), isTrue);
   });
@@ -177,13 +177,36 @@ void main() {
     test('Every icon has its launcher art and picker picture', () {
       const res = 'android/app/src/main/res';
       for (final icon in AppIcon.values) {
-        expect(File('assets/images/app-icon-${icon.id}.png').existsSync(),
-            isTrue, reason: icon.asset);
-        if (icon == AppIcon.standard) continue;
+        expect(
+            File('assets/images/app-icon-${icon.id}.png').existsSync(), isTrue,
+            reason: icon.asset);
+        if (icon == AppIcon.standard) {
+          // The app's own icon, adaptive too, no longer Flutter's.
+          expect(
+              aliases[icon.id], contains('android:icon="@mipmap/ic_launcher"'));
+          expect(File('$res/mipmap-anydpi-v26/ic_launcher.xml').existsSync(),
+              isTrue);
+          for (final density in [
+            'mdpi',
+            'hdpi',
+            'xhdpi',
+            'xxhdpi',
+            'xxxhdpi'
+          ]) {
+            expect(
+                File('$res/mipmap-$density/ic_launcher_foreground.png')
+                    .existsSync(),
+                isTrue,
+                reason: density);
+          }
+          continue;
+        }
         expect(aliases[icon.id],
             contains('android:icon="@mipmap/ic_launcher_${icon.id}"'));
-        expect(File('$res/mipmap-anydpi-v26/ic_launcher_${icon.id}.xml')
-            .existsSync(), isTrue);
+        expect(
+            File('$res/mipmap-anydpi-v26/ic_launcher_${icon.id}.xml')
+                .existsSync(),
+            isTrue);
         for (final density in ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
           for (final file in [
             'ic_launcher_${icon.id}.png',
