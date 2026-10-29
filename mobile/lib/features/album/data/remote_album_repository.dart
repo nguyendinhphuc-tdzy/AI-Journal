@@ -199,10 +199,17 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     final revision = memory.updatedAt.microsecondsSinceEpoch;
     final path = '${folder.path}/$stem-$revision.private';
     if (!await File(path).exists()) {
-      await (_downloads[path] ??=
-          _download(memory, path).whenComplete(() {
-        _downloads.remove(path);
-      }));
+      try {
+        await (_downloads[path] ??=
+            _download(memory, path).whenComplete(() {
+          _downloads.remove(path);
+        }));
+      } catch (_) {
+        // A failed image must not hide this memory or the entire album.
+        // Retain the private cache path so the editor shows a broken-image
+        // placeholder, rather than interpreting it as a deliberate deletion.
+        // Opening the album again retries this download.
+      }
     }
     return Memory(
       id: memory.id,
@@ -354,6 +361,327 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
         place: saved.content.place,
       ),
     );
+  }
+
+  /// Only paths issued by this account's photo cache are existing cloud
+  /// images. Editor re-saves must not upload these bytes as a new photo.
+  bool _isCachedPhoto(String memoryId, String path) {
+    final uid = userId;
+    if (uid == null || !RegExp(r'^[0-9a-fA-F-]{36}
+    final raw = await client.patchJson(
+      '/albums/${_id(albumId, entity: 'album')}/memories/'
+      '${_id(memoryId, entity: 'memory')}',
+      body, requireAuth: true,
+    );
+    final saved = _memory(raw);
+    if (content.photoPath case final path?) {
+      if (!_isCachedPhoto(memoryId, path)) {
+        // New photo chosen on device; uploading a known cached cloud image
+        // on every note edit would waste bandwidth and overwrite the object.
+        await _uploadPhoto(albumId, memoryId, path);
+      }
+    } else if (raw['photo_available'] == true) {
+      await client.deleteNoContent(_photoUrl(albumId, memoryId));
+    }
+    notifyListeners();
+    return Memory(
+      id: saved.id, albumId: saved.albumId, createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+      content: MemoryContent(
+        title: saved.content.title, note: saved.content.note,
+        photoPath: content.photoPath, displayDate: saved.content.displayDate,
+        place: saved.content.place,
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteMemory(String albumId, String memoryId) async {
+    await client.deleteNoContent(
+      '/albums/${_id(albumId, entity: 'album')}/memories/'
+      '${_id(memoryId, entity: 'memory')}',
+      requireAuth: true,
+    );
+    notifyListeners();
+  }
+
+  @override
+  Future<void> deleteAlbum(String albumId) async {
+    await client.deleteNoContent(
+      '/albums/${_id(albumId, entity: 'album')}',
+      requireAuth: true,
+    );
+    notifyListeners();
+  }
+
+  // Editor drafts remain scoped local-only; no accidental media upload.
+  @override
+  Future<MemoryDraft?> memoryDraft(String key) => localDrafts.memoryDraft(key);
+  @override
+  Future<void> saveMemoryDraft(String key, MemoryDraft draft) =>
+      localDrafts.saveMemoryDraft(key, draft);
+  @override
+  Future<void> deleteMemoryDraft(String key) => localDrafts.deleteMemoryDraft(key);
+}
+
+
+/// Explicit dual-source view: existing local Albums (including device photos)
+/// remain usable while new cloud Albums are persisted remotely. No implicit
+/// migration or background upload occurs. Existing IDs stay disjoint.
+class CombinedAlbumRepository extends ChangeNotifier implements AlbumRepository {
+  CombinedAlbumRepository({
+    required this.local,
+    required this.remote,
+  }) {
+    local.addListener(notifyListeners);
+    remote.addListener(notifyListeners);
+  }
+
+  final LocalAlbumRepository local;
+  final RemoteAlbumRepository remote;
+
+  bool _cloud(String id) => id.startsWith('cloud-');
+
+  AlbumRepository _owner(String id) {
+    if (_cloud(id)) return remote;
+    return local;
+  }
+
+  @override
+  Future<List<Album>> albums() async {
+    // Fail visibly if remote state is unavailable; no partial cloud
+    // response masquerades as the complete private album library.
+    final values = await Future.wait([local.albums(), remote.albums()]);
+    final all = [...values[0], ...values[1]];
+    all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return all;
+  }
+
+  @override
+  Future<Album?> album(String id) => _owner(id).album(id);
+
+  /// New Albums are cloud-only after explicit opt-in.
+  @override
+  Future<Album> create({
+    required String name,
+    String themeId = Album.defaultTheme,
+    bool locked = false,
+  }) => remote.create(name: name, themeId: themeId, locked: locked);
+
+  @override
+  Future<Album> update(Album album) => _owner(album.id).update(album);
+
+  @override
+  Future<Album> updateSettings(String id, {
+    required String name,
+    required String themeId,
+    required bool locked,
+  }) => _owner(id).updateSettings(
+        id, name: name, themeId: themeId, locked: locked,
+      );
+
+  @override
+  Future<List<Memory>> memories(String albumId) =>
+      _owner(albumId).memories(albumId);
+
+  @override
+  Future<Memory?> memory(String albumId, String memoryId) =>
+      _owner(albumId).memory(albumId, memoryId);
+
+  @override
+  Future<Memory> createMemory(String albumId, MemoryContent content) =>
+      _owner(albumId).createMemory(albumId, content);
+
+  @override
+  Future<Memory> updateMemory(
+    String albumId, String memoryId, MemoryContent content,
+  ) => _owner(albumId).updateMemory(albumId, memoryId, content);
+
+  @override
+  Future<void> deleteMemory(String albumId, String memoryId) =>
+      _owner(albumId).deleteMemory(albumId, memoryId);
+
+  @override
+  Future<void> deleteAlbum(String albumId) =>
+      _owner(albumId).deleteAlbum(albumId);
+
+  // Drafts always stay local, per account, regardless of album ID.
+  @override
+  Future<MemoryDraft?> memoryDraft(String key) => local.memoryDraft(key);
+  @override
+  Future<void> saveMemoryDraft(String key, MemoryDraft draft) =>
+      local.saveMemoryDraft(key, draft);
+  @override
+  Future<void> deleteMemoryDraft(String key) => local.deleteMemoryDraft(key);
+
+  @override
+  void dispose() {
+    local.removeListener(notifyListeners);
+    remote.removeListener(notifyListeners);
+    remote.dispose();
+    super.dispose();
+  }
+}
+).hasMatch(uid)) {
+      return false;
+    }
+    final stem = _id(memoryId, entity: 'memory');
+    final normalized = path.replaceAll('\\', '/');
+    return RegExp(
+      '/cloud_memory_photos/${RegExp.escape(uid)}/'
+      '${RegExp.escape(stem)}-[0-9]+[.]private\
+    final raw = await client.patchJson(
+      '/albums/${_id(albumId, entity: 'album')}/memories/'
+      '${_id(memoryId, entity: 'memory')}',
+      body, requireAuth: true,
+    );
+    final saved = _memory(raw);
+    if (content.photoPath case final path?) {
+      await _uploadPhoto(albumId, memoryId, path);
+    } else if (raw['photo_available'] == true) {
+      await client.deleteNoContent(_photoUrl(albumId, memoryId));
+    }
+    notifyListeners();
+    return Memory(
+      id: saved.id, albumId: saved.albumId, createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+      content: MemoryContent(
+        title: saved.content.title, note: saved.content.note,
+        photoPath: content.photoPath, displayDate: saved.content.displayDate,
+        place: saved.content.place,
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteMemory(String albumId, String memoryId) async {
+    await client.deleteNoContent(
+      '/albums/${_id(albumId, entity: 'album')}/memories/'
+      '${_id(memoryId, entity: 'memory')}',
+      requireAuth: true,
+    );
+    notifyListeners();
+  }
+
+  @override
+  Future<void> deleteAlbum(String albumId) async {
+    await client.deleteNoContent(
+      '/albums/${_id(albumId, entity: 'album')}',
+      requireAuth: true,
+    );
+    notifyListeners();
+  }
+
+  // Editor drafts remain scoped local-only; no accidental media upload.
+  @override
+  Future<MemoryDraft?> memoryDraft(String key) => localDrafts.memoryDraft(key);
+  @override
+  Future<void> saveMemoryDraft(String key, MemoryDraft draft) =>
+      localDrafts.saveMemoryDraft(key, draft);
+  @override
+  Future<void> deleteMemoryDraft(String key) => localDrafts.deleteMemoryDraft(key);
+}
+
+
+/// Explicit dual-source view: existing local Albums (including device photos)
+/// remain usable while new cloud Albums are persisted remotely. No implicit
+/// migration or background upload occurs. Existing IDs stay disjoint.
+class CombinedAlbumRepository extends ChangeNotifier implements AlbumRepository {
+  CombinedAlbumRepository({
+    required this.local,
+    required this.remote,
+  }) {
+    local.addListener(notifyListeners);
+    remote.addListener(notifyListeners);
+  }
+
+  final LocalAlbumRepository local;
+  final RemoteAlbumRepository remote;
+
+  bool _cloud(String id) => id.startsWith('cloud-');
+
+  AlbumRepository _owner(String id) {
+    if (_cloud(id)) return remote;
+    return local;
+  }
+
+  @override
+  Future<List<Album>> albums() async {
+    // Fail visibly if remote state is unavailable; no partial cloud
+    // response masquerades as the complete private album library.
+    final values = await Future.wait([local.albums(), remote.albums()]);
+    final all = [...values[0], ...values[1]];
+    all.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return all;
+  }
+
+  @override
+  Future<Album?> album(String id) => _owner(id).album(id);
+
+  /// New Albums are cloud-only after explicit opt-in.
+  @override
+  Future<Album> create({
+    required String name,
+    String themeId = Album.defaultTheme,
+    bool locked = false,
+  }) => remote.create(name: name, themeId: themeId, locked: locked);
+
+  @override
+  Future<Album> update(Album album) => _owner(album.id).update(album);
+
+  @override
+  Future<Album> updateSettings(String id, {
+    required String name,
+    required String themeId,
+    required bool locked,
+  }) => _owner(id).updateSettings(
+        id, name: name, themeId: themeId, locked: locked,
+      );
+
+  @override
+  Future<List<Memory>> memories(String albumId) =>
+      _owner(albumId).memories(albumId);
+
+  @override
+  Future<Memory?> memory(String albumId, String memoryId) =>
+      _owner(albumId).memory(albumId, memoryId);
+
+  @override
+  Future<Memory> createMemory(String albumId, MemoryContent content) =>
+      _owner(albumId).createMemory(albumId, content);
+
+  @override
+  Future<Memory> updateMemory(
+    String albumId, String memoryId, MemoryContent content,
+  ) => _owner(albumId).updateMemory(albumId, memoryId, content);
+
+  @override
+  Future<void> deleteMemory(String albumId, String memoryId) =>
+      _owner(albumId).deleteMemory(albumId, memoryId);
+
+  @override
+  Future<void> deleteAlbum(String albumId) =>
+      _owner(albumId).deleteAlbum(albumId);
+
+  // Drafts always stay local, per account, regardless of album ID.
+  @override
+  Future<MemoryDraft?> memoryDraft(String key) => local.memoryDraft(key);
+  @override
+  Future<void> saveMemoryDraft(String key, MemoryDraft draft) =>
+      local.saveMemoryDraft(key, draft);
+  @override
+  Future<void> deleteMemoryDraft(String key) => local.deleteMemoryDraft(key);
+
+  @override
+  void dispose() {
+    local.removeListener(notifyListeners);
+    remote.removeListener(notifyListeners);
+    remote.dispose();
+    super.dispose();
+  }
+}
+,
+    ).hasMatch(normalized);
   }
 
   @override
