@@ -22,6 +22,10 @@ class AIProvider:
     def reflect(self, content: str, mood: str | None = None) -> ReflectionResponse:
         raise NotImplementedError
 
+    def summarize_week(self, aggregate_json: str) -> str | None:
+        """Narrative from aggregate metrics only; never raw journal content."""
+        raise NotImplementedError
+
 
 @dataclass
 class MockAIProvider(AIProvider):
@@ -29,6 +33,11 @@ class MockAIProvider(AIProvider):
 
     def go_deeper(self, content: str) -> str:
         return "What part of this moment felt most different from what you expected?"
+
+    def summarize_week(self, aggregate_json: str) -> str | None:
+        # Do not manufacture a plausible-looking mental-health narrative
+        # when a real AI provider is unavailable.
+        return None
 
     def reflect(self, content: str, mood: str | None = None) -> ReflectionResponse:
         emotion = mood or "reflective"
@@ -131,6 +140,21 @@ class OllamaAIProvider(AIProvider):
             return parsed
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=503, detail="AI reflection is temporarily unavailable") from exc
+
+    def summarize_week(self, aggregate_json: str) -> str | None:
+        data = self._generate(
+            "Từ các số liệu tổng hợp trong tuần, viết 2–4 câu tiếng Việt "
+            "nhẹ nhàng xưng 'bạn', nêu xu hướng và điều chưa rõ. "
+            "Không suy luận bệnh lý, không bịa điểm hay sự kiện, không "
+            "coi điểm cảm xúc như thang chẩn đoán. Trả JSON key summary.",
+            aggregate_json,
+            schema={"type": "object", "properties": {
+                "summary": {"type": "string"}}, "required": ["summary"]},
+        )
+        result = data.get("summary")
+        if not isinstance(result, str) or not result.strip():
+            return None
+        return result.strip()[:1200]
 
     def go_deeper(self, content: str) -> str:
         data = self._generate(
