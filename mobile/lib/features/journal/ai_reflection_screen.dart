@@ -12,6 +12,7 @@ import 'data/analysis_archive.dart';
 import 'data/api_ai_service.dart';
 import 'data/journal_entry.dart';
 import 'data/quote_picker.dart';
+import 'data/saved_quotes.dart';
 import 'presentation/sentence_case.dart';
 import '../streak/streak_state.dart';
 
@@ -92,6 +93,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
         null => null,
       };
       _keep(result, quote);
+      if (quote != null) _loadQuoteSaved(quote.text);
       setState(() {
         _remoteInsight = result;
         _remoteQuote = quote;
@@ -144,7 +146,47 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
           ),
       };
 
+  String? get _userId =>
+      context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
+
+  /// Whether this quote is already kept, so its button says so.
+  Future<void> _loadQuoteSaved(String text) async {
+    try {
+      final saved = (await SavedQuotes.open(userId: _userId)).contains(text);
+      if (mounted) setState(() => _quoteSaved = saved);
+    } catch (_) {}
+  }
+
+  /// A real quote: kept for the account, or let go on a second tap.
+  Future<void> _toggleRealQuote() async {
+    final (:text, :author) = _quote;
+    final keep = !_quoteSaved;
+    try {
+      final quotes = await SavedQuotes.open(userId: _userId);
+      keep ? await quotes.save(text, author) : await quotes.remove(text);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Chưa lưu được trích dẫn. Bạn thử lại nhé.')));
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _quoteSaved = keep);
+    if (keep) AppSound.instance.play(SoundCue.paper);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+          content: Text(keep
+              ? 'Đã lưu. Xem lại ở mục Đã lưu trên Trang chủ.'
+              : 'Đã bỏ lưu trích dẫn.')));
+  }
+
   void _saveQuote() {
+    if (_real) {
+      _toggleRealQuote();
+      return;
+    }
     if (_quoteSaved) return;
     final now = DateTime.now();
     const months = [
@@ -191,6 +233,10 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     if (widget.saved case final saved?) {
       _remoteInsight = saved.analysis;
       _remoteQuote = saved.quote;
+      if (saved.quote case final quote?) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _loadQuoteSaved(quote.text));
+      }
       _stage = _ReflectionStage.insight;
       return;
     }
@@ -212,6 +258,11 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
 
   /// "Tiếp tục" under the analysis: the quote first when there is one.
   void _afterInsight() {
+    // Read again: the quote is on the analysis itself; back to the entry.
+    if (widget.saved != null) {
+      _continueToStreak();
+      return;
+    }
     if (_real &&
         _remoteQuote != null &&
         _stage == _ReflectionStage.insight) {
@@ -304,7 +355,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                 Row(children: [
                   Expanded(
                     child: AppSecondaryButton(
-                      onPressed: _quoteSaved ? null : _saveQuote,
+                      // A real quote can be let go again; the demo's stays.
+                      onPressed: _quoteSaved && !_real ? null : _saveQuote,
                       icon:
                           _quoteSaved ? Icons.bookmark : Icons.bookmark_border,
                       label: _quoteSaved ? 'Đã lưu' : 'Lưu',
@@ -550,6 +602,28 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                       for (final topic in result.topics)
                         _buildChip('Chủ đề: ${sentenceCase(topic)}'),
                     ]),
+                // Read again: the quote shown then, here, not a screen
+                // of its own once more.
+                if (widget.saved != null && _remoteQuote != null) ...[
+                  const SizedBox(height: 28),
+                  _buildSectionTitle(
+                      Icons.format_quote_rounded, 'Câu trích dẫn cho bài này'),
+                  const SizedBox(height: 12),
+                  Text(_quote.text, style: AppText.body.merge(reading)),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text('– ${_quote.author}', style: AppText.meta),
+                  const SizedBox(height: AppSpacing.sm),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _saveQuote,
+                      icon: Icon(_quoteSaved
+                          ? Icons.bookmark
+                          : Icons.bookmark_border),
+                      label: Text(_quoteSaved ? 'Đã lưu' : 'Lưu'),
+                    ),
+                  ),
+                ],
               ],
               if (!pinned) ...[
                 const SizedBox(height: 32),

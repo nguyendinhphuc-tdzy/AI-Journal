@@ -1,5 +1,7 @@
 import 'package:ai_diary/core/theme/app_theme.dart';
+import 'package:ai_diary/core/data/app_data.dart';
 import 'package:ai_diary/features/journal/data/analysis_archive.dart';
+import 'package:ai_diary/features/journal/data/saved_quotes.dart';
 import 'package:ai_diary/features/journal/data/api_ai_service.dart';
 import 'package:ai_diary/features/journal/data/journal_entry.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
@@ -116,19 +118,83 @@ void main() {
     expect(find.textContaining('bản trước'), findsNothing);
     expect(ai.reflectionSent, hasLength(1), reason: 'nothing sent again');
 
-    // The quote picked then comes again, then back to the entry.
+    // The quote picked then is on the analysis, saved or not; "Tiếp tục"
+    // goes straight back, not through the quote again.
     final quote = kept.quote!;
-    await tester.tap(find.text('Tiếp tục'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 600));
+    await tester.scrollUntilVisible(
+        find.widgetWithText(TextButton, 'Lưu'), 150,
+        scrollable: find.byType(Scrollable).first);
     expect(find.text(quote.text), findsOneWidget);
     expect(find.text('– ${quote.author}'), findsOneWidget);
+    final quotes = await SavedQuotes.open(userId: _user);
+    expect(quotes.contains(quote.text), isFalse);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -300));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, 'Lưu'));
+    await tester.pump();
+    await tester.pump();
+    expect(quotes.contains(quote.text), isTrue);
+    expect(find.widgetWithText(TextButton, 'Đã lưu'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('Tiếp tục'), 150,
+        scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('Tiếp tục'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(quote.text), findsNothing,
+        reason: 'no quote screen again');
     expect(find.byType(AiReflectionScreen), findsNothing);
     expect(find.byType(WriteJournalScreen), findsOneWidget,
         reason: 'back to the entry, not the streak');
+  });
+
+  group('SavedQuotes', () {
+    test('kept per account, never twice, outlives a restart', () async {
+      final mine = await SavedQuotes.open(userId: _user);
+      await mine.save('Câu A.', 'Tác giả A');
+      await mine.save('Câu B.', 'Tác giả B');
+      await mine.save('Câu A.', 'Tác giả A');
+      expect([for (final q in mine.all()) q.text], ['Câu A.', 'Câu B.'],
+          reason: 'saved again: to the top, once');
+      expect(savedThisWeekItems.value.where((i) => i['type'] == 'quote'),
+          hasLength(2));
+      final again = await SavedQuotes.open(userId: _user);
+      expect(again.contains('Câu B.'), isTrue);
+      final other = await SavedQuotes.open(
+          userId: '99999999-2222-3333-4444-555555555555');
+      expect(other.all(), isEmpty);
+      await mine.remove('Câu A.');
+      expect([for (final q in mine.all()) q.text], ['Câu B.']);
+      expect(savedThisWeekItems.value.where((i) => i['type'] == 'quote'),
+          hasLength(1));
+    });
+  });
+
+  testWidgets('A saved quote says so when it shows again', (tester) async {
+    final ai = FakeAi(analysis: {
+      ...FakeAi.reflection,
+      'quote': {'text': 'Một câu đã kiểm chứng.', 'author': 'Tác giả A'},
+    });
+    await (await SavedQuotes.open(userId: _user))
+        .save('Một câu đã kiểm chứng.', 'Tác giả A');
+    await _pump(tester, const WriteJournalScreen(), ai: ai);
+    await tester.enterText(find.byType(TextField), 'Lại một ngày.');
+    await tester.tap(find.text(WriteJournalScreen.finishLabel));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Xác nhận'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('Tiếp tục'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('Một câu đã kiểm chứng.'), findsOneWidget);
+    expect(find.text('Đã lưu'), findsOneWidget, reason: 'not "Lưu" again');
+    // A second tap lets it go.
+    await tester.tap(find.text('Đã lưu'));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Lưu'), findsOneWidget);
+    expect((await SavedQuotes.open(userId: _user)).all(), isEmpty);
   });
 
   testWidgets('An entry without a kept analysis offers none', (tester) async {
