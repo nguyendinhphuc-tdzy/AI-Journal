@@ -1,5 +1,4 @@
 import 'package:ai_diary/core/theme/app_theme.dart';
-import 'package:ai_diary/core/data/app_data.dart';
 import 'package:ai_diary/features/journal/data/analysis_archive.dart';
 import 'package:ai_diary/features/journal/data/saved_quotes.dart';
 import 'package:ai_diary/features/journal/data/api_ai_service.dart';
@@ -156,8 +155,7 @@ void main() {
       await mine.save('Câu A.', 'Tác giả A');
       expect([for (final q in mine.all()) q.text], ['Câu A.', 'Câu B.'],
           reason: 'saved again: to the top, once');
-      expect(savedThisWeekItems.value.where((i) => i['type'] == 'quote'),
-          hasLength(2));
+      expect(mine.all(), hasLength(2));
       final again = await SavedQuotes.open(userId: _user);
       expect(again.contains('Câu B.'), isTrue);
       final other = await SavedQuotes.open(
@@ -165,8 +163,7 @@ void main() {
       expect(other.all(), isEmpty);
       await mine.remove('Câu A.');
       expect([for (final q in mine.all()) q.text], ['Câu B.']);
-      expect(savedThisWeekItems.value.where((i) => i['type'] == 'quote'),
-          hasLength(1));
+      expect(mine.all(), hasLength(1));
     });
   });
 

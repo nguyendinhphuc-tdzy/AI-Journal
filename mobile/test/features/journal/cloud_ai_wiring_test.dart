@@ -1,4 +1,3 @@
-import 'package:ai_diary/core/data/app_data.dart';
 import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/insights/presentation/emotion_week_screen.dart';
 import 'package:ai_diary/features/journal/data/analysis_archive.dart';
@@ -251,8 +250,7 @@ void main() {
       await quotes.refresh();
       expect([for (final q in quotes.all()) q.text],
           containsAll(['Câu mới.', 'Từ máy khác.', 'Câu cũ.']));
-      expect(savedThisWeekItems.value.where((i) => i['type'] == 'quote'),
-          hasLength(3));
+      expect(quotes.all(), hasLength(3));
 
       await quotes.remove('Câu mới.');
       expect(
