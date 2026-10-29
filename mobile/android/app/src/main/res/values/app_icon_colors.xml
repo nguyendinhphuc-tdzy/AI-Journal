@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backgrounds of the profession launcher icons (tool/app_icons/export.py). -->
+<resources>
+    <color name="app_icon_security">#DCE6F0</color>
+    <color name="app_icon_student">#F1E4CE</color>
+    <color name="app_icon_guide">#D6E9E4</color>
+    <color name="app_icon_restaurant">#F3DEDB</color>
+    <color name="app_icon_office">#E4E5F1</color>
+    <color name="app_icon_nurse">#F4E1EA</color>
+    <color name="app_icon_repair">#E6E2D3</color>
+</resources>

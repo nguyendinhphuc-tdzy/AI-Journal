@@ -36,11 +36,99 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="aijournal" android:host="auth-callback" />
             </intent-filter>
+        </activity>
+        <!-- The home-screen icon (Hồ sơ → Biểu tượng ứng dụng): one launcher
+             alias per icon, exactly one enabled (MainActivity.setIcon). They
+             only open MainActivity; the auth deep link above stays on it.
+             Names must match MainActivity.ICONS and AppIcon in Dart. -->
+        <activity-alias
+            android:name=".Launcher_default"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher_security"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_security"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher_student"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_student"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher_guide"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_guide"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher_restaurant"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_restaurant"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher_office"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_office"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher_nurse"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_nurse"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".Launcher_repair"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_repair"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

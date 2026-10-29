@@ -3,6 +3,7 @@ import 'package:ai_diary/features/home/presentation/home_screen.dart';
 import 'package:ai_diary/features/profile/profile_screen.dart';
 import 'package:ai_diary/main.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
@@ -102,6 +103,18 @@ void main() {
       tester.view.physicalSize = size;
       addTearDown(tester.view.resetDevicePixelRatio);
       addTearDown(tester.view.resetPhysicalSize);
+      // Android's launcher icons (MainActivity): the default, then the one set.
+      final iconCalls = <String>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          const MethodChannel('ai_diary/app_icon'), (call) async {
+        iconCalls.add(call.method == 'set'
+            ? 'set ${(call.arguments as Map)['id']}'
+            : call.method);
+        return call.method == 'current' ? 'default' : null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+              const MethodChannel('ai_diary/app_icon'), null));
       await tester.pumpWidget(const AiDiaryApp());
       await tester.pumpAndSettle();
       final originalHome = tester.element(find.byType(HomeScreen));
@@ -121,21 +134,26 @@ void main() {
       final scrollable = find.descendant(
           of: find.byType(ProfileScreen), matching: find.byType(Scrollable));
       await tester.scrollUntilVisible(
-          find.byKey(const ValueKey('app-icon-1')), 150,
+          find.byKey(const ValueKey('app-icon-security')), 150,
           scrollable: scrollable);
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.byKey(const ValueKey('app-icon-1')));
+      await tester.ensureVisible(find.byKey(const ValueKey('app-icon-security')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('app-icon-1')));
+      await tester.tap(find.byKey(const ValueKey('app-icon-security')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(ProfileScreen.iconConfirmLabel));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('selected-icon-dot')), findsOneWidget);
       expect(
           tester.getCenter(find.byKey(const ValueKey('selected-icon-dot'))).dx,
-          tester.getCenter(find.byKey(const ValueKey('app-icon-1'))).dx);
-      // Three Nudaeng icons, named for screen readers; no fourth.
-      expect(find.byKey(const ValueKey('app-icon-2')), findsOneWidget);
-      expect(find.byKey(const ValueKey('app-icon-3')), findsNothing);
-      expect(find.bySemanticsLabel('Nudaeng bình yên'), findsOneWidget);
+          tester.getCenter(find.byKey(const ValueKey('app-icon-security'))).dx);
+      expect(iconCalls, ['current', 'set security']);
+      // The default and seven professions, named for screen readers.
+      for (final key in ['default', 'student', 'restaurant', 'repair']) {
+        expect(find.byKey(ValueKey('app-icon-$key')), findsOneWidget);
+      }
+      expect(find.bySemanticsLabel('Phục vụ nhà hàng'), findsOneWidget);
+      expect(find.textContaining('Haidilao'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.tap(find.byTooltip('Đóng'));
       await tester.pumpAndSettle();
