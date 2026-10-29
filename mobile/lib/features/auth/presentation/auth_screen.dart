@@ -142,7 +142,11 @@ class _AuthScreenState extends State<AuthScreen> {
             'Mã xác nhận sai hoặc đã hết hạn. Hãy thử lại.',
           'over_request_rate_limit' || 'over_sms_send_rate_limit' =>
             'Bạn thử nhiều lần quá. Hãy đợi rồi thử lại.',
-          _ => error.message,
+          // Supabase's own words are English: never shown as they are.
+          _ when error is AuthRetryableFetchException =>
+            'Không thể kết nối. Kiểm tra mạng và thử lại.',
+          _ when error.statusCode == null => error.message,
+          _ => 'Chưa thực hiện được. Hãy thử lại.',
         };
         _error = true;
       });

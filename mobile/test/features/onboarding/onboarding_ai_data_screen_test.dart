@@ -74,12 +74,31 @@ void main() {
     }
     // Version 2 says what really happens: sent on save and "Nhìn lại cùng
     // bạn", and Hồ sơ turns it off.
-    expect(DataPolicy.localOllama.version, 'local-ollama-demo-3');
+    expect(DataPolicy.localOllama.version, 'local-ollama-demo-4');
     expect(DataPolicy.localOllama.aiRequest, contains('việc lưu nhật ký'));
     expect(DataPolicy.localOllama.aiRequest, contains('Nhìn lại cùng bạn'));
     expect(DataPolicy.aiOffNote, contains('tắt phản hồi AI trong Hồ sơ'));
-    expect(DataPolicy.localOllama.aiRequest, contains('trên thiết bị'));
     expect(DataPolicy.localOllama.aiRequest, contains('không phải chẩn đoán'));
+  });
+
+  test('Says where analyses are kept, per where journals are kept', () {
+    // This build (no cloud journals): on the device, as the journals.
+    expect(DataPolicy.localOllama.aiRequest, DataPolicy.aiRequestDevice);
+    expect(DataPolicy.aiRequestDevice, contains('lưu trên thiết bị'));
+    // Cloud journals (PR #72): with the journal on the server, deleted with
+    // it; never "only on this device" or "not synced".
+    for (final claim in [
+      'trong tài khoản trên máy chủ nhóm',
+      'xóa bài thì phân tích bị xóa theo',
+      'Nhận xét tuần chỉ được tạo khi bạn bấm',
+      'có thể chỉ có trên máy này',
+      'không phải chẩn đoán',
+    ]) {
+      expect(DataPolicy.aiRequestCloud, contains(claim), reason: claim);
+    }
+    for (final stale in ['chưa đồng bộ', 'không đồng bộ', 'chỉ lưu trên']) {
+      expect(DataPolicy.aiRequestCloud, isNot(contains(stale)), reason: stale);
+    }
   });
 
   for (final ai in [true, false]) {

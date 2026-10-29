@@ -31,6 +31,8 @@ class AiAnalysis {
     this.analysis,
     this.topics = const [],
     this.quote,
+    this.moodGroup,
+    this.moodScore,
   });
 
   final String emotion;
@@ -49,6 +51,12 @@ class AiAnalysis {
 
   final AiQuote? quote;
 
+  /// The backend's sorting of [emotion] into one of the 10 groups
+  /// ("mixed" for two), and its place on the 0–100 chart; null when the
+  /// words fit no group. Absent from older or on-device analyses.
+  final String? moodGroup;
+  final int? moodScore;
+
   /// The same fields [AiAnalysis.fromJson] reads, to keep it.
   Map<String, Object?> toJson() => {
         'emotion': emotion,
@@ -58,6 +66,8 @@ class AiAnalysis {
         if (title != null) 'title': title,
         if (analysis != null) 'analysis': analysis,
         if (topics.isNotEmpty) 'topics': topics,
+        if (moodGroup != null) 'mood_group': moodGroup,
+        if (moodScore != null) 'mood_score': moodScore,
         if (quote case final quote?)
           'quote': {
             'text': quote.text,
@@ -101,8 +111,20 @@ class AiAnalysis {
               author: quoteAuthor,
               source: optionalText((quote as Map)['source']))
           : null,
+      moodGroup: _moodGroups.contains(json['mood_group'])
+          ? json['mood_group'] as String
+          : null,
+      moodScore: switch (json['mood_score']) {
+        final int score when score >= 0 && score <= 100 => score,
+        _ => null,
+      },
     );
   }
+
+  static const _moodGroups = {
+    'joy', 'grateful', 'calm', 'hopeful', 'mixed',
+    'tired', 'anxious', 'afraid', 'angry', 'sad',
+  };
 }
 
 /// One private HTTP boundary for AI reflection and Go Deeper.

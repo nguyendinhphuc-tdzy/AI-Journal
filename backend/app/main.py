@@ -8,6 +8,9 @@ from app.modules.ai.router import router as ai_router
 from app.modules.albums.photos_router import router as memory_photos_router
 from app.modules.albums.router import router as albums_router
 from app.modules.journal.router import router as journal_router
+from app.modules.journal.analysis_router import router as analysis_router
+from app.modules.quotes.router import router as quotes_router
+from app.modules.insights.router import router as insights_router
 from app.modules.places.router import router as places_router
 from app.modules.places.notes_router import router as notes_router
 from app.modules.places.links_router import journal_links_router, place_links_router
@@ -35,6 +38,9 @@ def health() -> dict[str, str]:
 
 app.include_router(prompts_router, prefix="/api/v1")
 app.include_router(journal_router, prefix="/api/v1")
+app.include_router(analysis_router, prefix="/api/v1")
+app.include_router(quotes_router, prefix="/api/v1")
+app.include_router(insights_router, prefix="/api/v1")
 app.include_router(profile_router, prefix="/api/v1")
 app.include_router(streak_router, prefix="/api/v1")
 app.include_router(places_router, prefix="/api/v1")

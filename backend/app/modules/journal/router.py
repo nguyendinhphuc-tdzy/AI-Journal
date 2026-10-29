@@ -3,6 +3,7 @@ import base64
 import binascii
 import json
 from datetime import date, datetime, time, timedelta, timezone
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
 from app.models.journal import JournalEntry
+from app.models.journal_analysis import JournalAnalysis
 from app.models.user_profile import UserProfile
 from app.modules.streak.service import record_journal_completion
 from app.schemas.journal import JournalCreate, JournalPage, JournalRead, JournalUpdate
@@ -57,7 +59,7 @@ def _user_timezone(db: Session, user_id) -> ZoneInfo:
     return ZoneInfo(profile.timezone if profile else "Asia/Ho_Chi_Minh")
 
 
-@router.get("", response_model=JournalPage)
+@router.get("", response_model=JournalPage, response_model_exclude_unset=True)
 def list_journals(
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str | None = Query(default=None, max_length=512),
@@ -65,6 +67,7 @@ def list_journals(
     from_date: date | None = Query(default=None, alias="from"),
     to_date: date | None = Query(default=None, alias="to"),
     q: str | None = Query(default=None, max_length=120),
+    include: Literal["analysis"] | None = Query(default=None),
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -108,8 +111,26 @@ def list_journals(
     results = list(db.scalars(statement).all())
     has_more = len(results) > limit
     items = results[:limit]
+    if include == "analysis" and items:
+        ids = [item.id for item in items]
+        analyses = db.scalars(select(JournalAnalysis).where(
+            JournalAnalysis.user_id == user.user_id,
+            JournalAnalysis.journal_id.in_(ids),
+        )).all()
+        by_id = {analysis.journal_id: analysis for analysis in analyses}
+        # Include null explicitly when a saved journal has no analysis.
+        from app.modules.journal.analysis_router import to_read
+        formatted = [
+            JournalRead.model_validate(item).model_copy(update={
+                "analysis": to_read(by_id[item.id], item.body_version)
+                if item.id in by_id else None,
+            })
+            for item in items
+        ]
+    else:
+        formatted = items
     return JournalPage(
-        items=items,
+        items=formatted,
         next_cursor=_encode_cursor(items[-1]) if has_more else None,
     )
 

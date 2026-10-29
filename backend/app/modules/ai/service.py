@@ -22,6 +22,10 @@ class AIProvider:
     def reflect(self, content: str, mood: str | None = None) -> ReflectionResponse:
         raise NotImplementedError
 
+    def summarize_week(self, aggregate_json: str) -> str | None:
+        """Narrative from aggregate metrics only; never raw journal content."""
+        raise NotImplementedError
+
 
 @dataclass
 class MockAIProvider(AIProvider):
@@ -29,6 +33,11 @@ class MockAIProvider(AIProvider):
 
     def go_deeper(self, content: str) -> str:
         return "What part of this moment felt most different from what you expected?"
+
+    def summarize_week(self, aggregate_json: str) -> str | None:
+        # Do not manufacture a plausible-looking mental-health narrative
+        # when a real AI provider is unavailable.
+        return None
 
     def reflect(self, content: str, mood: str | None = None) -> ReflectionResponse:
         emotion = mood or "reflective"
@@ -108,18 +117,29 @@ class OllamaAIProvider(AIProvider):
 
     def reflect(self, content: str, mood: str | None = None) -> ReflectionResponse:
         task = (
-            "Tạo phản tư ngắn về nhật ký. Trả về đối tượng JSON với 4 chuỗi: "
+            "Tạo phản tư ngắn về nhật ký. Trả về JSON với 4 chuỗi bắt buộc: "
             "emotion (cảm xúc có thể có), observation (điều được nhận thấy), "
-            "reflection (góc nhìn nhẹ nhàng), question (một câu hỏi mở). "
+            "reflection (góc nhìn nhẹ nhàng), question (một câu hỏi mở); "
+            "và tùy chọn title (tiêu đề ngắn), analysis (đoạn phân tích), "
+            "topics (danh sách tối đa 8 chủ đề). Không bịa câu trích dẫn "
+            "hoặc nguồn tác giả: quote phải là null. "
+            "mood_group và mood_score do backend tính từ emotion. "
             "Mỗi trường chỉ 1–2 câu, tiếng Việt tự nhiên, viết hoa "
             "chữ đầu câu, có dấu câu; tránh dùng từ không rõ nghĩa. "
             "Nếu nội dung là các cặp Câu hỏi/Trả lời, hãy tổng hợp "
             "điều bạn đã chia sẻ, không lặp nguyên câu hỏi. "
             f"Cảm xúc do người dùng chọn: {mood or 'không cung cấp'}."
         )
+        # Ask the model only for generative fields. Classification is
+        # deterministic server code; do not let model-provided scores,
+        # group IDs or invented quotes contaminate the persisted response.
         schema = ReflectionResponse.model_json_schema()
+        for server_field in ("mood_group", "mood_score", "quote"):
+            schema["properties"].pop(server_field, None)
         try:
             result = self._generate(task, content, schema=schema)
+            for server_field in ("mood_group", "mood_score", "quote"):
+                result.pop(server_field, None)
             parsed = ReflectionResponse.model_validate(result)
             if not all(getattr(parsed, key).strip() for key in
                        ("emotion", "observation", "reflection", "question")):
@@ -127,6 +147,21 @@ class OllamaAIProvider(AIProvider):
             return parsed
         except (ValidationError, ValueError) as exc:
             raise HTTPException(status_code=503, detail="AI reflection is temporarily unavailable") from exc
+
+    def summarize_week(self, aggregate_json: str) -> str | None:
+        data = self._generate(
+            "Từ các số liệu tổng hợp trong tuần, viết 2–4 câu tiếng Việt "
+            "nhẹ nhàng xưng 'bạn', nêu xu hướng và điều chưa rõ. "
+            "Không suy luận bệnh lý, không bịa điểm hay sự kiện, không "
+            "coi điểm cảm xúc như thang chẩn đoán. Trả JSON key summary.",
+            aggregate_json,
+            schema={"type": "object", "properties": {
+                "summary": {"type": "string"}}, "required": ["summary"]},
+        )
+        result = data.get("summary")
+        if not isinstance(result, str) or not result.strip():
+            return None
+        return result.strip()[:1200]
 
     def go_deeper(self, content: str) -> str:
         data = self._generate(

@@ -123,4 +123,28 @@ void main() {
     await client.getJson('/prompts/daily');
     client.close();
   });
+
+  test('requests that run the AI model get the AI timeout', () async {
+    final client = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      requestTimeout: const Duration(milliseconds: 100),
+      aiRequestTimeout: const Duration(seconds: 2),
+      client: MockClient((request) async {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        return http.Response('{}', 200,
+            headers: const {'content-type': 'application/json'});
+      }),
+    );
+    addTearDown(client.close);
+    // Slower than a plain request may be, quicker than the AI may be.
+    await client.postJson('/journals/7/analysis', {}, requireAuth: true);
+    await client.getJson('/insights/week?start=2026-10-26&generate_summary=true',
+        requireAuth: true);
+    await expectLater(
+        client.getJson('/insights/week?start=2026-10-26&generate_summary=false',
+            requireAuth: true),
+        throwsA(isA<ApiTimeoutException>()));
+    await expectLater(client.getJson('/journals/7', requireAuth: true),
+        throwsA(isA<ApiTimeoutException>()));
+  });
 }

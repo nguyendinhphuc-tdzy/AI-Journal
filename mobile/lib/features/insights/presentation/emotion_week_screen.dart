@@ -7,7 +7,11 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
+import '../../../core/network/api_client.dart';
 import '../../journal/data/analysis_archive.dart';
+import '../../journal/data/api_ai_service.dart';
+import '../../journal/data/cloud_ai_api.dart';
+import '../../journal/data/cloud_analysis_sync.dart';
 import '../../journal/data/journal_entry.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/sentence_case.dart';
@@ -35,6 +39,21 @@ class EmotionWeekScreen extends StatefulWidget {
   static const dayNotAnalysed = 'Chưa có phân tích AI cho bài viết ngày này.';
   static const loadFailed = 'Chưa tải được nhật ký. Bạn thử lại nhé.';
 
+  static const summaryTitle = 'Nhận xét tuần từ AI';
+  static const summaryButton = 'Tạo nhận xét tuần';
+  static const summaryNote = 'AI chỉ đọc số liệu tổng hợp của tuần (số bài, '
+      'điểm và nhóm cảm xúc), không đọc nội dung nhật ký.';
+  static const summaryWriting = 'AI đang viết nhận xét tuần...';
+  static const summaryNoData = 'Tuần này chưa có bài có phân tích để nhận xét.';
+  static const summaryUnavailable =
+      'AI chưa sẵn sàng lúc này. Bạn thử lại sau nhé.';
+  static const summaryFailed = 'Chưa tạo được nhận xét. Bạn thử lại nhé.';
+  static const summaryQuota =
+      'Bạn đã dùng AI nhiều lần trong một phút. Đợi một chút rồi thử lại nhé.';
+  static const summaryAiOff = 'Phản hồi AI đang tắt. Bật lại trong Hồ sơ nếu '
+      'bạn muốn AI viết nhận xét tuần.';
+  static const summaryBy = 'Do AI viết từ số liệu tổng hợp của tuần.';
+
   static const weekdays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
   static const weekdayNames = [
     'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật',
@@ -58,6 +77,20 @@ class _EmotionWeekScreenState extends State<EmotionWeekScreen> {
   /// The day read under the chart, 0 (Monday) to 6.
   int? _selected;
 
+  /// The account's week from the server, for [_cloudFor] weeks back; null
+  /// for a guest, or until it came (or when it could not).
+  CloudWeek? _cloud;
+  int? _cloudFor;
+
+  /// The AI writing the week's note, and what to say when it did not.
+  bool _writing = false;
+  String? _summaryMessage;
+
+  CloudAiApi? get _api => switch (AiRemoteScope.maybeOf(context)) {
+        final ai? => CloudAiApi(ai.client),
+        null => null,
+      };
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -67,7 +100,14 @@ class _EmotionWeekScreenState extends State<EmotionWeekScreen> {
   Future<void> _load() async {
     final journals = JournalScope.of(context);
     final userId = OnboardingScope.maybeOf(context)?.userId;
+    final api = _api;
     try {
+      // Analyses made on another phone first (read only); offline is fine.
+      if (api != null) {
+        try {
+          await CloudAnalysisSync.maybeSync(api, userId: userId);
+        } catch (_) {}
+      }
       final entries = await journals.entries();
       final archive = await AnalysisArchive.open(userId: userId);
       final analyses = {
@@ -80,15 +120,63 @@ class _EmotionWeekScreenState extends State<EmotionWeekScreen> {
         _analyses = analyses;
         _failed = false;
       });
+      _loadCloudWeek();
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     }
   }
 
-  EmotionWeek _week(List<JournalEntry> entries) => EmotionWeek.of(
-      DateTime.now().subtract(Duration(days: 7 * _weeksBack)),
-      entries,
-      _analyses);
+  /// The shown week from the server (counts and scores; no AI is run).
+  Future<void> _loadCloudWeek({bool summary = false}) async {
+    final api = _api;
+    final entries = _entries;
+    if (api == null || entries == null) return;
+    final weeksBack = _weeksBack;
+    final monday = _week(entries).monday;
+    try {
+      final week = await api.week(monday, summary: summary);
+      if (!mounted || weeksBack != _weeksBack) return;
+      setState(() {
+        _cloud = week;
+        _cloudFor = weeksBack;
+        if (summary) {
+          _summaryMessage = switch (week.summaryStatus) {
+            'ready' => null,
+            'no_data' => EmotionWeekScreen.summaryNoData,
+            _ => EmotionWeekScreen.summaryUnavailable,
+          };
+        }
+      });
+    } catch (error) {
+      if (!mounted || !summary) return;
+      setState(() => _summaryMessage = switch (error) {
+            ApiException(statusCode: 429) => EmotionWeekScreen.summaryQuota,
+            _ => EmotionWeekScreen.summaryFailed,
+          });
+    }
+  }
+
+  /// Only on a tap, and only with AI on.
+  Future<void> _writeSummary() async {
+    if (_writing) return;
+    setState(() {
+      _writing = true;
+      _summaryMessage = null;
+    });
+    await _loadCloudWeek(summary: true);
+    if (mounted) setState(() => _writing = false);
+  }
+
+  EmotionWeek _week(List<JournalEntry> entries) {
+    final week = EmotionWeek.of(
+        DateTime.now().subtract(Duration(days: 7 * _weeksBack)),
+        entries,
+        _analyses);
+    final cloud = _cloud;
+    return cloud != null && _cloudFor == _weeksBack
+        ? week.withServer(cloud)
+        : week;
+  }
 
   /// The day shown: the chosen one, else today (this week) or the last day
   /// with an entry.
@@ -99,10 +187,14 @@ class _EmotionWeekScreenState extends State<EmotionWeekScreen> {
     return written < 0 ? 6 : written;
   }
 
-  void _moveWeek(int by) => setState(() {
-        _weeksBack = math.max(0, _weeksBack + by);
-        _selected = null;
-      });
+  void _moveWeek(int by) {
+    setState(() {
+      _weeksBack = math.max(0, _weeksBack + by);
+      _selected = null;
+      _summaryMessage = null;
+    });
+    _loadCloudWeek();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -196,8 +288,61 @@ class _EmotionWeekScreenState extends State<EmotionWeekScreen> {
           const SizedBox(height: 12),
           _Card(child: _standout(week)),
         ],
+        // An account only: the server keeps the week; the AI writes on a tap.
+        if (_api != null && week.entries > 0) ...[
+          const SizedBox(height: AppSpacing.xl),
+          const Text(EmotionWeekScreen.summaryTitle,
+              style: AppText.sectionTitle),
+          const SizedBox(height: 12),
+          _Card(child: _summary()),
+        ],
         const SizedBox(height: AppSpacing.lg),
         const Text(EmotionWeekScreen.aiNote, style: AppText.meta),
+      ],
+    );
+  }
+
+  Widget _summary() {
+    final ready = _cloudFor == _weeksBack ? _cloud?.summary : null;
+    final aiOn = OnboardingScope.maybeOf(context)?.aiInApp ?? true;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (ready != null) ...[
+          Text(sentenceCase(ready), style: AppText.body.copyWith(height: 1.6)),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(EmotionWeekScreen.summaryBy, style: AppText.meta),
+        ] else if (_writing)
+          const Row(children: [
+            SizedBox.square(
+              dimension: 18,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2, color: AppColors.primaryAction),
+            ),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(EmotionWeekScreen.summaryWriting,
+                  style: AppText.bodySecondary),
+            ),
+          ])
+        else if (!aiOn)
+          const Text(EmotionWeekScreen.summaryAiOff, style: AppText.body)
+        else ...[
+          const Text(EmotionWeekScreen.summaryNote, style: AppText.meta),
+          if (_summaryMessage case final message?) ...[
+            const SizedBox(height: AppSpacing.sm),
+            Text(message, style: AppText.body),
+          ],
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: AppSecondaryButton(
+              label: EmotionWeekScreen.summaryButton,
+              icon: Icons.auto_awesome_outlined,
+              onPressed: _writeSummary,
+            ),
+          ),
+        ],
       ],
     );
   }

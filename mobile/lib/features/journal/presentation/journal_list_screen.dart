@@ -12,6 +12,9 @@ import '../journal_scope.dart';
 import '../../sound/app_sound.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../data/analysis_archive.dart';
+import '../data/api_ai_service.dart';
+import '../data/cloud_ai_api.dart';
+import '../data/cloud_analysis_sync.dart';
 import 'delete_entry_dialog.dart';
 import 'kept_analysis_chip.dart';
 import 'write_journal_screen.dart';
@@ -76,6 +79,12 @@ class _JournalListScreenState extends State<JournalListScreen> {
     _journals?.removeListener(_reload);
     _journals = journals..addListener(_reload);
     _entries = journals.entries();
+    // Analyses made on another phone appear on the entries (read only).
+    if (AiRemoteScope.maybeOf(context) case final ai?) {
+      CloudAnalysisSync.maybeSync(CloudAiApi(ai.client),
+              userId: OnboardingScope.maybeOf(context)?.userId)
+          .catchError((Object _) {});
+    }
   }
 
   /// An entry was written or changed (e.g. opened from here and edited).

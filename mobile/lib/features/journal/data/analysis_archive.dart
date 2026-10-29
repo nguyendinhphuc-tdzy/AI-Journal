@@ -14,6 +14,8 @@ class SavedAnalysis {
     required this.savedAt,
     required this.analysis,
     this.quote,
+    this.cloud = false,
+    this.feedback,
   });
 
   final String entryId;
@@ -26,6 +28,28 @@ class SavedAnalysis {
   /// The quote shown after it, if any.
   final ({String text, String author})? quote;
 
+  /// Kept on the server with its journal (and here as a copy); false for an
+  /// analysis made and kept on this device only, which another phone never
+  /// sees.
+  final bool cloud;
+
+  /// "up", "down" or null.
+  final String? feedback;
+
+  SavedAnalysis copyWith({
+    ({String text, String author})? quote,
+    String? Function()? feedback,
+  }) =>
+      SavedAnalysis(
+        entryId: entryId,
+        bodyVersion: bodyVersion,
+        savedAt: savedAt,
+        analysis: analysis,
+        quote: quote ?? this.quote,
+        cloud: cloud,
+        feedback: feedback == null ? this.feedback : feedback(),
+      );
+
   Map<String, Object?> toJson() => {
         'entryId': entryId,
         'bodyVersion': bodyVersion,
@@ -33,6 +57,8 @@ class SavedAnalysis {
         'analysis': analysis.toJson(),
         if (quote case final quote?)
           'quote': {'text': quote.text, 'author': quote.author},
+        if (cloud) 'cloud': true,
+        if (feedback != null) 'feedback': feedback,
       };
 
   static SavedAnalysis? fromJson(Object? raw) {
@@ -48,6 +74,12 @@ class SavedAnalysis {
         quote: quote == null
             ? null
             : (text: quote['text'] as String, author: quote['author'] as String),
+        cloud: json['cloud'] == true,
+        feedback: switch (json['feedback']) {
+          'up' => 'up',
+          'down' => 'down',
+          _ => null,
+        },
       );
     } catch (_) {
       // Unreadable (an older shape): as if there were none.

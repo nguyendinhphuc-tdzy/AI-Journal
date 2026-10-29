@@ -11,6 +11,9 @@ import '../../../core/widgets/app_ui.dart';
 import '../../journal/data/journal_entry.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/journal_list_screen.dart';
+import '../../journal/data/api_ai_service.dart';
+import '../../journal/data/cloud_ai_api.dart';
+import '../../journal/data/cloud_analysis_sync.dart';
 import '../../journal/data/saved_quotes.dart';
 import '../../journal/presentation/kept_analysis_chip.dart';
 import '../../journal/presentation/write_journal_screen.dart';
@@ -96,6 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// the account's real count is read.
   bool _streakVerified = false;
   bool _streakRequested = false;
+  bool _analysesSynced = false;
   HomeScene _scene = HomeScene.street;
   SceneEffect _effect = SceneEffect.none;
 
@@ -104,13 +108,20 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadNickname();
     _loadScene();
-    _loadSavedQuotes();
     HomeSceneSettings.changes.addListener(_loadScene);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _startSavedQuotes();
+    // The account's analyses kept on the server (from any phone): read only.
+    if (AiRemoteScope.maybeOf(context) case final ai? when !_analysesSynced) {
+      _analysesSynced = true;
+      CloudAnalysisSync.maybeSync(CloudAiApi(ai.client),
+              userId: OnboardingScope.maybeOf(context)?.userId)
+          .catchError((Object _) {});
+    }
     final api = StreakApiScope.maybeOf(context)?.client;
     if (api == null || _streakRequested) return;
     _streakRequested = true;
@@ -126,18 +137,25 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// The quotes this account kept, back in "Đã lưu" after a restart.
-  Future<void> _loadSavedQuotes() async {
-    final userId =
-        context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
-    try {
-      final quotes = await SavedQuotes.open(userId: userId);
-      if (mounted && quotes.all().isNotEmpty) quotes.show();
-    } catch (_) {}
+  /// This session's saved quotes: the account's on the server (with those
+  /// kept on this device before), or the guest's on the device. Home is
+  /// built anew for another account, so none carry over.
+  SavedQuotesFeed? _quotes;
+
+  void _startSavedQuotes() {
+    if (_quotes != null) return;
+    final ai = AiRemoteScope.maybeOf(context);
+    final feed = _quotes = SavedQuotesFeed(
+      userId: OnboardingScope.maybeOf(context)?.userId,
+      cloud: ai == null ? null : CloudAiApi(ai.client),
+    );
+    // Kept on another phone, or let go there. Offline: what is here stays.
+    feed.refresh().catchError((Object _) {});
   }
 
   @override
   void dispose() {
+    _quotes?.dispose();
     HomeSceneSettings.changes.removeListener(_loadScene);
     super.dispose();
   }
@@ -248,34 +266,39 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const _JournalSections(),
-                  ValueListenableBuilder<List<Map<String, dynamic>>>(
-                    valueListenable: savedThisWeekItems,
-                    builder: (context, items, _) => items.isEmpty
-                        ? const SizedBox.shrink()
-                        : Column(
-                            key: const ValueKey('home-saved'),
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const SizedBox(height: AppSpacing.xl),
-                              _JournalHeading(
-                                HomeScreen.savedTitle,
-                                action: items.length > 1
-                                    ? _SeeAll(
-                                        key: const ValueKey('home-saved-all'),
-                                        count: items.length,
-                                        what: 'mục đã lưu',
-                                        onTap: () => Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                                builder: (_) =>
-                                                    const SavedItemsScreen())),
-                                      )
-                                    : null,
-                              ),
-                              const SizedBox(height: 12),
-                              _SavedItem(item: items.first),
-                            ],
-                          ),
+                  ListenableBuilder(
+                    listenable: Listenable.merge(
+                        [savedThisWeekItems, if (_quotes case final q?) q]),
+                    builder: (context, _) => switch (
+                        savedShown(_quotes?.value, savedThisWeekItems.value)) {
+                      final items => items.isEmpty
+                          ? const SizedBox.shrink()
+                          : Column(
+                              key: const ValueKey('home-saved'),
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                const SizedBox(height: AppSpacing.xl),
+                                _JournalHeading(
+                                  HomeScreen.savedTitle,
+                                  action: items.length > 1
+                                      ? _SeeAll(
+                                          key: const ValueKey('home-saved-all'),
+                                          count: items.length,
+                                          what: 'mục đã lưu',
+                                          onTap: () => Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                  builder: (_) =>
+                                                      SavedItemsScreen(
+                                                          quotes: _quotes))),
+                                        )
+                                      : null,
+                                ),
+                                const SizedBox(height: 12),
+                                _SavedItem(item: items.first, quotes: _quotes),
+                              ],
+                            ),
+                    },
                   ),
                 ],
               ),
@@ -806,33 +829,48 @@ class _JournalEyebrow extends StatelessWidget {
   }
 }
 
+/// What "Đã lưu" shows: the session's saved quotes first, then the other
+/// saved items (and the demo's own quotes), never the same quote twice.
+List<Map<String, dynamic>> savedShown(
+    List<SavedQuote>? quotes, List<Map<String, dynamic>> others) {
+  final texts = {for (final q in quotes ?? const <SavedQuote>[]) q.text};
+  return [
+    for (final q in quotes ?? const <SavedQuote>[]) SavedQuotes.item(q),
+    for (final item in others)
+      if (item['type'] != 'quote' || !texts.contains(item['content'])) item,
+  ];
+}
+
 /// A reflection or quote that was saved, with what can be done with it.
 class _SavedItem extends StatelessWidget {
-  const _SavedItem({required this.item});
+  const _SavedItem({required this.item, this.quotes});
 
   final Map<String, dynamic> item;
+
+  /// The session's saved quotes, when this is one of them.
+  final SavedQuotesFeed? quotes;
 
   bool get _quote => item['type'] == 'quote';
 
   void _unsave(BuildContext context) {
+    final text = item['content'] as String? ?? '';
+    final feed = quotes;
+    final messenger = ScaffoldMessenger.of(context);
+    if (_quote && feed != null && feed.value.any((q) => q.text == text)) {
+      // Let go for good (on the account too). Still kept if that failed:
+      // it stays in the list, and the reader is told.
+      feed.remove(text).then((done) => messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+            content: Text(done
+                ? 'Đã bỏ lưu trích dẫn'
+                : 'Chưa bỏ lưu được. Bạn thử lại nhé.'))));
+      return;
+    }
     savedThisWeekItems.value =
         List<Map<String, dynamic>>.from(savedThisWeekItems.value)..remove(item);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    messenger.showSnackBar(SnackBar(
         content: Text(_quote ? 'Đã bỏ lưu trích dẫn' : 'Đã bỏ lưu phân tích')));
-    if (_quote) {
-      // Let go for good, not only until the next start.
-      _forget(context
-          .getInheritedWidgetOfExactType<OnboardingScope>()
-          ?.store
-          .userId);
-    }
-  }
-
-  Future<void> _forget(String? userId) async {
-    try {
-      await (await SavedQuotes.open(userId: userId))
-          .remove(item['content'] as String? ?? '');
-    } catch (_) {}
   }
 
   Future<void> _copy(BuildContext context) async {
@@ -976,54 +1014,63 @@ class _SheetAction extends StatelessWidget {
 
 /// Everything saved from reflections, newest first.
 class SavedItemsScreen extends StatelessWidget {
-  const SavedItemsScreen({super.key});
+  const SavedItemsScreen({super.key, this.quotes});
+
+  /// The session's saved quotes (from Home).
+  final SavedQuotesFeed? quotes;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: ValueListenableBuilder<List<Map<String, dynamic>>>(
-          valueListenable: savedThisWeekItems,
-          builder: (context, items, _) => Column(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 12),
-              child: AppPageHeader(
-                title: HomeScreen.savedTitle,
-                subtitle: items.isEmpty
-                    ? 'Chưa có mục nào'
-                    : '${items.length} trích dẫn và phân tích',
-                trailing: [
-                  AppIconAction(
-                    icon: Icons.close_rounded,
-                    tooltip: 'Đóng',
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: AppColors.border),
-            Expanded(
-              child: items.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(AppSpacing.xl),
-                        child: Text(
-                            'Bấm Lưu ở một trích dẫn sau khi viết để giữ lại ở đây.',
-                            textAlign: TextAlign.center,
-                            style: AppText.bodySecondary),
+        child: ListenableBuilder(
+          listenable: Listenable.merge(
+              [savedThisWeekItems, if (quotes case final q?) q]),
+          builder: (context, _) =>
+              switch (savedShown(quotes?.value, savedThisWeekItems.value)) {
+            final items => Column(children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 12),
+                  child: AppPageHeader(
+                    title: HomeScreen.savedTitle,
+                    subtitle: items.isEmpty
+                        ? 'Chưa có mục nào'
+                        : '${items.length} trích dẫn và phân tích',
+                    trailing: [
+                      AppIconAction(
+                        icon: Icons.close_rounded,
+                        tooltip: 'Đóng',
+                        onPressed: () => Navigator.pop(context),
                       ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
-                          AppSpacing.lg, AppSpacing.lg, AppSpacing.xxl),
-                      itemCount: items.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (_, index) => _SavedItem(item: items[index]),
-                    ),
-            ),
-          ]),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: AppColors.border),
+                Expanded(
+                  child: items.isEmpty
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(AppSpacing.xl),
+                            child: Text(
+                                'Bấm Lưu ở một trích dẫn sau khi viết để giữ lại ở đây.',
+                                textAlign: TextAlign.center,
+                                style: AppText.bodySecondary),
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(AppSpacing.lg,
+                              AppSpacing.lg, AppSpacing.lg, AppSpacing.xxl),
+                          itemCount: items.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 12),
+                          itemBuilder: (_, index) =>
+                              _SavedItem(item: items[index], quotes: quotes),
+                        ),
+                ),
+              ]),
+          },
         ),
       ),
     );

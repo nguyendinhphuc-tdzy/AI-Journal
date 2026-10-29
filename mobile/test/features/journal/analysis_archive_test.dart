@@ -1,5 +1,4 @@
 import 'package:ai_diary/core/theme/app_theme.dart';
-import 'package:ai_diary/core/data/app_data.dart';
 import 'package:ai_diary/features/journal/data/analysis_archive.dart';
 import 'package:ai_diary/features/journal/data/saved_quotes.dart';
 import 'package:ai_diary/features/journal/data/api_ai_service.dart';
@@ -136,9 +135,12 @@ void main() {
     expect(quotes.contains(quote.text), isTrue);
     expect(find.widgetWithText(TextButton, 'Đã lưu'), findsOneWidget);
 
-    await tester.scrollUntilVisible(find.text('Tiếp tục'), 150,
+    // Said as it is: back to the entry, never "Tiếp tục".
+    expect(find.text('Tiếp tục'), findsNothing);
+    await tester.scrollUntilVisible(
+        find.text(AIReflectionScreen.backToEntry), 150,
         scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.text('Tiếp tục'));
+    await tester.tap(find.text(AIReflectionScreen.backToEntry));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.text(quote.text), findsNothing,
@@ -156,8 +158,7 @@ void main() {
       await mine.save('Câu A.', 'Tác giả A');
       expect([for (final q in mine.all()) q.text], ['Câu A.', 'Câu B.'],
           reason: 'saved again: to the top, once');
-      expect(savedThisWeekItems.value.where((i) => i['type'] == 'quote'),
-          hasLength(2));
+      expect(mine.all(), hasLength(2));
       final again = await SavedQuotes.open(userId: _user);
       expect(again.contains('Câu B.'), isTrue);
       final other = await SavedQuotes.open(
@@ -165,8 +166,7 @@ void main() {
       expect(other.all(), isEmpty);
       await mine.remove('Câu A.');
       expect([for (final q in mine.all()) q.text], ['Câu B.']);
-      expect(savedThisWeekItems.value.where((i) => i['type'] == 'quote'),
-          hasLength(1));
+      expect(mine.all(), hasLength(1));
     });
   });
 
@@ -228,7 +228,11 @@ void main() {
 
     // Through the quote, if one fits, then back to the entry, not the
     // streak; it now offers to read the analysis again.
-    await tester.tap(find.text('Tiếp tục'));
+    // "Tiếp tục" when a quote comes first, else "Quay lại nhật ký".
+    final next = find.text('Tiếp tục').evaluate().isNotEmpty
+        ? find.text('Tiếp tục')
+        : find.text(AIReflectionScreen.backToEntry);
+    await tester.tap(next);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     if (find.byType(AiReflectionScreen).evaluate().isNotEmpty) {
@@ -251,6 +255,25 @@ void main() {
         await _journals.create(const JournalContent(body: 'Tắt AI.'));
     await _pump(tester, WriteJournalScreen(entry: entry), ai: FakeAi());
     expect(find.text(WriteJournalScreen.analyzeLabel), findsNothing);
+  });
+
+  testWidgets('Read again: a back button on top returns to the entry',
+      (tester) async {
+    final entry = await _journals.create(const JournalContent(body: 'Có AI.'));
+    await (await AnalysisArchive.open(userId: _user)).save(_saved(entry.id));
+    await _pump(tester, WriteJournalScreen(entry: entry));
+    await tester.tap(find.text(WriteJournalScreen.reviewLabel));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(AiReflectionScreen), findsOneWidget);
+    expect(find.text('Tiếp tục'), findsNothing);
+
+    await tester.tap(find.byTooltip(AIReflectionScreen.backToEntry));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(AiReflectionScreen), findsNothing);
+    expect(find.byType(WriteJournalScreen), findsOneWidget);
+    expect(find.text('Có AI.'), findsOneWidget);
   });
 
   testWidgets('Edited since: the analysis says it read an earlier version',
