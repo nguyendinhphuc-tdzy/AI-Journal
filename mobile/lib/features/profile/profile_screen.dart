@@ -7,11 +7,11 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_text.dart';
 import '../../core/widgets/app_delete_dialog.dart';
 import '../../core/widgets/app_ui.dart';
+import 'data/app_icon.dart';
 import '../onboarding/data/onboarding_scope.dart';
 import '../onboarding/data/onboarding_store.dart';
 import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
-import '../explore/data/place_mood.dart';
 import '../journal/data/api_ai_service.dart';
 import '../home/data/home_scene_settings.dart';
 import '../social/data/friends_account.dart';
@@ -24,10 +24,16 @@ import 'data/writing_preferences.dart';
 import 'widgets/setting_editor.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key, FriendsAccount? friends})
-      : _friends = friends;
+  const ProfileScreen({
+    super.key,
+    FriendsAccount? friends,
+    this.appIcons = const PlatformAppIconSwitcher(),
+  }) : _friends = friends;
 
   final FriendsAccount? _friends;
+
+  /// The home-screen icon (Android launcher aliases).
+  final AppIconSwitcher appIcons;
 
   /// Facebook login for friends on the app (simulated for now).
   FriendsAccount get friends => _friends ?? MockFriendsAccount.instance;
@@ -53,6 +59,21 @@ class ProfileScreen extends StatefulWidget {
       ? 'Kết quả phân tích được lưu trong tài khoản của bạn; phân tích tạo '
           'trước đây có thể chỉ có trên máy này.'
       : 'Phân tích được lưu trên thiết bị, không đồng bộ khi đổi máy.';
+  static const iconTitle = 'Biểu tượng ứng dụng';
+  static const iconNote = 'Chọn Nudaeng hợp với công việc của bạn cho biểu '
+      'tượng ngoài màn hình chính.';
+  static String iconConfirmTitle(AppIcon icon) =>
+      'Đổi biểu tượng thành ${icon.label}?';
+  static const iconConfirmBody = 'App sẽ đóng lại để đổi biểu tượng. Mở lại '
+      'app từ biểu tượng mới ngoài màn hình chính; nhật ký và cài đặt của bạn '
+      'vẫn còn nguyên. Một số máy cần vài giây để cập nhật biểu tượng.';
+  static const iconConfirmLabel = 'Đổi biểu tượng';
+  static const iconPreviewOnly =
+      'Chỉ xem trước; máy này chưa đổi được biểu tượng ngoài màn hình chính.';
+  static String iconChanged(AppIcon icon) =>
+      'Đã đổi biểu tượng thành ${icon.label}. Màn hình chính có thể cần vài '
+      'giây để cập nhật.';
+  static const iconFailed = 'Chưa đổi được biểu tượng. Bạn thử lại nhé.';
   static const guestSignOutTitle = 'Thoát chế độ khách?';
   static const guestSignOutBody =
       'Bạn chưa có tài khoản, nên nhật ký, kỷ niệm và ảnh chỉ nằm trên máy '
@@ -66,8 +87,9 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // Preview selection only: native app icons and persistence are not connected.
-  int _selectedIcon = 0;
+  /// The home-screen icon now; Android keeps it, read when Hồ sơ opens.
+  AppIcon _icon = AppIcon.standard;
+  bool _changingIcon = false;
   late Future<OnboardingStore> _onboarding;
   late Future<WritingPreferences> _preferences;
   late Future<HomeSceneSettings> _scene;
@@ -81,6 +103,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _preferences = WritingPreferences.open();
     _scene = HomeSceneSettings.open();
     _sound = SoundSettings.open();
+    widget.appIcons.current().then((icon) {
+      if (mounted) setState(() => _icon = icon);
+    }, onError: (Object _) {});
+  }
+
+  /// Puts [icon] on the home screen; a phone that cannot only previews it.
+  Future<void> _pickIcon(AppIcon icon) async {
+    if (_changingIcon || icon == _icon) return;
+    final switcher = widget.appIcons;
+    if (!switcher.supported) {
+      setState(() => _icon = icon);
+      return;
+    }
+    // Android closes the app when the icon it was opened from goes away.
+    final confirmed = await showAppSheet<bool>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(ProfileScreen.iconConfirmTitle(icon),
+              style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(ProfileScreen.iconConfirmBody, style: AppText.body),
+          const SizedBox(height: AppSpacing.xl),
+          Row(children: [
+            Expanded(
+              child: AppSecondaryButton(
+                label: 'Hủy',
+                onPressed: () => Navigator.pop(sheet, false),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: AppPrimaryButton(
+                label: ProfileScreen.iconConfirmLabel,
+                onPressed: () => Navigator.pop(sheet, true),
+              ),
+            ),
+          ]),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true || _changingIcon) return;
+    final before = _icon;
+    setState(() {
+      _changingIcon = true;
+      _icon = icon;
+    });
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await switcher.set(icon);
+      messenger.showSnackBar(
+          SnackBar(content: Text(ProfileScreen.iconChanged(icon))));
+    } catch (_) {
+      if (mounted) setState(() => _icon = before);
+      messenger.showSnackBar(
+          const SnackBar(content: Text(ProfileScreen.iconFailed)));
+    } finally {
+      if (mounted) setState(() => _changingIcon = false);
+    }
   }
 
   Future<void> _edit(String item) async {
@@ -615,77 +698,77 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _ => Icons.tune_rounded,
       };
 
-  /// Three Nudaeng app icons to pick from. Only a preview here: the icon on
-  /// the home screen does not change yet.
-  static const appIcons = [
-    ('Nudaeng vui vẻ', PlaceMood.happy, Color(0xFFF1E4CE)),
-    ('Nudaeng bình yên', PlaceMood.peaceful, Color(0xFFD6E9E4)),
-    ('Nudaeng háo hức', PlaceMood.excited, Color(0xFFE4E5F1)),
-  ];
-
   Widget _buildIconGroup() => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildGroupTitle('Biểu tượng ứng dụng'),
+          _buildGroupTitle(ProfileScreen.iconTitle),
           AppCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text('Chỉ xem trước; chưa đổi icon ngoài màn hình chính.',
+                Text(
+                    widget.appIcons.supported
+                        ? ProfileScreen.iconNote
+                        : ProfileScreen.iconPreviewOnly,
                     style: AppText.meta),
                 const SizedBox(height: AppSpacing.md),
                 Wrap(
                   spacing: AppSpacing.md,
                   runSpacing: AppSpacing.md,
                   children: [
-                    for (final (index, (name, mood, tint)) in appIcons.indexed)
+                    for (final icon in AppIcon.values)
                       Semantics(
                         button: true,
-                        selected: _selectedIcon == index,
-                        label: name,
+                        selected: _icon == icon,
+                        label: icon.label,
                         excludeSemantics: true,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Material(
-                              color: tint,
+                              color: icon.tint,
                               clipBehavior: Clip.antiAlias,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(18),
                                 side: BorderSide(
-                                    color: _selectedIcon == index
+                                    color: _icon == icon
                                         ? AppColors.primaryAction
                                         : Colors.transparent,
                                     width: 2),
                               ),
                               child: InkWell(
-                                key: ValueKey('app-icon-$index'),
-                                onTap: () =>
-                                    setState(() => _selectedIcon = index),
+                                key: ValueKey('app-icon-${icon.id}'),
+                                onTap: () => _pickIcon(icon),
                                 child: SizedBox.square(
                                   dimension: 72,
-                                  // Head and shoulders, as on a launcher.
-                                  child: Image.asset(mood.asset,
-                                      fit: BoxFit.cover,
-                                      alignment: const Alignment(0, -.6),
-                                      cacheWidth: 220),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(6),
+                                    child: Image.asset(icon.asset,
+                                        fit: BoxFit.contain, cacheWidth: 220),
+                                  ),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 6),
-                            Text(name.replaceFirst('Nudaeng ', ''),
-                                style: AppText.meta.copyWith(
-                                    color: _selectedIcon == index
-                                        ? AppColors.primaryAction
-                                        : AppColors.textSecondary,
-                                    fontWeight: _selectedIcon == index
-                                        ? FontWeight.w600
-                                        : null)),
+                            // Room for two lines ("Nhân viên văn phòng").
+                            SizedBox(
+                              width: 84,
+                              child: Text(icon.label,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  style: AppText.meta.copyWith(
+                                      color: _icon == icon
+                                          ? AppColors.primaryAction
+                                          : AppColors.textSecondary,
+                                      fontWeight: _icon == icon
+                                          ? FontWeight.w600
+                                          : null)),
+                            ),
                             const SizedBox(height: 4),
                             SizedBox(
                               height: 6,
                               width: 6,
-                              child: _selectedIcon == index
+                              child: _icon == icon
                                   ? const DecoratedBox(
                                       key: ValueKey('selected-icon-dot'),
                                       decoration: BoxDecoration(
