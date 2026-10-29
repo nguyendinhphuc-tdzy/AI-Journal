@@ -32,6 +32,10 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
   /// screens at once (Home, the album list, the open album), and a new photo
   /// is not cached yet: they share one download instead of racing on it.
   final _downloads = <String, Future<void>>{};
+  /// A newly uploaded image is still at its original device path until
+  /// the next cloud fetch caches it. Edits during this session must not
+  /// re-upload the exact same image.
+  final _uploadedPaths = <String, String>{};
 
   static const _prefix = 'cloud-';
 
@@ -344,6 +348,7 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     if (content.photoPath case final path?) {
       try {
         await _uploadPhoto(albumId, saved.id, path);
+        _uploadedPaths[_id(saved.id, entity: 'memory')] = path;
       } catch (_) {
         // Avoid duplicate note-only memories after a failed photo upload.
         await deleteMemory(albumId, saved.id);
@@ -388,8 +393,11 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     );
     final saved = _memory(raw);
     if (content.photoPath case final path?) {
-      if (!_isCachedPhoto(memoryId, path)) {
+      final id = _id(memoryId, entity: 'memory');
+      if (!_isCachedPhoto(memoryId, path) &&
+          _uploadedPaths[id] != path) {
         await _uploadPhoto(albumId, memoryId, path);
+        _uploadedPaths[id] = path;
       }
     } else if (raw['photo_available'] == true) {
       await client.deleteNoContent(_photoUrl(albumId, memoryId));
@@ -413,6 +421,7 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
       '${_id(memoryId, entity: 'memory')}',
       requireAuth: true,
     );
+    _uploadedPaths.remove(_id(memoryId, entity: 'memory'));
     notifyListeners();
   }
 

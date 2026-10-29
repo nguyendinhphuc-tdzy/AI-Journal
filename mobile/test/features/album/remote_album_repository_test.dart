@@ -374,4 +374,40 @@ void main() {
     }
   });
 
+  test('create then edit with same picked photo uploads only once', () async {
+    final folder = await Directory.systemTemp.createTemp('album-new-photo');
+    addTearDown(() => folder.delete(recursive: true));
+    final file = File('${folder.path}/photo.jpg');
+    await file.writeAsBytes([0xff, 0xd8, 0xff, 0xe0, 5]);
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'PUT') return _response({});
+        return _response({
+          ..._memory(),
+          'photo_available': request.method == 'PATCH',
+        }, request.method == 'POST' ? 201 : 200);
+      }),
+    );
+    final repo = RemoteAlbumRepository(
+      client: api,
+      localDrafts: await LocalAlbumRepository.open(userId: 'new-photo'),
+    );
+    try {
+      final created = await repo.createMemory('cloud-$_albumId',
+          MemoryContent(note: 'First', photoPath: file.path,
+              displayDate: DateTime(2026, 10, 27)));
+      await repo.updateMemory('cloud-$_albumId', created.id,
+          MemoryContent(note: 'Edited', photoPath: file.path,
+              displayDate: created.content.displayDate));
+      expect(requests.where((r) => r.method == 'PUT'), hasLength(1));
+      expect(requests.where((r) => r.method == 'PATCH'), hasLength(1));
+    } finally {
+      repo.dispose();
+      api.close();
+    }
+  });
+
 }
