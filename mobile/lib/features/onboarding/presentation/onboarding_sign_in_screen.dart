@@ -218,7 +218,9 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
   void _phoneOtp() {
     final service = widget.service;
     if (!widget.realAuth || !widget.phoneOtpEnabled ||
-        service is! SupabaseSignInAdapter) return;
+        service is! SupabaseSignInAdapter) {
+      return;
+    }
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => AuthScreen(
         auth: service.auth, startWithPhone: true,
@@ -255,10 +257,12 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = _messageFor(e));
     } finally {
-      if (mounted) setState(() {
-        _busy = false;
-        _waitingForOAuth = false;
-      });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _waitingForOAuth = false;
+        });
+      }
     }
   }
 
