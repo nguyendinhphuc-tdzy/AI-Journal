@@ -188,7 +188,10 @@ class SupabaseSignInAdapter implements SignInService {
       );
     } finally {
       _cancelOAuthWait = null;
-      await subscription.cancel();
+      // Not awaited: cancelling a listener of a broadcast auth stream may
+      // only complete when the stream closes, which would keep the caller
+      // waiting (spinner, "Dừng chờ đăng nhập") after the wait had ended.
+      unawaited(subscription.cancel());
     }
   }
 
