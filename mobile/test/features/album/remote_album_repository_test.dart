@@ -346,6 +346,11 @@ void main() {
         if (request.url.path.endsWith('/photo')) {
           return http.Response.bytes([0xff, 0xd8, 0xff, 0xe0, 7], 200);
         }
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/memories')) {
+          // GET /memories returns a JSON array, even for one memory.
+          return _response([{..._memory(), 'photo_available': true}]);
+        }
         if (request.method == 'PATCH') {
           return _response({..._memory(), 'photo_available': true});
         }

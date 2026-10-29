@@ -94,20 +94,24 @@ void main() {
     final otp = find.text(OnboardingSignInScreen.phone);
     expect(otp, findsOneWidget);
     await tester.ensureVisible(otp);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(otp);
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(AuthScreen), findsOneWidget);
     expect(find.text('Điện thoại'), findsOneWidget);
     await tester.enterText(find.byType(TextField).first, '+84901234567');
     await tester.ensureVisible(find.text('Gửi mã SMS'));
     await tester.tap(find.text('Gửi mã SMS'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(auth.otpPhone, '+84901234567');
     await tester.enterText(find.byType(TextField).last, '123456');
     await tester.ensureVisible(find.text('Xác nhận OTP'));
     await tester.tap(find.text('Xác nhận OTP'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(auth.otpCode, '123456');
   });
   test('OAuth callback triggered during browser launch is not lost', () async {
