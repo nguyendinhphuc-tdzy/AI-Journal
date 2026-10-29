@@ -108,9 +108,13 @@ class OllamaAIProvider(AIProvider):
 
     def reflect(self, content: str, mood: str | None = None) -> ReflectionResponse:
         task = (
-            "Tạo phản tư ngắn về nhật ký. Trả về đối tượng JSON với 4 chuỗi: "
+            "Tạo phản tư ngắn về nhật ký. Trả về JSON với 4 chuỗi bắt buộc: "
             "emotion (cảm xúc có thể có), observation (điều được nhận thấy), "
-            "reflection (góc nhìn nhẹ nhàng), question (một câu hỏi mở). "
+            "reflection (góc nhìn nhẹ nhàng), question (một câu hỏi mở); "
+            "và tùy chọn title (tiêu đề ngắn), analysis (đoạn phân tích), "
+            "topics (danh sách tối đa 8 chủ đề). Không bịa câu trích dẫn "
+            "hoặc nguồn tác giả: quote phải là null. "
+            "mood_group và mood_score do backend tính từ emotion. "
             "Mỗi trường chỉ 1–2 câu, tiếng Việt tự nhiên, viết hoa "
             "chữ đầu câu, có dấu câu; tránh dùng từ không rõ nghĩa. "
             "Nếu nội dung là các cặp Câu hỏi/Trả lời, hãy tổng hợp "

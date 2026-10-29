@@ -1,5 +1,5 @@
 """Cached narrative of the week's private, version-valid analyses."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import Date, DateTime, ForeignKey, String, Text, Uuid, UniqueConstraint
@@ -19,7 +19,7 @@ class WeeklyInsight(Base):
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("auth.users.id",
                       ondelete="CASCADE"), nullable=False, index=True)
-    monday: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    monday: Mapped[date] = mapped_column(Date, nullable=False)
     fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now,
