@@ -1,5 +1,6 @@
 import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/journal/data/api_ai_service.dart';
+import 'package:ai_diary/features/journal/data/quote_picker.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
 import 'package:ai_diary/features/journal/journal_scope.dart';
 import 'package:ai_diary/features/journal/presentation/ai_conversation.dart';
@@ -186,7 +187,10 @@ void main() {
     await tester.pump();
     await _save(tester);
     expect((await _journals.entries()).single.body,
-        'Chán quá đi\n\nViệc học dồn lại\n\nKhi đi bộ');
+        'Chán quá đi\n\n'
+        'Điều gì khiến bạn thấy chán?\nViệc học dồn lại\n\n'
+        'Lúc nào bạn thấy đỡ hơn?\nKhi đi bộ',
+        reason: 'the AI questions are kept with the answers');
   });
 
   testWidgets('No limit: after ${WriteJournalScreen.deepNudgeAfter} questions '
@@ -242,8 +246,8 @@ void main() {
         'Trả lời: Chán quá đi\n'
         'Câu hỏi: Vì sao vậy?\n'
         'Trả lời: Bài nhiều');
-    expect((await _journals.entries()).single.body, 'Chán quá đi\n\nBài nhiều',
-        reason: 'the entry itself is unchanged');
+    expect((await _journals.entries()).single.body,
+        'Chán quá đi\n\nVì sao vậy?\nBài nhiều');
     await tester.tap(find.text('Nhật ký'));
     await tester.pump();
     expect(find.text('Hôm nay bạn cảm thấy thế nào?'), findsOneWidget);
@@ -279,7 +283,8 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.text('Một câu đã kiểm chứng.'), findsOneWidget);
-    expect(find.text('Tác giả A'), findsOneWidget);
+    expect(find.text('– Tác giả A'), findsOneWidget,
+        reason: 'a short dash, never an em dash');
     expect(find.text('Theodore Roosevelt'), findsNothing);
     await tester.tap(find.text('Tiếp tục'));
     await tester.pump();
@@ -287,14 +292,44 @@ void main() {
     expect(find.byType(StreakScreen), findsOneWidget);
   });
 
-  testWidgets('No quote from the backend: never a made-up one, on to the '
-      'streak', (tester) async {
-    final ai = FakeAi();
+  testWidgets('No quote from the backend: the team\'s quote that fits the '
+      'analysis', (tester) async {
+    final ai = FakeAi(analysis: {
+      ...FakeAi.reflection,
+      'emotion': 'áp lực',
+      'observation': 'việc học dồn lại khiến bạn thấy ngợp.',
+    });
     await _pump(tester, ai);
-    await tester.enterText(find.byType(TextField), 'Một ngày thường');
+    await tester.enterText(find.byType(TextField), 'Bài tập nhiều quá');
     await _save(tester);
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('Nhẹ nhõm'), findsOneWidget, reason: 'title: the emotion');
+    final expected = const QuotePicker().pick(
+        AiAnalysis.fromJson(ai.analysis.cast<String, dynamic>()),
+        entry: 'Bài tập nhiều quá',
+        seed: 'Bài tập nhiều quá')!;
+    expect(expected.tags, contains('áp lực'));
+    await tester.tap(find.text('Tiếp tục'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text(expected.text), findsOneWidget);
+    expect(find.text('– ${expected.author}'), findsOneWidget);
+    expect(find.text('Theodore Roosevelt'), findsNothing);
+  });
+
+  testWidgets('Nothing fits and no backend quote: never a made-up one, on to '
+      'the streak', (tester) async {
+    final ai = FakeAi(analysis: {
+      'emotion': 'bình thường',
+      'observation': 'một ngày như mọi ngày.',
+      'reflection': 'đôi khi ngày bình thường cũng đáng ghi lại.',
+      'question': 'điều gì nhỏ bé bạn muốn giữ lại?',
+    });
+    await _pump(tester, ai);
+    await tester.enterText(find.byType(TextField), 'Không có gì đặc biệt');
+    await _save(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('Bình thường'), findsOneWidget,
+        reason: 'title: the emotion');
     await tester.tap(find.text('Tiếp tục'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));

@@ -15,9 +15,9 @@ void main() {
     expect(find.text('Hủy phân tích'), findsOneWidget);
     expect(find.text('Tiếp tục'), findsNothing);
     await tester.pump(const Duration(milliseconds: 2999));
-    expect(find.text('Theodore Roosevelt'), findsNothing);
+    expect(find.text('– Theodore Roosevelt'), findsNothing);
     await tester.pump(const Duration(milliseconds: 1));
-    expect(find.text('Theodore Roosevelt'), findsOneWidget);
+    expect(find.text('– Theodore Roosevelt'), findsOneWidget);
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
     expect(find.text('Hủy phân tích'), findsNothing);
@@ -27,7 +27,7 @@ void main() {
     // However long it is read, the quote is never taken away.
     await tester.pump(const Duration(seconds: 60));
     expect(find.text('Góc suy ngẫm'), findsNothing);
-    expect(find.text('Theodore Roosevelt'), findsOneWidget);
+    expect(find.text('– Theodore Roosevelt'), findsOneWidget);
     // "Đã lưu" has left: 4 s once it is in, then it slides away (it floats
     // over the bottom of the page meanwhile).
     await tester.pump(const Duration(seconds: 4));
@@ -35,7 +35,7 @@ void main() {
     await tester.tap(find.text('Tiếp tục'));
     await tester.pumpAndSettle();
     expect(find.text('Góc suy ngẫm'), findsOneWidget);
-    expect(find.text('Theodore Roosevelt'), findsNothing);
+    expect(find.text('– Theodore Roosevelt'), findsNothing);
     expect(find.text('Điều chúng mình nhận thấy'), findsOneWidget);
     await tester.tap(find.descendant(
       of: find.byKey(const ValueKey('reflection-insight')),

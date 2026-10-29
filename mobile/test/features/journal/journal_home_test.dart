@@ -154,7 +154,8 @@ void main() {
     await tester.tap(find.text('Xác nhận'));
     await tester.pumpAndSettle();
     expect((await journals.entries()).single.body,
-        'School feels difficult.\n\nI am worried about exams.');
+        'School feels difficult.\n\n'
+        'Điều gì khiến bạn thấy như vậy?\nI am worried about exams.');
     await tester.pump(const Duration(seconds: 8));
   });
 

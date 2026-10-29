@@ -165,10 +165,16 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     }
   }
 
+  /// The entry as saved: what was written first, then each "Nhìn lại cùng
+  /// bạn" question on its own line above its answer, so it still reads
+  /// as a conversation later. A question left unanswered is not kept.
   String get _entryText => [
         _controller.text.trim(),
-        for (final round in _deeper) round.answer.text.trim(),
-      ].where((answer) => answer.isNotEmpty).join('\n\n');
+        for (final round in _deeper)
+          if (round.answer.text.trim() case final answer
+              when answer.isNotEmpty)
+            '${round.question}\n$answer',
+      ].where((part) => part.isNotEmpty).join('\n\n');
 
   /// What the AI reads: each question with what was written for it, and
   /// why the user journals (OB03), if said.
@@ -684,7 +690,9 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           LayoutBuilder(
-            builder: (context, actions) => actions.maxWidth >= 320
+            // The width both labels need grows with the text size.
+            builder: (context, actions) => actions.maxWidth >=
+                    MediaQuery.textScalerOf(context).scale(320)
                 // Finish as wide as its word; going deeper, the main
                 // action, takes the rest, its label on one line.
                 ? Row(children: [

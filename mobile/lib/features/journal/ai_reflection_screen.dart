@@ -8,6 +8,7 @@ import '../../core/widgets/app_ui.dart';
 import '../streak/streak_screen.dart';
 import '../sound/app_sound.dart';
 import 'data/api_ai_service.dart';
+import 'data/quote_picker.dart';
 import 'presentation/sentence_case.dart';
 import '../streak/streak_state.dart';
 
@@ -50,15 +51,29 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   AiAnalysis? _remoteInsight;
   bool _remoteFailed = false;
 
+  /// The quote after the analysis: the backend's pick, else the team's
+  /// quote that fits the analysis best; none when nothing fits.
+  ({String text, String author})? _remoteQuote;
+
   Future<void> _fetchRemote() async {
     final service = widget.remote;
     if (service == null) return;
     try {
-      final result =
-          await service.analyze(widget.analysisContent ?? widget.journalContent);
+      final result = await service
+          .analyze(widget.analysisContent ?? widget.journalContent);
       if (!mounted) return;
+      final picked = const QuotePicker().pick(result,
+          entry: widget.journalContent, seed: widget.journalContent);
       setState(() {
         _remoteInsight = result;
+        _remoteQuote = switch (result.quote) {
+          final quote? => (text: quote.text, author: quote.author),
+          null when picked != null => (
+              text: picked.text,
+              author: picked.author
+            ),
+          null => null,
+        };
         _remoteFailed = false;
         _stage = _ReflectionStage.insight;
       });
@@ -71,11 +86,10 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     }
   }
 
-
   /// The quote on screen: the backend's for a real analysis, else the
   /// prototype's.
-  ({String text, String author}) get _quote => switch (_remoteInsight?.quote) {
-        final quote? => (text: quote.text, author: quote.author),
+  ({String text, String author}) get _quote => switch (_remoteQuote) {
+        final quote? => quote,
         null => (
             text: 'Hãy làm những gì bạn có thể, bằng những gì bạn có, '
                 'ngay tại nơi bạn đang đứng.',
@@ -146,7 +160,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   /// "Tiếp tục" under the analysis: the quote first when there is one.
   void _afterInsight() {
     if (widget.remote != null &&
-        _remoteInsight?.quote != null &&
+        _remoteQuote != null &&
         _stage == _ReflectionStage.insight) {
       setState(() => _stage = _ReflectionStage.quote);
     } else {
@@ -217,7 +231,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                         ),
                         if (quote) ...[
                           const SizedBox(height: 20),
-                          Text(_quote.author, style: AppText.meta),
+                          // A short dash only, never an em dash.
+                          Text('– ${_quote.author}', style: AppText.meta),
                         ],
                         SizedBox(height: compact ? 12 : 24),
                         _buildMascot(quote, compact ? 80 : 150),
@@ -392,7 +407,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
 
   Widget _buildRemoteInsight() {
     if (_remoteFailed) {
-      return Center(child: Column(
+      return Center(
+          child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text('Không thể kết nối AI lúc này.'),
@@ -415,46 +431,63 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     const reading = TextStyle(height: 1.7);
-    return Column(key: const ValueKey('reflection-insight'), children: [
-      Expanded(child: ListView(padding: const EdgeInsets.all(24), children: [
-        const AppEyebrow('Góc suy ngẫm', icon: Icons.auto_awesome),
-        const SizedBox(height: AppSpacing.sm),
-        Semantics(
-          header: true,
-          child: Text(sentenceCase(result.title ?? result.emotion),
-              style: AppText.pageTitle),
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        _buildTabs(),
-        const SizedBox(height: 28),
-        if (_showEntry)
-          ..._buildEntry()
-        else ...[
-          for (final (i, paragraph) in [
-            result.analysis ?? result.reflection,
-            result.question,
-          ].indexed) ...[
-            if (i > 0) const SizedBox(height: AppSpacing.md),
-            Text(sentenceCase(paragraph), style: AppText.body.merge(reading)),
-          ],
-          const SizedBox(height: 32),
-          _buildSectionTitle(
-              Icons.push_pin_outlined, 'Điều chúng mình nhận thấy'),
-          const SizedBox(height: 12),
-          Text(sentenceCase(result.observation),
-              style: AppText.body.merge(reading)),
-          const SizedBox(height: 28),
-          _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
-          const SizedBox(height: 12),
-          Wrap(spacing: AppSpacing.sm, runSpacing: AppSpacing.sm, children: [
-            _buildChip('Tâm trạng: ${sentenceCase(result.emotion)}'),
-            for (final topic in result.topics)
-              _buildChip('Chủ đề: ${sentenceCase(topic)}'),
-          ]),
-        ],
-      ])),
-      _buildFeedback(),
-    ]);
+    return LayoutBuilder(
+        key: const ValueKey('reflection-insight'),
+        builder: (context, box) {
+          // Pinned under the reading where it leaves it room; on a short
+          // screen or with large text, at the end of the reading instead.
+          final pinned = box.maxHeight >= 600 &&
+              MediaQuery.textScalerOf(context).scale(1) <= 1.3;
+          return Column(children: [
+            Expanded(
+                child: ListView(padding: const EdgeInsets.all(24), children: [
+              const AppEyebrow('Góc suy ngẫm', icon: Icons.auto_awesome),
+              const SizedBox(height: AppSpacing.sm),
+              Semantics(
+                header: true,
+                child: Text(sentenceCase(result.title ?? result.emotion),
+                    style: AppText.pageTitle),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+              _buildTabs(),
+              const SizedBox(height: 28),
+              if (_showEntry)
+                ..._buildEntry()
+              else ...[
+                for (final (i, paragraph) in [
+                  result.analysis ?? result.reflection,
+                  result.question,
+                ].indexed) ...[
+                  if (i > 0) const SizedBox(height: AppSpacing.md),
+                  Text(sentenceCase(paragraph),
+                      style: AppText.body.merge(reading)),
+                ],
+                const SizedBox(height: 32),
+                _buildSectionTitle(
+                    Icons.push_pin_outlined, 'Điều chúng mình nhận thấy'),
+                const SizedBox(height: 12),
+                Text(sentenceCase(result.observation),
+                    style: AppText.body.merge(reading)),
+                const SizedBox(height: 28),
+                _buildSectionTitle(Icons.star_border, 'Tâm trạng & chủ đề'),
+                const SizedBox(height: 12),
+                Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: [
+                      _buildChip('Tâm trạng: ${sentenceCase(result.emotion)}'),
+                      for (final topic in result.topics)
+                        _buildChip('Chủ đề: ${sentenceCase(topic)}'),
+                    ]),
+              ],
+              if (!pinned) ...[
+                const SizedBox(height: 32),
+                _buildFeedback(inline: true),
+              ],
+            ])),
+            if (pinned) _buildFeedback(),
+          ]);
+        });
   }
 
   Widget _buildTabs() => Container(
@@ -538,13 +571,18 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     ]);
   }
 
-  Widget _buildFeedback() {
+  /// "Có ích chứ?" and "Tiếp tục": a bar under the reading, or, [inline],
+  /// its last part.
+  Widget _buildFeedback({bool inline = false}) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        border: Border(top: BorderSide(color: AppColors.border)),
-      ),
+      padding:
+          inline ? EdgeInsets.zero : const EdgeInsets.fromLTRB(24, 12, 24, 16),
+      decoration: inline
+          ? null
+          : const BoxDecoration(
+              color: AppColors.surface,
+              border: Border(top: BorderSide(color: AppColors.border)),
+            ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
