@@ -52,26 +52,29 @@ class DataPolicy {
   );
 
   /// A signed-in account: AI is on in the app (product decision,
-  /// 29/10/2026) and can be turned off in Hồ sơ. Version 2: AI is no longer
-  /// a choice on this screen.
+  /// 29/10/2026) and can be turned off in Hồ sơ. Version 3: AI is no longer
+  /// a choice on this screen. Legacy explicit opt-outs remain off.
   static const localOllama = DataPolicy(
     approved: false,
-    version: 'local-ollama-demo-2',
+    version: 'local-ollama-demo-3',
     realLocalAi: true,
     storage: AppConfig.journalCloudEnabled
-        ? 'Nhật ký được lưu trong tài khoản của bạn trên máy chủ của nhóm, '
-            'để bạn mở lại khi đăng nhập.'
+        ? 'Nhật ký mới được lưu trong tài khoản của bạn trên máy chủ nhóm. '
+            'Các nhật ký cũ chỉ có trên máy vẫn ở máy này, không tự tải lên.'
         : 'Nhật ký được lưu trên thiết bị này, riêng cho tài khoản của bạn.',
-    aiRequest: 'Khi bạn lưu nhật ký hoặc bấm Nhìn lại cùng bạn, nội dung được '
-        'gửi qua máy chủ của nhóm tới AI (mô hình Ollama chạy trên máy tính '
-        'của nhóm) để phân tích và đặt câu hỏi. Việc này không diễn ra trên '
-        'điện thoại và cần phiên đăng nhập hợp lệ.',
+    aiRequest: 'Khi phản hồi AI đang bật, việc lưu nhật ký hoặc dùng Nhìn lại '
+        'cùng bạn sẽ gửi nội dung liên quan qua FastAPI tới Ollama trên máy '
+        'của nhóm để phân tích và gợi ý câu hỏi. Kết quả phân tích và nhóm '
+        'cảm xúc dùng cho biểu đồ tuần hiện lưu trên thiết bị theo tài khoản, '
+        'chưa đồng bộ lên máy chủ: đổi máy hoặc xóa app có thể mất chúng. '
+        'Điểm cảm xúc là quy ước hiển thị, không phải chẩn đoán.',
     policyUrl: null,
     choice: aiOffNote,
   );
 
   static const aiOffNote = 'Bạn có thể tắt phản hồi AI trong Hồ sơ bất cứ '
-      'lúc nào. Khi tắt, nhật ký không được gửi tới AI.';
+      'lúc nào. Khi tắt, nhật ký không được gửi tới AI. Tài khoản từng chọn '
+      '"Chỉ viết nhật ký" sẽ tiếp tục tắt cho đến khi bạn tự bật lại.';
 
   static const choiceNote =
       'Bạn vẫn có thể viết và lưu nhật ký khi không dùng phản hồi AI.';
