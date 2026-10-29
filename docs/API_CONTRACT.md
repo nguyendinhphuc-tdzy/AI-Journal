@@ -44,11 +44,11 @@ Supabase Auth handles email/password, Google/Facebook OAuth and SMS OTP (when co
 | Method and path | Request | Response |
 | --- | --- | --- |
 | `POST /ai/go-deeper` | `{"content":"..."}` | `{"question":"..."}` |
-| `POST /ai/reflection` | `{"content":"...","mood":"..."}` | `{"emotion":"...","observation":"...","reflection":"...","question":"..."}` |
+| `POST /ai/reflection` | `{"content":"...","mood":"..."}` | Existing four required fields, plus optional `title`, `analysis`, `topics`, and normalized `mood_group`/`mood_score`; `quote` is null until a vetted catalog is available |
 
 Both endpoints require a **verified Supabase JWT even in mock mode**. `content` is nonblank and at most **8,000 characters**, optional `mood` at most 64. The development limiter allows **12 requests/minute/user**, **one concurrent per user**, **two total in-flight in one process**; excess gets 429. Limits live in process memory, so **multi-worker/production rate limiting remains necessary**. Flutter sends the multi-round `Câu hỏi:/Trả lời:` conversation as `content` bounded to backend limits; no separate `context` request parameter currently exists. Backend mock/Ollama provider selected by configuration; mobile never calls Ollama directly.
 
-**Not yet implemented on the server:** `POST /journals/{id}/analysis`, `GET /journals/{id}/analysis`, `GET /journals?include=analysis`, normalized `mood_group`/`mood_score` in AI responses, or `GET /insights/week?start=YYYY-MM-DD`. Vy's saved AI analyses and weekly emotion chart currently use **account-scoped on-device storage**. The 0–100 mood score is an app-defined display mapping, not a clinical assessment; no server-generated weekly narrative exists.
+**Cloud AI APIs proposed in migration `20261029_16`:** `POST/GET /journals/{id}/analysis`, `GET /journals?include=analysis`, `PUT /journals/{id}/analysis/feedback`, `GET/POST/DELETE /saved-quotes`, and `GET /insights/week?start=YYYY-MM-DD`. Full schemas, opt-in `generate_summary=true`, privacy constraints and mobile compatibility are in [API_AI_CLOUD_CONTRACT.md](API_AI_CLOUD_CONTRACT.md). **These routes are not deployed until the new migration and backend are released.** Vy's existing `AnalysisArchive` and `SavedQuotes` still save **on the device**, even once the new routes are merged, until mobile adapters are connected. Scores are non-clinical display conventions, unknown emotions have null values, and no weekly narrative is fabricated when AI is unavailable.
 
 ## Albums, Memories and private images
 
