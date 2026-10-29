@@ -295,8 +295,8 @@ void main() {
   test('one failed private photo does not hide other memories', () async {
     final cache = await Directory.systemTemp.createTemp('album-partial');
     addTearDown(() => cache.delete(recursive: true));
-    final broken = '11111111-2222-3333-4444-555555555556';
-    final uid = '11111111-2222-3333-4444-555555555555';
+    const broken = '11111111-2222-3333-4444-555555555556';
+    const uid = '11111111-2222-3333-4444-555555555555';
     var downloads = 0;
     final api = ApiClient(
       accessTokenProvider: () async => 'jwt',
@@ -335,7 +335,7 @@ void main() {
 
   test('editing a cloud memory without changing its photo skips reupload',
       () async {
-    final uid = '11111111-2222-3333-4444-555555555555';
+    const uid = '11111111-2222-3333-4444-555555555555';
     final cache = await Directory.systemTemp.createTemp('album-no-reupload');
     addTearDown(() => cache.delete(recursive: true));
     final requests = <http.Request>[];

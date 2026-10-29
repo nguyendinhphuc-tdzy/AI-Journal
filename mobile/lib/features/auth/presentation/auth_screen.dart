@@ -153,10 +153,12 @@ class _AuthScreenState extends State<AuthScreen> {
         _error = true;
       });
     } finally {
-      if (mounted) setState(() {
-        _busy = false;
-        _waitingForOAuth = false;
-      });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _waitingForOAuth = false;
+        });
+      }
     }
   }
 
@@ -175,10 +177,12 @@ class _AuthScreenState extends State<AuthScreen> {
     _perform(() async {
       await widget.auth.requestPhoneOtp(phone);
       _lastOtpRequestedAt = DateTime.now();
-      if (mounted) setState(() {
-        _otpSent = true;
-        _otp.clear();
-      });
+      if (mounted) {
+        setState(() {
+          _otpSent = true;
+          _otp.clear();
+        });
+      }
       return 'Đã yêu cầu mã xác nhận. Kiểm tra tin nhắn SMS.';
     });
   }
