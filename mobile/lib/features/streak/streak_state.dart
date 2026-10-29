@@ -48,6 +48,19 @@ class StreakState extends ValueNotifier<int> {
     value = currentStreak;
   }
 
+  /// Reads the account's streak from the server (read-only) into this
+  /// state. Throws when the answer is missing or malformed: no number is
+  /// ever made up.
+  Future<void> loadFrom(ApiClient api) async {
+    final data = await api.getJson('/streak', requireAuth: true);
+    final count = data['current_streak'];
+    final completed = data['today_completed'];
+    if (count is! int || count < 0 || completed is! bool) {
+      throw const FormatException('Invalid streak response');
+    }
+    applyServerSnapshot(currentStreak: count, todayCompleted: completed);
+  }
+
   @visibleForTesting
   void reset({int count = 0}) {
     _lastCompletedDay = _today.subtract(const Duration(days: 1));
