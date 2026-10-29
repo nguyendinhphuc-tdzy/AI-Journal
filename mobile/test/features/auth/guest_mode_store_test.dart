@@ -65,4 +65,32 @@ void main() {
     expect(allGuest.single.body, 'Guest entry');
     expect(allMember.single.body, 'Member entry');
   });
+
+  test('Explore\'s old shared keys go on entering and on leaving guest mode',
+      () async {
+    const legacy = {
+      'explore.savedPlaces': '[{"id":"saved:1","name":"Ghim khách cũ"}]',
+      'explore.communityStops': '[]',
+    };
+    SharedPreferences.setMockInitialValues(legacy);
+    final guest = await GuestModeStore.open();
+    await guest.enter();
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in GuestModeStore.legacyKeys) {
+      expect(prefs.containsKey(key), isFalse, reason: 'a past guest\'s');
+    }
+
+    // Written there again (an older build), still gone on leaving.
+    for (final MapEntry(:key, :value) in legacy.entries) {
+      await prefs.setString(key, value);
+    }
+    await prefs.setString('users.local-guest.explore.savedPlaces', '[]');
+    await guest.leaveAndDiscard();
+    for (final key in [
+      ...GuestModeStore.legacyKeys,
+      'users.local-guest.explore.savedPlaces',
+    ]) {
+      expect(prefs.containsKey(key), isFalse, reason: key);
+    }
+  });
 }

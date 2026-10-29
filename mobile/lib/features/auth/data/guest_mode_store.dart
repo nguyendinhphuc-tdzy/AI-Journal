@@ -12,13 +12,27 @@ class GuestModeStore {
   static const _activeKey = 'auth.local_guest.active';
   static const _guestDataPrefix = 'users.$userId.';
 
+  /// Explore's old shared keys (no owner), which earlier builds used for
+  /// guests: whatever is left there belongs to some past guest. Removed on
+  /// entering and on leaving guest mode, so no guest sees another's pins.
+  static const legacyKeys = ['explore.savedPlaces', 'explore.communityStops'];
+
   final SharedPreferences _preferences;
 
   bool get isActive => _preferences.getBool(_activeKey) ?? false;
 
   Future<void> enter() async {
+    await _removeLegacy();
     if (!await _preferences.setBool(_activeKey, true)) {
       throw StateError('Could not start local guest mode');
+    }
+  }
+
+  Future<void> _removeLegacy() async {
+    for (final key in legacyKeys) {
+      if (_preferences.containsKey(key) && !await _preferences.remove(key)) {
+        throw StateError('Could not remove local guest data');
+      }
     }
   }
 
@@ -41,6 +55,7 @@ class GuestModeStore {
         throw StateError('Could not remove local guest data');
       }
     }
+    await _removeLegacy();
     await deactivate();
   }
 }

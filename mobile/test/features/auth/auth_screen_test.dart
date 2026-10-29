@@ -116,8 +116,15 @@ void main() {
     await tester.ensureVisible(facebookButton);
     await tester.pumpAndSettle();
     await tester.tap(facebookButton);
-    await tester.pumpAndSettle();
+    // The screen now waits up to 2 minutes for the OAuth callback, with a
+    // spinner (it never settles meanwhile): one frame shows the call.
+    await tester.pump();
     expect(auth.facebookCalls, 1);
+    expect(find.text('Dừng chờ đăng nhập'), findsOneWidget);
+    // Let that wait run out, so no timer outlives the test.
+    await tester.pump(const Duration(minutes: 2, seconds: 1));
+    await tester.pump();
+    expect(auth.facebookCalls, 1, reason: 'called once');
   });
 
   testWidgets('Phone OTP is hidden when no SMS provider is configured',
