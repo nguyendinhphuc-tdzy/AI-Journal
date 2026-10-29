@@ -59,7 +59,8 @@ void main() {
       // "Tuần này" below the scene; the page scrolls, the bar stays put.
       final scroll = find.byKey(const PageStorageKey('home-scroll'));
       final navRect = tester.getRect(find.byType(NavigationBar));
-      await tester.scrollUntilVisible(find.text('Ghi chú tuần này'), 200,
+      await tester.scrollUntilVisible(
+          find.byKey(const ValueKey('this-week-summary')), 200,
           scrollable:
               find.descendant(of: scroll, matching: find.byType(Scrollable)));
       await tester.pumpAndSettle();

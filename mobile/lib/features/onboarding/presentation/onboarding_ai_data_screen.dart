@@ -97,6 +97,8 @@ class OnboardingAiDataScreen extends StatelessWidget {
           ),
         ),
         stage: const StaggerItem(order: 5, child: _Stage()),
+        // The policy copy is long: Nudaeng then follows it, never hidden.
+        stageNeeds: deskSceneHeight + OnboardingMascot.gap,
         actions: [
           StaggerItem(
             order: 6,

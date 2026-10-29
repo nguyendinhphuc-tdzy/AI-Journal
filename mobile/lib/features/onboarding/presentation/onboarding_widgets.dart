@@ -99,6 +99,7 @@ class OnboardingStepScaffold extends StatefulWidget {
     required this.onBack,
     required this.content,
     this.stage,
+    this.stageNeeds,
     required this.actions,
     this.background = AppColors.background,
     this.backdrop,
@@ -108,6 +109,11 @@ class OnboardingStepScaffold extends StatefulWidget {
   final VoidCallback onBack;
   final Widget content;
   final Widget? stage;
+
+  /// Height the [stage] needs to show. Given, the stage is never hidden for
+  /// want of room: when long content leaves less, it goes at the end of the
+  /// content instead and scrolls with it (e.g. OB06's policy copy).
+  final double? stageNeeds;
   final List<Widget> actions;
 
   /// Screen colour behind everything.
@@ -150,6 +156,9 @@ class _OnboardingStepScaffoldState extends State<OnboardingStepScaffold> {
   static const _groundClearance =
       OnboardingMascot.gap + OnboardingGround.horizonAboveFeet + 8;
 
+  /// The stage is at the end of the content, for want of room below it.
+  bool _stageInContent = false;
+
   @override
   void dispose() {
     _stageRoom.dispose();
@@ -157,9 +166,17 @@ class _OnboardingStepScaffoldState extends State<OnboardingStepScaffold> {
   }
 
   void _reportRoom(double room) {
-    if (room == _stageRoom.value) return;
+    final needs = widget.stageNeeds;
+    // In the content, the stage's own height is room it would have below.
+    final inContent = needs != null &&
+        (_stageInContent ? room + needs : room) < needs;
+    if (room == _stageRoom.value && inContent == _stageInContent) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _stageRoom.value = room;
+      if (!mounted) return;
+      _stageRoom.value = room;
+      if (inContent != _stageInContent) {
+        setState(() => _stageInContent = inContent);
+      }
     });
   }
 
@@ -221,6 +238,10 @@ class _OnboardingStepScaffoldState extends State<OnboardingStepScaffold> {
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   widget.content,
+                                  if (_stageInContent && !keyboardOpen)
+                                    if ((stage, widget.stageNeeds)
+                                        case (final stage?, final needs?))
+                                      SizedBox(height: needs, child: stage),
                                   // Zero intrinsic height: the stage only takes
                                   // leftover space.
                                   Expanded(
@@ -238,7 +259,9 @@ class _OnboardingStepScaffoldState extends State<OnboardingStepScaffold> {
                                               child: LayoutBuilder(
                                                 builder: (context, box) {
                                                   _reportRoom(box.maxHeight);
-                                                  return stage;
+                                                  return _stageInContent
+                                                      ? const SizedBox.shrink()
+                                                      : stage;
                                                 },
                                               ),
                                             ),
