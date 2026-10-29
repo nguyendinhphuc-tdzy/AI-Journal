@@ -12,6 +12,7 @@ class _FakeAuth implements AuthService {
   String? signedIn;
   int googleCalls = 0;
   int facebookCalls = 0;
+  bool completeGoogleImmediately = false;
   String? otpPhone;
   String? otpCode;
 
@@ -29,7 +30,10 @@ class _FakeAuth implements AuthService {
   @override
   Future<void> signInEmail(String email, String password) async {}
   @override
-  Future<void> signInGoogle() async { googleCalls++; }
+  Future<void> signInGoogle() async {
+    googleCalls++;
+    if (completeGoogleImmediately) succeed('fast-user');
+  }
   @override
   Future<void> signInFacebook() async { facebookCalls++; }
   @override
@@ -66,7 +70,7 @@ void main() {
     final adapter = SupabaseSignInAdapter(auth);
     final future = adapter.signInFacebook();
     await Future<void>.delayed(Duration.zero);
-    final failure = expectLater(future, throwsA(isA<StateError>()));
+    final failure = expectLater(future, throwsA(isA<SignInFailed>()));
     auth.changes.addError(StateError('oauth callback failure'));
     await failure;
   });
@@ -86,6 +90,7 @@ void main() {
       ),
     ));
     expect(find.text(OnboardingSignInScreen.facebook), findsNothing);
+    expect(find.text(OnboardingSignInScreen.google), findsNothing);
     final otp = find.text(OnboardingSignInScreen.phone);
     expect(otp, findsOneWidget);
     await tester.ensureVisible(otp);
@@ -105,4 +110,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.otpCode, '123456');
   });
+  test('OAuth callback triggered during browser launch is not lost', () async {
+    final auth = _FakeAuth()..completeGoogleImmediately = true;
+    addTearDown(auth.changes.close);
+    final adapter = SupabaseSignInAdapter(auth);
+    await adapter.signInGoogle();
+    expect(auth.googleCalls, 1);
+    expect(auth.currentUserId, 'fast-user');
+  });
+
+  test('OAuth cancellation stops local waiting without creating a session',
+      () async {
+    final auth = _FakeAuth();
+    addTearDown(auth.changes.close);
+    final adapter = SupabaseSignInAdapter(auth);
+    final pending = adapter.signInGoogle();
+    await Future<void>.delayed(Duration.zero);
+    final check = expectLater(pending, throwsA(isA<SignInFailed>()));
+    adapter.cancelOAuthWait();
+    await check;
+    expect(auth.currentUserId, isNull);
+  });
+
+  test('Concurrent browser sign-ins are not started', () async {
+    final auth = _FakeAuth();
+    addTearDown(auth.changes.close);
+    final adapter = SupabaseSignInAdapter(auth);
+    final pending = adapter.signInGoogle();
+    await Future<void>.delayed(Duration.zero);
+    await expectLater(adapter.signInFacebook(), throwsA(isA<SignInFailed>()));
+    final check = expectLater(pending, throwsA(isA<SignInFailed>()));
+    adapter.cancelOAuthWait();
+    await check;
+    expect(auth.facebookCalls, 0);
+  });
+
 }
