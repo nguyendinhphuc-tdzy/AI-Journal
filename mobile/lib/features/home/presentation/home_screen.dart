@@ -11,6 +11,9 @@ import '../../../core/widgets/app_ui.dart';
 import '../../journal/data/journal_entry.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/journal_list_screen.dart';
+import '../../journal/data/api_ai_service.dart';
+import '../../journal/data/cloud_ai_api.dart';
+import '../../journal/data/cloud_analysis_sync.dart';
 import '../../journal/data/saved_quotes.dart';
 import '../../journal/presentation/kept_analysis_chip.dart';
 import '../../journal/presentation/write_journal_screen.dart';
@@ -96,6 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// the account's real count is read.
   bool _streakVerified = false;
   bool _streakRequested = false;
+  bool _analysesSynced = false;
   HomeScene _scene = HomeScene.street;
   SceneEffect _effect = SceneEffect.none;
 
@@ -111,6 +115,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // The account's analyses kept on the server (from any phone): read only.
+    if (AiRemoteScope.maybeOf(context) case final ai? when !_analysesSynced) {
+      _analysesSynced = true;
+      CloudAnalysisSync.maybeSync(CloudAiApi(ai.client),
+              userId: OnboardingScope.maybeOf(context)?.userId)
+          .catchError((Object _) {});
+    }
     final api = StreakApiScope.maybeOf(context)?.client;
     if (api == null || _streakRequested) return;
     _streakRequested = true;
@@ -127,12 +138,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// The quotes this account kept, back in "Đã lưu" after a restart.
+  /// On an account, also those kept on another phone (read only).
   Future<void> _loadSavedQuotes() async {
     final userId =
         context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
+    final ai = context.getInheritedWidgetOfExactType<AiRemoteScope>()?.service;
     try {
-      final quotes = await SavedQuotes.open(userId: userId);
+      final quotes = await SavedQuotes.open(
+          userId: userId, cloud: ai == null ? null : CloudAiApi(ai.client));
       if (mounted && quotes.all().isNotEmpty) quotes.show();
+      if (ai != null) {
+        try {
+          await quotes.refresh();
+        } catch (_) {
+          // Offline: the copy kept here is shown.
+        }
+      }
     } catch (_) {}
   }
 
@@ -820,19 +841,30 @@ class _SavedItem extends StatelessWidget {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_quote ? 'Đã bỏ lưu trích dẫn' : 'Đã bỏ lưu phân tích')));
     if (_quote) {
-      // Let go for good, not only until the next start.
-      _forget(context
-          .getInheritedWidgetOfExactType<OnboardingScope>()
-          ?.store
-          .userId);
+      // Let go for good (on the account too), not only until the next start.
+      final ai =
+          context.getInheritedWidgetOfExactType<AiRemoteScope>()?.service;
+      _forget(
+        context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId,
+        ai == null ? null : CloudAiApi(ai.client),
+        ScaffoldMessenger.of(context),
+      );
     }
   }
 
-  Future<void> _forget(String? userId) async {
+  Future<void> _forget(String? userId, CloudAiApi? cloud,
+      ScaffoldMessengerState messenger) async {
     try {
-      await (await SavedQuotes.open(userId: userId))
+      await (await SavedQuotes.open(userId: userId, cloud: cloud))
           .remove(item['content'] as String? ?? '');
-    } catch (_) {}
+    } catch (_) {
+      // Still kept on the account: back in the list, and say so.
+      savedThisWeekItems.value = [item, ...savedThisWeekItems.value];
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+            content: Text('Chưa bỏ lưu được. Bạn thử lại nhé.')));
+    }
   }
 
   Future<void> _copy(BuildContext context) async {

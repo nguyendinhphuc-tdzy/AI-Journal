@@ -39,7 +39,12 @@ class ApiClient {
     final uri = Uri.parse('${AppConfig.apiBaseUrl}$path');
     final headers = await _headers(jsonBody: jsonBody, requireAuth: requireAuth);
     if (contentType != null) headers['Content-Type'] = contentType;
-    final limit = path.startsWith('/ai/') ? aiRequestTimeout : requestTimeout;
+    // Requests that run the AI model (also via a journal or the week's
+    // insights) get the AI timeout.
+    final runsAi = path.startsWith('/ai/') ||
+        RegExp(r'^/journals/\d+/analysis$').hasMatch(path) ||
+        path.contains('generate_summary=true');
+    final limit = runsAi ? aiRequestTimeout : requestTimeout;
     Future<http.Response> attempt() => send(uri, headers).timeout(
           limit,
           onTimeout: () => throw const ApiTimeoutException(),

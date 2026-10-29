@@ -1,4 +1,5 @@
 import '../../journal/data/analysis_archive.dart';
+import '../../journal/data/cloud_ai_api.dart';
 import '../../journal/data/journal_entry.dart';
 import 'emotion_scale.dart';
 
@@ -8,7 +9,14 @@ class EmotionDay {
     required this.date,
     required this.entries,
     required this.analyses,
+    this.serverScore,
+    this.scoredOnServer = false,
   });
+
+  /// The server's score for the day ([scoredOnServer]), from the account's
+  /// current analyses; null there means none, never a local guess.
+  final double? serverScore;
+  final bool scoredOnServer;
 
   /// Midnight, local time.
   final DateTime date;
@@ -19,11 +27,17 @@ class EmotionDay {
   /// The kept analyses of that day's entries, latest first.
   final List<SavedAnalysis> analyses;
 
-  /// The day on the chart: the mean of its analyses that fit a group.
+  /// The day on the chart: the server's when it gave one, else the mean of
+  /// its analyses that fit a group (the backend's score of each when it
+  /// has one, else the app's sorting of the words).
   double? get score {
+    if (scoredOnServer) return serverScore;
     final scores = [
       for (final saved in analyses)
-        if (scoreOf(saved.analysis.emotion) case final score?) score,
+        if (saved.analysis.moodScore?.toDouble() ??
+                scoreOf(saved.analysis.emotion)
+            case final score?)
+          score,
     ];
     if (scores.isEmpty) return null;
     return scores.reduce((a, b) => a + b) / scores.length;
@@ -37,7 +51,38 @@ class EmotionDay {
 
 /// A week (Monday to Sunday) of entries and the analyses kept for them.
 class EmotionWeek {
-  EmotionWeek._(this.monday, this.days);
+  EmotionWeek._(this.monday, this.days, [this._serverStandout]);
+
+  /// The groups the server counted, when it did.
+  final List<({EmotionGroup group, int count})>? _serverStandout;
+
+  /// The same week with the server's scores and standout (an account):
+  /// entries, analyses and words stay as here.
+  EmotionWeek withServer(CloudWeek server) {
+    final byDate = {
+      for (final day in server.days)
+        DateTime(day.date.year, day.date.month, day.date.day): day,
+    };
+    final groups = {for (final group in emotionGroups) group.id: group};
+    return EmotionWeek._(
+      monday,
+      [
+        for (final day in days)
+          EmotionDay(
+            date: day.date,
+            entries: day.entries,
+            analyses: day.analyses,
+            serverScore: byDate[day.date]?.score,
+            scoredOnServer: byDate.containsKey(day.date),
+          ),
+      ],
+      [
+        for (final top in server.topEmotions)
+          if (groups[top.group] case final group?)
+            (group: group, count: top.count),
+      ],
+    );
+  }
 
   /// The week holding [day], from [entries] and the [analyses] kept for
   /// them (by entry id). An analysis whose entry is gone is not counted.
@@ -79,6 +124,7 @@ class EmotionWeek {
   /// How often each group came up this week, most first; a mixed feeling
   /// counts for each group it names.
   List<({EmotionGroup group, int count})> get standout {
+    if (_serverStandout case final server?) return server;
     final counts = <EmotionGroup, int>{};
     for (final day in days) {
       for (final saved in day.analyses) {

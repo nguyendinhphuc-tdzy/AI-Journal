@@ -12,6 +12,8 @@ import '../data/journal_entry.dart';
 import '../journal_scope.dart';
 import '../data/analysis_archive.dart';
 import '../data/api_ai_service.dart';
+import '../data/cloud_ai_api.dart';
+import '../data/cloud_analysis_sync.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../../onboarding/data/onboarding_store.dart';
 import 'ai_conversation.dart';
@@ -43,6 +45,12 @@ class WriteJournalScreen extends StatefulWidget {
   static const deepNudge = 'Bạn đã đi khá sâu rồi, lưu lại nhé?';
   static const reviewLabel = 'Xem phân tích AI';
   static const analyzeLabel = 'Phân tích bài này';
+
+  /// A device-only analysis of a server entry: make one on the account.
+  static const analyzeToAccountLabel = 'Tạo phân tích lưu trong tài khoản';
+
+  /// The kept analysis read an earlier version of the entry.
+  static const analyzeEditedLabel = 'Phân tích bản đã sửa';
   static const confirmTitle = 'Bạn đã hoàn tất chưa?';
   static const confirmBody =
       'Nhật ký sẽ được lưu. Bạn vẫn có thể mở lại để viết tiếp từ Trang chủ.';
@@ -93,12 +101,33 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   bool _keptLoaded = false;
 
   Future<void> _loadKeptAnalysis() async {
-    final entry = widget.entry;
+    final entry = _saved ?? widget.entry;
     if (entry == null) return;
     final userId =
         context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
+    final service =
+        context.getInheritedWidgetOfExactType<AiRemoteScope>()?.service;
     try {
-      final kept = (await AnalysisArchive.open(userId: userId)).of(entry.id);
+      final archive = await AnalysisArchive.open(userId: userId);
+      var kept = archive.of(entry.id);
+      // A server entry: its analysis may have been made on another phone.
+      // Only read here, never a new one.
+      final journal = cloudJournalNumber(entry.id);
+      if (service != null &&
+          journal != null &&
+          (kept == null ||
+              !kept.cloud ||
+              kept.bodyVersion < entry.bodyVersion)) {
+        try {
+          final cloud = await CloudAiApi(service.client).analysisOf(journal);
+          if (cloud != null) {
+            await CloudAnalysisSync.keep(archive, cloud);
+            kept = archive.of(entry.id);
+          }
+        } catch (_) {
+          // Offline: what the device has is still shown.
+        }
+      }
       if (mounted) {
         setState(() {
           _kept = kept;
@@ -106,6 +135,17 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
         });
       }
     } catch (_) {}
+  }
+
+  /// What "Phân tích" can still offer for a kept analysis: one on the
+  /// account when it is on this device only, or for the edited version.
+  String? _reanalyzeLabel(SavedAnalysis kept, JournalEntry entry) {
+    if (cloudJournalNumber(entry.id) == null) return null;
+    if (kept.bodyVersion < entry.bodyVersion) {
+      return WriteJournalScreen.analyzeEditedLabel;
+    }
+    if (!kept.cloud) return WriteJournalScreen.analyzeToAccountLabel;
+    return null;
   }
 
   /// An entry written before analyses were kept (or while AI was off):
@@ -523,16 +563,31 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                     const SizedBox(height: AppSpacing.xs),
                                   ],
                                   if (_kept case final kept?) ...[
-                                    Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: TextButton.icon(
-                                        onPressed: () => _review(kept),
-                                        icon: const Icon(
-                                            Icons.auto_awesome_outlined,
-                                            size: 18),
-                                        label: const Text(
-                                            WriteJournalScreen.reviewLabel),
-                                      ),
+                                    Wrap(
+                                      spacing: AppSpacing.xs,
+                                      children: [
+                                        TextButton.icon(
+                                          onPressed: () => _review(kept),
+                                          icon: const Icon(
+                                              Icons.auto_awesome_outlined,
+                                              size: 18),
+                                          label: const Text(
+                                              WriteJournalScreen.reviewLabel),
+                                        ),
+                                        // Never by itself: the reader asks.
+                                        if ((_saved ?? widget.entry, _ai)
+                                            case (final entry?, final ai?))
+                                          if (_reanalyzeLabel(kept, entry)
+                                              case final label?)
+                                            TextButton.icon(
+                                              onPressed: () =>
+                                                  _analyzeOld(ai, entry),
+                                              icon: const Icon(
+                                                  Icons.cloud_upload_outlined,
+                                                  size: 18),
+                                              label: Text(label),
+                                            ),
+                                      ],
                                     ),
                                     const SizedBox(height: AppSpacing.xs),
                                   ],

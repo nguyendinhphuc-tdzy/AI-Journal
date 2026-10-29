@@ -10,6 +10,9 @@ import '../sound/app_sound.dart';
 import '../onboarding/data/onboarding_scope.dart';
 import 'data/analysis_archive.dart';
 import 'data/api_ai_service.dart';
+import 'data/cloud_ai_api.dart';
+import 'data/cloud_analysis_sync.dart';
+import '../../core/network/api_client.dart';
 import 'data/journal_entry.dart';
 import 'data/quote_picker.dart';
 import 'data/saved_quotes.dart';
@@ -67,6 +70,17 @@ class AIReflectionScreen extends StatefulWidget {
   /// "Tiếp tục" goes back to it, never to the streak.
   final bool backOnContinue;
 
+  static const failed = 'Không thể kết nối AI lúc này.';
+  static const quotaFailed =
+      'Bạn đã dùng AI nhiều lần trong một phút. Đợi một chút rồi thử lại nhé.';
+  static const tooLong =
+      'Bài viết dài hơn mức AI đọc được. Bạn vẫn có thể lưu và đọc lại bài.';
+  static const editedMeanwhile =
+      'Bài vừa được sửa trong lúc AI đang đọc. Bạn thử lại nhé.';
+  static const ratingFailed = 'Chưa lưu được đánh giá. Bạn thử lại nhé.';
+  static const deviceOnly = 'Phân tích này chỉ lưu trên máy này, không có '
+      'trên máy khác khi bạn đăng nhập.';
+
   @override
   State<AIReflectionScreen> createState() => _AIReflectionScreenState();
 }
@@ -80,6 +94,15 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   AiAnalysis? _remoteInsight;
   bool _remoteFailed = false;
 
+  /// Why the AI did not answer, in words the reader can act on.
+  String _failMessage = AIReflectionScreen.failed;
+
+  /// The server journal whose kept analysis is shown: 👍/👎 go there.
+  int? _cloudJournal;
+
+  /// The latest 👍/👎 tap: an older one finishing late never undoes it.
+  int _ratingTap = 0;
+
   /// The quote after the analysis: the backend's pick, else the team's
   /// quote that fits the analysis best; none when nothing fits.
   ({String text, String author})? _remoteQuote;
@@ -87,9 +110,22 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   Future<void> _fetchRemote() async {
     final service = widget.remote;
     if (service == null) return;
+    // A journal saved on the server is analysed there, from its saved
+    // version, and the analysis is kept with it (any phone sees it).
+    final journal = switch (widget.entry) {
+      final entry? => cloudJournalNumber(entry.id),
+      null => null,
+    };
     try {
-      final result = await service
-          .analyze(widget.analysisContent ?? widget.journalContent);
+      final AiAnalysis result;
+      CloudAnalysis? cloud;
+      if (journal != null) {
+        cloud = await CloudAiApi(service.client).analyze(journal);
+        result = cloud.analysis;
+      } else {
+        result = await service
+            .analyze(widget.analysisContent ?? widget.journalContent);
+      }
       if (!mounted) return;
       final picked = const QuotePicker().pick(result,
           entry: widget.journalContent, seed: widget.journalContent);
@@ -98,20 +134,81 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
         null when picked != null => (text: picked.text, author: picked.author),
         null => null,
       };
-      _keep(result, quote);
+      if (cloud != null) {
+        _keepCloud(cloud, quote);
+      } else {
+        _keep(result, quote);
+      }
       if (quote != null) _loadQuoteSaved(quote.text);
       setState(() {
         _remoteInsight = result;
         _remoteQuote = quote;
         _remoteFailed = false;
+        _cloudJournal = cloud?.journalNumber;
+        _helpful = _helpfulOf(cloud?.feedback);
         _stage = _ReflectionStage.insight;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _remoteFailed = true;
+        _failMessage = switch (error) {
+          ApiException(statusCode: 429) => AIReflectionScreen.quotaFailed,
+          ApiException(statusCode: 422) => AIReflectionScreen.tooLong,
+          ApiException(statusCode: 409) => AIReflectionScreen.editedMeanwhile,
+          _ => AIReflectionScreen.failed,
+        };
         _stage = _ReflectionStage.insight;
       });
+    }
+  }
+
+  static bool? _helpfulOf(String? feedback) => switch (feedback) {
+        'up' => true,
+        'down' => false,
+        _ => null,
+      };
+
+  /// The server's analysis, copied here for the lists and the chart.
+  Future<void> _keepCloud(
+      CloudAnalysis cloud, ({String text, String author})? quote) async {
+    try {
+      final archive = await AnalysisArchive.open(userId: _userId);
+      await CloudAnalysisSync.keep(archive, cloud, quote: quote);
+    } catch (_) {}
+  }
+
+  /// 👍/👎, and a second tap to take it back. Kept with a server analysis
+  /// (no journal text is sent), or on the device for a device-only one.
+  Future<void> _rate(bool? helpful) async {
+    final before = _helpful;
+    final tap = ++_ratingTap;
+    setState(() => _helpful = helpful);
+    final rating = switch (helpful) {
+      true => 'up',
+      false => 'down',
+      null => null,
+    };
+    // Read from the tree before any wait.
+    final userId = _userId;
+    final journal = _cloudJournal;
+    final service = AiRemoteScope.maybeOf(context) ?? widget.remote;
+    try {
+      final archive = await AnalysisArchive.open(userId: userId);
+      if (journal != null && service != null) {
+        final cloud = await CloudAiApi(service.client).rate(journal, rating);
+        await CloudAnalysisSync.keep(archive, cloud, quote: _remoteQuote);
+      } else if (widget.entry case final entry?) {
+        final kept = archive.of(entry.id);
+        if (kept != null) {
+          await archive.save(kept.copyWith(feedback: () => rating));
+        }
+      }
+    } catch (_) {
+      if (!mounted || tap != _ratingTap) return;
+      setState(() => _helpful = before);
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(AIReflectionScreen.ratingFailed)));
     }
   }
 
@@ -167,8 +264,11 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   Future<void> _toggleRealQuote() async {
     final (:text, :author) = _quote;
     final keep = !_quoteSaved;
+    // A signed-in account keeps it on the server; a guest has none.
+    final service = AiRemoteScope.maybeOf(context) ?? widget.remote;
+    final cloud = service == null ? null : CloudAiApi(service.client);
     try {
-      final quotes = await SavedQuotes.open(userId: _userId);
+      final quotes = await SavedQuotes.open(userId: _userId, cloud: cloud);
       keep ? await quotes.save(text, author) : await quotes.remove(text);
     } catch (_) {
       if (mounted) {
@@ -239,6 +339,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
     if (widget.saved case final saved?) {
       _remoteInsight = saved.analysis;
       _remoteQuote = saved.quote;
+      // The rating given before; a server copy is rated on the server.
+      _helpful = _helpfulOf(saved.feedback);
+      _cloudJournal = saved.cloud ? cloudJournalNumber(saved.entryId) : null;
       if (saved.quote case final quote?) {
         WidgetsBinding.instance
             .addPostFrameCallback((_) => _loadQuoteSaved(quote.text));
@@ -269,9 +372,7 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
       _continueToStreak();
       return;
     }
-    if (_real &&
-        _remoteQuote != null &&
-        _stage == _ReflectionStage.insight) {
+    if (_real && _remoteQuote != null && _stage == _ReflectionStage.insight) {
       setState(() => _stage = _ReflectionStage.quote);
     } else {
       _continueToStreak();
@@ -527,7 +628,10 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
           child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Không thể kết nối AI lúc này.'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+            child: Text(_failMessage, textAlign: TextAlign.center),
+          ),
           const SizedBox(height: 12),
           ElevatedButton(
             onPressed: () {
@@ -576,6 +680,12 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                   ].join(', '),
                   style: AppText.meta,
                 ),
+                // Never promise it is on the account when it is not.
+                if (!saved.cloud) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  const Text(AIReflectionScreen.deviceOnly,
+                      style: AppText.meta),
+                ],
               ],
               const SizedBox(height: AppSpacing.xl),
               _buildTabs(),
@@ -605,7 +715,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     runSpacing: AppSpacing.sm,
                     children: [
                       _buildChip('Tâm trạng: ${sentenceCase(result.emotion)}'),
-                      for (final topic in result.topics)
+                      // At most three: the reading stays short.
+                      for (final topic in result.topics.take(3))
                         _buildChip('Chủ đề: ${sentenceCase(topic)}'),
                     ]),
                 // Read again: the quote shown then, here, not a screen
@@ -623,9 +734,8 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
                     alignment: Alignment.centerLeft,
                     child: TextButton.icon(
                       onPressed: _saveQuote,
-                      icon: Icon(_quoteSaved
-                          ? Icons.bookmark
-                          : Icons.bookmark_border),
+                      icon: Icon(
+                          _quoteSaved ? Icons.bookmark : Icons.bookmark_border),
                       label: Text(_quoteSaved ? 'Đã lưu' : 'Lưu'),
                     ),
                   ),
@@ -744,16 +854,14 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
             IconButton(
               tooltip: 'Hữu ích',
               isSelected: _helpful == true,
-              onPressed: () =>
-                  setState(() => _helpful = _helpful == true ? null : true),
+              onPressed: () => _rate(_helpful == true ? null : true),
               icon: const Icon(Icons.thumb_up_outlined),
               selectedIcon: const Icon(Icons.thumb_up),
             ),
             IconButton(
               tooltip: 'Chưa hữu ích',
               isSelected: _helpful == false,
-              onPressed: () =>
-                  setState(() => _helpful = _helpful == false ? null : false),
+              onPressed: () => _rate(_helpful == false ? null : false),
               icon: const Icon(Icons.thumb_down_outlined),
               selectedIcon: const Icon(Icons.thumb_down),
             ),
