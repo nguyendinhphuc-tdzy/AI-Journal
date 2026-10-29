@@ -42,6 +42,7 @@ class WriteJournalScreen extends StatefulWidget {
   static const deepNudgeAfter = 5;
   static const deepNudge = 'Bạn đã đi khá sâu rồi, lưu lại nhé?';
   static const reviewLabel = 'Xem phân tích AI';
+  static const analyzeLabel = 'Phân tích bài này';
   static const confirmTitle = 'Bạn đã hoàn tất chưa?';
   static const confirmBody =
       'Nhật ký sẽ được lưu. Bạn vẫn có thể mở lại để viết tiếp từ Trang chủ.';
@@ -88,6 +89,9 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   /// The analysis kept for the entry being written again, to read again.
   SavedAnalysis? _kept;
 
+  /// Whether [_kept] was looked for: no "Phân tích bài này" before that.
+  bool _keptLoaded = false;
+
   Future<void> _loadKeptAnalysis() async {
     final entry = widget.entry;
     if (entry == null) return;
@@ -95,8 +99,39 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
         context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
     try {
       final kept = (await AnalysisArchive.open(userId: userId)).of(entry.id);
-      if (mounted && kept != null) setState(() => _kept = kept);
+      if (mounted) {
+        setState(() {
+          _kept = kept;
+          _keptLoaded = true;
+        });
+      }
     } catch (_) {}
+  }
+
+  /// An entry written before analyses were kept (or while AI was off):
+  /// analysed now, as saved, on request. Kept like any other, so it shows
+  /// in the lists and the week's emotions.
+  Future<void> _analyzeOld(ApiAIService ai, JournalEntry entry) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AiReflectionScreen(
+          journalContent: entry.body,
+          analysisContent: AiConversation(
+            prompt: WriteJournalScreen.prompt,
+            entry: entry.body,
+          ).text(budget: AiConversation.reflectionBudget),
+          entryParts: [
+            (question: WriteJournalScreen.prompt, answer: entry.body),
+          ],
+          remote: ai,
+          entry: entry,
+          backOnContinue: true,
+        ),
+      ),
+    );
+    if (mounted) _loadKeptAnalysis();
   }
 
   void _review(SavedAnalysis kept) {
@@ -468,6 +503,25 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
+                                  if ((_saved ?? widget.entry, _ai)
+                                          case (final entry?, final ai?)
+                                      when _keptLoaded &&
+                                          _kept == null &&
+                                          widget.entry != null) ...[
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton.icon(
+                                        onPressed: () =>
+                                            _analyzeOld(ai, entry),
+                                        icon: const Icon(
+                                            Icons.auto_awesome_outlined,
+                                            size: 18),
+                                        label: const Text(
+                                            WriteJournalScreen.analyzeLabel),
+                                      ),
+                                    ),
+                                    const SizedBox(height: AppSpacing.xs),
+                                  ],
                                   if (_kept case final kept?) ...[
                                     Align(
                                       alignment: Alignment.centerLeft,
