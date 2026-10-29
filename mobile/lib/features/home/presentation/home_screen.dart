@@ -10,6 +10,7 @@ import '../../../core/widgets/app_ui.dart';
 import '../../journal/data/journal_entry.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/journal_list_screen.dart';
+import '../../journal/data/saved_quotes.dart';
 import '../../journal/presentation/kept_analysis_chip.dart';
 import '../../journal/presentation/write_journal_screen.dart';
 import '../../insights/presentation/emotion_week_screen.dart';
@@ -96,7 +97,18 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadNickname();
     _loadScene();
+    _loadSavedQuotes();
     HomeSceneSettings.changes.addListener(_loadScene);
+  }
+
+  /// The quotes this account kept, back in "Đã lưu" after a restart.
+  Future<void> _loadSavedQuotes() async {
+    final userId =
+        context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
+    try {
+      final quotes = await SavedQuotes.open(userId: userId);
+      if (mounted && quotes.all().isNotEmpty) quotes.show();
+    } catch (_) {}
   }
 
   @override
@@ -781,6 +793,20 @@ class _SavedItem extends StatelessWidget {
         List<Map<String, dynamic>>.from(savedThisWeekItems.value)..remove(item);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_quote ? 'Đã bỏ lưu trích dẫn' : 'Đã bỏ lưu phân tích')));
+    if (_quote) {
+      // Let go for good, not only until the next start.
+      _forget(context
+          .getInheritedWidgetOfExactType<OnboardingScope>()
+          ?.store
+          .userId);
+    }
+  }
+
+  Future<void> _forget(String? userId) async {
+    try {
+      await (await SavedQuotes.open(userId: userId))
+          .remove(item['content'] as String? ?? '');
+    } catch (_) {}
   }
 
   Future<void> _copy(BuildContext context) async {
@@ -871,7 +897,7 @@ class _SavedItem extends StatelessWidget {
             Row(children: [
               Expanded(
                   child:
-                      Text('— ${item['author'] ?? ''}', style: _Journal.soft)),
+                      Text('– ${item['author'] ?? ''}', style: _Journal.soft)),
               IconButton(
                 tooltip: 'Bỏ lưu trích dẫn',
                 icon: const Icon(Icons.bookmark,
