@@ -28,7 +28,13 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<bool> signUpEmail(String email, String password) async {
-    final response = await client.auth.signUp(email: email, password: password);
+    // The confirmation link comes back to the app (the OAuth deep link),
+    // not to the project's Site URL.
+    final response = await client.auth.signUp(
+      email: email,
+      password: password,
+      emailRedirectTo: AppConfig.oauthRedirectUrl,
+    );
     if (response.user == null) {
       throw const AuthException('Không tạo được tài khoản.');
     }

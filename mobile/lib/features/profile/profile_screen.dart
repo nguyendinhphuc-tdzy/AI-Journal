@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/config/app_config.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
@@ -45,8 +46,13 @@ class ProfileScreen extends StatefulWidget {
   static const signOutLabel = 'Đăng xuất';
   static const aiRepliesNote = 'Khi bật, nội dung bạn lưu hoặc dùng Nhìn lại '
       'cùng bạn được gửi tới AI của nhóm để phân tích và đặt câu hỏi. Khi tắt, '
-      'nhật ký không được gửi tới AI. Phân tích hiện chỉ lưu trên thiết bị, '
-      'không đồng bộ khi đổi máy.';
+      'nhật ký không được gửi tới AI. $aiStorageNote';
+
+  /// Where analyses are kept, per the build (see DataPolicy.localOllama).
+  static const aiStorageNote = AppConfig.journalCloudEnabled
+      ? 'Kết quả phân tích được lưu trong tài khoản của bạn; phân tích tạo '
+          'trước đây có thể chỉ có trên máy này.'
+      : 'Phân tích được lưu trên thiết bị, không đồng bộ khi đổi máy.';
   static const guestSignOutTitle = 'Thoát chế độ khách?';
   static const guestSignOutBody =
       'Bạn chưa có tài khoản, nên nhật ký, kỷ niệm và ảnh chỉ nằm trên máy '

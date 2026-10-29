@@ -99,7 +99,8 @@ class OnboardingSignInScreen extends StatefulWidget {
   static const weakPassword = 'Mật khẩu chưa đủ mạnh. Bạn chọn mật khẩu khác nhé.';
   static const tooManyTries = 'Bạn thử nhiều lần quá. Đợi ít phút rồi thử lại nhé.';
   static const checkEmail =
-      'Kiểm tra email xác nhận tài khoản, sau đó đăng nhập.';
+      'Đã gửi thư xác nhận tới email của bạn. Mở thư trên điện thoại này để '
+      'quay lại app, hoặc xác nhận xong thì bấm Đăng nhập.';
   static const guestFailed = 'Chưa vào được chế độ khách. Bạn thử lại nhé.';
 
   static const forgotTitle = 'Quên mật khẩu?';
@@ -127,6 +128,9 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
   String? _passwordError;
   String? _confirmError;
   String? _error;
+
+  /// Good news to act on (the confirmation email was sent), not an error.
+  String? _notice;
 
   @override
   void initState() {
@@ -162,6 +166,7 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
       _passwordError = null;
       _confirmError = null;
       _error = null;
+      _notice = null;
     });
   }
 
@@ -183,6 +188,7 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
           ? OnboardingSignInScreen.confirmMismatch
           : null;
       _error = null;
+      _notice = null;
     });
     if (_emailError != null ||
         _passwordError != null ||
@@ -206,7 +212,13 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
       if (active) {
         widget.onDone();
       } else {
-        setState(() => _error = OnboardingSignInScreen.checkEmail);
+        // On to Đăng nhập with the email and password kept: once confirmed,
+        // one tap signs in.
+        setState(() {
+          _signUp = false;
+          _confirm.clear();
+          _notice = OnboardingSignInScreen.checkEmail;
+        });
       }
     } catch (e) {
       if (mounted) setState(() => _error = _messageFor(e));
@@ -248,6 +260,7 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
       _busy = true;
       _waitingForOAuth = oauth;
       _error = null;
+      _notice = null;
     });
     try {
       await signIn();
@@ -267,8 +280,9 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
   }
 
   /// What went wrong, in words the user can act on. Supabase's own messages
-  /// are English, so the common ones are said again; ours (Vietnamese, e.g.
-  /// "Google OAuth chưa được cấu hình.") are shown as they are.
+  /// are English (they carry a status), so the common ones are said again
+  /// and any other is never shown as it is ("Invalid API key"); ours
+  /// (Vietnamese, no status, e.g. "Google OAuth chưa được cấu hình.") are.
   String _messageFor(Object error) => switch (error) {
         SignInFailed(:final message) => message,
         AuthException(code: 'invalid_credentials') =>
@@ -283,10 +297,11 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
           code: 'over_request_rate_limit' || 'over_email_send_rate_limit'
         ) =>
           OnboardingSignInScreen.tooManyTries,
-        AuthException(statusCode: final status?) when status.startsWith('5') =>
-          OnboardingSignInScreen.failed,
-        AuthException(:final message) when message.trim().isNotEmpty =>
+        AuthRetryableFetchException() => OnboardingSignInScreen.offline,
+        AuthException(statusCode: null, :final message)
+            when message.trim().isNotEmpty =>
           message,
+        AuthException() => OnboardingSignInScreen.failed,
         _ when widget.realAuth => OnboardingSignInScreen.offline,
         _ => OnboardingSignInScreen.failed,
       };
@@ -509,6 +524,27 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                       child: Text(error,
                           style: _Text.small.copyWith(
                               color: Theme.of(context).colorScheme.error)),
+                    ),
+                  ] else if (_notice case final notice?) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Semantics(
+                      liveRegion: true,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(Icons.mark_email_read_outlined,
+                                size: 18, color: AppColors.primaryAction),
+                          ),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(
+                            child: Text(notice,
+                                style: _Text.small.copyWith(
+                                    color: AppColors.primaryAction)),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                   const SizedBox(height: AppSpacing.md),
