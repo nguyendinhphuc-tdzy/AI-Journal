@@ -48,3 +48,6 @@ mobile/ios/Pods/
 # Secrets
 *.pem
 *.key
+
+# Local map preview build (about 1.4 GB); never committed.
+/..AI-Journal-map-preview/
