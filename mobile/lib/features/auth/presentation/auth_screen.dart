@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/theme/app_colors.dart';
 import '../data/auth_service.dart';
+import '../../onboarding/data/sign_in_service.dart';
 
 enum _AuthMethod { email, phone }
 
@@ -15,6 +16,7 @@ class AuthScreen extends StatefulWidget {
     this.onContinueAsGuest,
     this.initialError,
     this.facebookOAuthEnabled = AppConfig.facebookOAuthEnabled,
+    this.phoneOtpEnabled = AppConfig.phoneOtpEnabled,
     this.startWithPhone = false,
   });
 
@@ -24,6 +26,7 @@ class AuthScreen extends StatefulWidget {
 
   /// Only show this login method if the app explicitly enables OAuth.
   final bool facebookOAuthEnabled;
+  final bool phoneOtpEnabled;
   /// Open the existing SMS OTP form directly from Vy's sign-in screen.
   final bool startWithPhone;
 
@@ -36,11 +39,15 @@ class _AuthScreenState extends State<AuthScreen> {
   final _password = TextEditingController();
   final _phone = TextEditingController();
   final _otp = TextEditingController();
+  late final SupabaseSignInAdapter _oauth =
+      SupabaseSignInAdapter(widget.auth);
+  DateTime? _lastOtpRequestedAt;
 
   _AuthMethod _method = _AuthMethod.email;
   bool _signUp = false;
   bool _otpSent = false;
   bool _busy = false;
+  bool _waitingForOAuth = false;
   bool _showPassword = false;
   String? _message;
   bool _error = false;
@@ -48,7 +55,9 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.startWithPhone) _method = _AuthMethod.phone;
+    if (widget.startWithPhone && widget.phoneOtpEnabled) {
+      _method = _AuthMethod.phone;
+    }
     _message = widget.initialError;
     _error = widget.initialError != null;
   }
@@ -107,20 +116,34 @@ class _AuthScreenState extends State<AuthScreen> {
     });
   }
 
-  Future<void> _perform(Future<String?> Function() task) async {
+  Future<void> _perform(Future<String?> Function() task,
+      {bool oauth = false}) async {
     if (_busy) return;
     setState(() {
       _busy = true;
+      _waitingForOAuth = oauth;
       _message = null;
       _error = false;
     });
     try {
       final message = await task();
       if (mounted) setState(() => _message = message);
-    } on AuthException catch (error) {
+    } on SignInFailed catch (error) {
       if (!mounted) return;
       setState(() {
         _message = error.message;
+        _error = true;
+      });
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _message = switch (error.code) {
+          'otp_expired' || 'invalid_token' =>
+            'Mã xác nhận sai hoặc đã hết hạn. Hãy thử lại.',
+          'over_request_rate_limit' || 'over_sms_send_rate_limit' =>
+            'Bạn thử nhiều lần quá. Hãy đợi rồi thử lại.',
+          _ => error.message,
+        };
         _error = true;
       });
     } catch (_) {
@@ -130,8 +153,34 @@ class _AuthScreenState extends State<AuthScreen> {
         _error = true;
       });
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() {
+        _busy = false;
+        _waitingForOAuth = false;
+      });
     }
+  }
+
+  void _requestOtp(String phone) {
+    final previous = _lastOtpRequestedAt;
+    if (previous != null) {
+      final seconds = DateTime.now().difference(previous).inSeconds;
+      if (seconds < 60) {
+        setState(() {
+          _message = 'Hãy đợi ${60 - seconds} giây trước khi yêu cầu mã mới.';
+          _error = true;
+        });
+        return;
+      }
+    }
+    _perform(() async {
+      await widget.auth.requestPhoneOtp(phone);
+      _lastOtpRequestedAt = DateTime.now();
+      if (mounted) setState(() {
+        _otpSent = true;
+        _otp.clear();
+      });
+      return 'Đã yêu cầu mã xác nhận. Kiểm tra tin nhắn SMS.';
+    });
   }
 
   void _submit() {
@@ -168,6 +217,13 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
 
+    if (!widget.phoneOtpEnabled) {
+      setState(() {
+        _message = 'SMS OTP chưa được bật trong bản ứng dụng này.';
+        _error = true;
+      });
+      return;
+    }
     final phone = _phone.text.trim();
     if (!_phonePattern.hasMatch(phone)) {
       setState(() {
@@ -177,11 +233,7 @@ class _AuthScreenState extends State<AuthScreen> {
       return;
     }
     if (!_otpSent) {
-      _perform(() async {
-        await widget.auth.requestPhoneOtp(phone);
-        if (mounted) setState(() => _otpSent = true);
-        return 'Đã yêu cầu mã xác nhận. Kiểm tra tin nhắn SMS.';
-      });
+      _requestOtp(phone);
       return;
     }
     final otp = _otp.text.trim();
@@ -228,6 +280,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 16),
+                  if (widget.phoneOtpEnabled) ...[
                   SegmentedButton<_AuthMethod>(
                     segments: const [
                       ButtonSegment(value: _AuthMethod.email,
@@ -243,6 +296,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         : (values) => _switchMethod(values.first),
                   ),
                   const SizedBox(height: 20),
+                  ],
                   if (emailSelected) ...[
                     TextField(
                       controller: _email,
@@ -304,7 +358,15 @@ class _AuthScreenState extends State<AuthScreen> {
                                     _otp.clear();
                                     _message = null;
                                   }),
-                          child: const Text('Nhập lại số / gửi mã mới'),
+                          child: const Text('Đổi số điện thoại'),
+                        ),
+                      ),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _busy ? null
+                              : () => _requestOtp(_phone.text.trim()),
+                          child: const Text('Gửi lại mã OTP'),
                         ),
                       ),
                     ],
@@ -343,9 +405,9 @@ class _AuthScreenState extends State<AuthScreen> {
                       const Divider(height: 28),
                       OutlinedButton.icon(
                         onPressed: _busy ? null : () => _perform(() async {
-                          await widget.auth.signInGoogle();
+                          await _oauth.signInGoogle();
                           return null;
-                        }),
+                        }, oauth: true),
                         icon: const Icon(Icons.login),
                         label: const Text('Tiếp tục bằng Google'),
                       ),
@@ -355,13 +417,18 @@ class _AuthScreenState extends State<AuthScreen> {
                     const Divider(height: 28),
                     OutlinedButton.icon(
                       onPressed: _busy ? null : () => _perform(() async {
-                        await widget.auth.signInFacebook();
+                        await _oauth.signInFacebook();
                         return null;
-                      }),
+                      }, oauth: true),
                       icon: const Icon(Icons.facebook),
                       label: const Text('Tiếp tục bằng Facebook'),
                     ),
                   ],
+                  if (_waitingForOAuth)
+                    TextButton(
+                      onPressed: _oauth.cancelOAuthWait,
+                      child: const Text('Dừng chờ đăng nhập'),
+                    ),
                   if (widget.onContinueAsGuest != null) ...[
                     const Divider(height: 32),
                     OutlinedButton.icon(
