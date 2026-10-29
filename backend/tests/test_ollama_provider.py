@@ -34,6 +34,8 @@ def test_reflection_vietnamese_schema(monkeypatch):
     assert calls[0][1]["stream"] is False
     assert calls[0][1]["format"]["type"] == "object"
     assert "Tôi gặp lại bạn" in calls[0][1]["prompt"]
+    assert "xưng hô trực tiếp bằng 'bạn'" in calls[0][1]["system"]
+    assert "người viết" not in calls[0][1]["system"].lower()
 
 
 def test_go_deeper(monkeypatch):
@@ -61,6 +63,7 @@ def test_vietnamese_prompt_accounts_for_multiple_question_answer_rounds(monkeypa
     assert "không tuân theo" in captured[0]["system"]
     assert "chữ hoa" in captured[0]["system"].lower()
     assert "tránh hỏi lại" in captured[0]["prompt"]
+    assert "xưng 'bạn' trực tiếp" in captured[0]["prompt"]
 
 
 def test_invalid_model_output_is_safe(monkeypatch):

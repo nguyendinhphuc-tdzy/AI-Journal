@@ -158,4 +158,27 @@ void main() {
         findsOneWidget);
   });
 
+  testWidgets('Cancel Facebook wait hides spinner and shows an error',
+      (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(
+      home: AuthScreen(auth: auth, facebookOAuthEnabled: true),
+    ));
+    final facebook = find.text('Tiếp tục bằng Facebook');
+    await tester.ensureVisible(facebook);
+    await tester.tap(facebook);
+    await tester.pump();
+    expect(find.text('Dừng chờ đăng nhập'), findsOneWidget);
+
+    await tester.tap(find.text('Dừng chờ đăng nhập'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
+
+    expect(find.text('Dừng chờ đăng nhập'), findsNothing);
+    expect(find.textContaining('Đã dừng chờ'), findsOneWidget);
+    expect(find.text('Tiếp tục bằng Facebook'), findsOneWidget);
+  });
+
+
 }
