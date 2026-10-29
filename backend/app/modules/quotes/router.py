@@ -9,12 +9,12 @@ from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
 from app.models.saved_quote import SavedQuote
-from app.schemas.analysis import SavedQuoteCreate, SavedQuoteRead
+from app.schemas.analysis import SavedQuoteCreate, SavedQuoteRead, SavedQuotePage
 
 router = APIRouter(prefix="/saved-quotes", tags=["saved quotes"])
 
 
-@router.get("", response_model=dict)
+@router.get("", response_model=SavedQuotePage)
 def list_quotes(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=100000),

@@ -1514,6 +1514,33 @@ def test_community_disabled_by_default_and_moderation():
 
 
 
+def test_reflection_response_exposes_normalized_groups_and_scores():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+    current = AuthenticatedUser(user_id=uuid4(), email="mood-schema@example.com")
+    app.dependency_overrides[get_current_user] = lambda: current
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        score = client.post("/api/v1/ai/reflection", json={
+            "content": "Today was calm", "mood": "Bình yên",
+        })
+        assert score.status_code == 200, score.text
+        payload = score.json()
+        assert payload["emotion"] == "Bình yên"
+        assert payload["mood_group"] == "calm"
+        assert payload["mood_score"] == 80
+        assert payload["quote"] is None
+        assert payload["topics"] == []
+        unknown = client.post("/api/v1/ai/reflection", json={
+            "content": "A day without a named emotion",
+            "mood": "unclassified",
+        })
+        assert unknown.status_code == 200
+        assert unknown.json()["mood_group"] is None
+        assert unknown.json()["mood_score"] is None
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_ai_emotions_match_flutter_scale_without_fabricating_unknown():
     from app.modules.ai.emotions import classify_emotion
 

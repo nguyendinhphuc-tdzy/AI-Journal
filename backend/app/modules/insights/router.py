@@ -71,7 +71,9 @@ def get_week(
         fingerprint_rows.append((
             entry.id, entry.body_version, analysis.id.hex if analysis else "",
             analysis.body_version if analysis else None,
-            analysis.updated_at.isoformat() if analysis else "",
+            sha256(json.dumps(analysis.result, sort_keys=True,
+                              ensure_ascii=False).encode()).hexdigest()
+            if analysis else "",
         ))
         if not valid:
             continue

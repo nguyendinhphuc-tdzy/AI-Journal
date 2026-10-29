@@ -35,3 +35,8 @@ class SavedQuoteCreate(BaseModel):
 class SavedQuoteRead(SavedQuoteCreate):
     id: UUID
     saved_at: datetime
+
+
+class SavedQuotePage(BaseModel):
+    items: list[SavedQuoteRead]
+    next_offset: int | None
