@@ -140,8 +140,9 @@ class SupabaseSignInAdapter implements SignInService {
   /// if its browser tab remains open; callers must not claim it was revoked.
   void cancelOAuthWait() => _cancelOAuthWait?.call();
 
-  /// Subscribe BEFORE launching the browser: a fast deep-link callback can
-  /// otherwise race the listener. Opening a browser is never a login.
+  /// Listen before opening the browser. Race its launch, the callback and
+  /// local cancellation as a single operation so the spinner can ALWAYS stop,
+  /// even when an external browser launch Future never resolves.
   Future<void> _awaitOAuth(Future<void> Function() openBrowser) async {
     if (_cancelOAuthWait != null) {
       throw const SignInFailed('Đang chờ một lần đăng nhập khác.');
@@ -159,9 +160,17 @@ class SupabaseSignInAdapter implements SignInService {
       },
     );
     try {
-      await openBrowser();
-      if (auth.currentUserId != null) return;
-      final result = await event.future.timeout(
+      final launchAndCallback = () async {
+        await openBrowser();
+        if (auth.currentUserId != null) return true;
+        return event.future;
+      }();
+      // The callback might arrive while the native browser is still opening;
+      // likewise Cancel must not have to wait for the browser Future.
+      final result = await Future.any<Object?>([
+        launchAndCallback,
+        event.future,
+      ]).timeout(
         const Duration(minutes: 2),
         onTimeout: () => const SignInFailed(
           'Không nhận được phiên đăng nhập. Quay lại ứng dụng rồi thử lại.',

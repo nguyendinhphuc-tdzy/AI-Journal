@@ -13,6 +13,7 @@ class _FakeAuth implements AuthService {
   int googleCalls = 0;
   int facebookCalls = 0;
   bool completeGoogleImmediately = false;
+  Completer<void>? pendingBrowserLaunch;
   String? otpPhone;
   String? otpCode;
 
@@ -35,7 +36,11 @@ class _FakeAuth implements AuthService {
     if (completeGoogleImmediately) succeed('fast-user');
   }
   @override
-  Future<void> signInFacebook() async { facebookCalls++; }
+  Future<void> signInFacebook() async {
+    facebookCalls++;
+    final launch = pendingBrowserLaunch;
+    if (launch != null) await launch.future;
+  }
   @override
   Future<void> requestPhoneOtp(String phone) async { otpPhone = phone; }
   @override
@@ -148,5 +153,21 @@ void main() {
     await check;
     expect(auth.facebookCalls, 0);
   });
+
+  test('Cancel completes even if the Facebook browser launch never returns',
+      () async {
+    final auth = _FakeAuth()..pendingBrowserLaunch = Completer<void>();
+    addTearDown(auth.changes.close);
+    final adapter = SupabaseSignInAdapter(auth);
+    final waiting = adapter.signInFacebook();
+    final failure = expectLater(waiting, throwsA(isA<SignInFailed>()));
+    await Future<void>.delayed(Duration.zero);
+    expect(auth.facebookCalls, 1);
+    adapter.cancelOAuthWait();
+    await failure;
+    expect(auth.currentUserId, isNull);
+    auth.pendingBrowserLaunch!.complete();
+  });
+
 
 }
