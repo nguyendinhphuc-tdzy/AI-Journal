@@ -597,8 +597,10 @@ class _JournalCard extends StatelessWidget {
       );
 }
 
-/// The week so far (Monday first): a dot for each day with an entry, how
-/// much was written, then the AI suggestion.
+/// The week so far (Monday first): a dot for each day with an entry and how
+/// much was written. No "Góc nhìn từ AI" here until the backend writes a
+/// real one for the week: a fixed text under that label would be a fake AI
+/// reading of what the user wrote.
 class _ThisWeek extends StatelessWidget {
   const _ThisWeek({required this.entries});
 
@@ -643,19 +645,6 @@ class _ThisWeek extends StatelessWidget {
                 : '${week.length} bài viết · ${written.length} ngày có viết',
             key: const ValueKey('this-week-summary'),
             style: _Journal.day.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          const Divider(height: 1, color: AppColors.softAccent),
-          const SizedBox(height: AppSpacing.md),
-          const _JournalEyebrow(HomeScreen.insightLabel,
-              icon: Icons.auto_awesome, accent: true),
-          const SizedBox(height: AppSpacing.sm),
-          // Mock suggestion for the prototype; replace with the API's.
-          const Text(
-            'Tuần này, bạn có vẻ khá hào hứng với những trải nghiệm mới. '
-            'Những điều bạn chia sẻ cho thấy đây là một tuần có nhiều khoảnh '
-            'khắc vui vẻ. Cảm ơn bạn đã dành thời gian viết nhật ký hôm nay.',
-            style: _Journal.preview,
           ),
         ],
       ),
@@ -729,17 +718,14 @@ class _DayDot extends StatelessWidget {
 
 /// A small line above a card's words: what it is and when, with an icon.
 class _JournalEyebrow extends StatelessWidget {
-  const _JournalEyebrow(this.text, {required this.icon, this.accent = false});
+  const _JournalEyebrow(this.text, {required this.icon});
 
   final String text;
   final IconData icon;
 
-  /// In the action colour instead of the secondary text colour.
-  final bool accent;
-
   @override
   Widget build(BuildContext context) {
-    final color = accent ? AppColors.primaryAction : AppColors.textSecondary;
+    const color = AppColors.textSecondary;
     return Row(children: [
       Icon(icon, size: 18, color: color),
       const SizedBox(width: AppSpacing.sm),
