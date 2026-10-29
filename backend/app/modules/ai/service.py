@@ -130,9 +130,16 @@ class OllamaAIProvider(AIProvider):
             "điều bạn đã chia sẻ, không lặp nguyên câu hỏi. "
             f"Cảm xúc do người dùng chọn: {mood or 'không cung cấp'}."
         )
+        # Ask the model only for generative fields. Classification is
+        # deterministic server code; do not let model-provided scores,
+        # group IDs or invented quotes contaminate the persisted response.
         schema = ReflectionResponse.model_json_schema()
+        for server_field in ("mood_group", "mood_score", "quote"):
+            schema["properties"].pop(server_field, None)
         try:
             result = self._generate(task, content, schema=schema)
+            for server_field in ("mood_group", "mood_score", "quote"):
+                result.pop(server_field, None)
             parsed = ReflectionResponse.model_validate(result)
             if not all(getattr(parsed, key).strip() for key in
                        ("emotion", "observation", "reflection", "question")):
