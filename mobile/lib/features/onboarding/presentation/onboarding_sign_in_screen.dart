@@ -132,6 +132,17 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant OnboardingSignInScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Supabase auth-stream errors can arrive after an OAuth browser closes.
+    // The parent AuthGate updates initialError on the mounted login screen.
+    if (widget.initialError != null &&
+        widget.initialError != oldWidget.initialError) {
+      _error = widget.initialError;
+    }
+  }
+
+  @override
   void dispose() {
     _email.dispose();
     _password.dispose();
