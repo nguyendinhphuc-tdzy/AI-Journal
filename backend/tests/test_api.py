@@ -1659,7 +1659,7 @@ def test_quotes_are_scoped_and_weekly_chart_uses_real_analysis_only():
 
 
 
-def test_weekly_narrative_caches_and_invalidates_with_journal_updates():
+def test_weekly_narrative_caches_and_invalidates_with_journal_updates(monkeypatch):
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     from app.modules.ai.service import MockAIProvider, get_ai_provider
@@ -1674,6 +1674,10 @@ def test_weekly_narrative_caches_and_invalidates_with_journal_updates():
 
     user = AuthenticatedUser(user_id=uuid4(), email="narrative@example.com")
     provider = NarrativeAI()
+    # Insights selects the provider lazily so chart GET doesn't fail if
+    # Ollama is absent; override that lazy lookup for this isolated test.
+    monkeypatch.setattr("app.modules.insights.router.get_ai_provider",
+                        lambda: provider)
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_ai_provider] = lambda: provider
     try:
