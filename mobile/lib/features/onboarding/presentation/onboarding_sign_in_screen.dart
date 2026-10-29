@@ -35,6 +35,7 @@ class OnboardingSignInScreen extends StatefulWidget {
     required this.onDone,
     this.friends,
     this.realAuth = false,
+    this.googleOAuthEnabled = AppConfig.googleOAuthEnabled,
     this.facebookOAuthEnabled = AppConfig.facebookOAuthEnabled,
     this.phoneOtpEnabled = AppConfig.phoneOtpEnabled,
     this.initialError,
@@ -43,6 +44,7 @@ class OnboardingSignInScreen extends StatefulWidget {
 
   final SignInService service;
   final bool realAuth;
+  final bool googleOAuthEnabled;
   final bool facebookOAuthEnabled;
   final bool phoneOtpEnabled;
   final String? initialError;
@@ -120,6 +122,7 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
   var _hidden = true;
   var _remember = true;
   var _busy = false;
+  var _waitingForOAuth = false;
   String? _emailError;
   String? _passwordError;
   String? _confirmError;
@@ -219,6 +222,7 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => AuthScreen(
         auth: service.auth, startWithPhone: true,
+        phoneOtpEnabled: widget.phoneOtpEnabled,
       ),
     ));
   }
@@ -231,23 +235,30 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
       final connected = await openFacebookLogin(context, friends);
       if (!connected || !mounted) return;
     }
-    await _run(widget.service.signInFacebook);
+    await _run(widget.service.signInFacebook, oauth: widget.realAuth);
   }
 
   /// Runs a sign-in with the button busy; on to OB02 once it worked.
-  Future<void> _run(Future<Object?> Function() signIn) async {
+  Future<void> _run(Future<Object?> Function() signIn,
+      {bool oauth = false}) async {
     if (_busy) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _waitingForOAuth = oauth;
+      _error = null;
+    });
     try {
       await signIn();
-      // Nothing typed is kept once signed in.
       _password.clear();
       _confirm.clear();
       if (mounted) widget.onDone();
     } catch (e) {
       if (mounted) setState(() => _error = _messageFor(e));
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() {
+        _busy = false;
+        _waitingForOAuth = false;
+      });
     }
   }
 
@@ -508,13 +519,16 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                   const SizedBox(height: AppSpacing.lg),
                   const _Or(),
                   const SizedBox(height: AppSpacing.lg),
-                  _ProviderButton(
-                    label: OnboardingSignInScreen.google,
-                    icon: const CustomPaint(
-                        size: Size.square(20), painter: _GoogleMark()),
-                    onPressed:
-                        _busy ? null : () => _run(widget.service.signInGoogle),
-                  ),
+                  if (!widget.realAuth || widget.googleOAuthEnabled)
+                    _ProviderButton(
+                      label: OnboardingSignInScreen.google,
+                      icon: const CustomPaint(
+                          size: Size.square(20), painter: _GoogleMark()),
+                      onPressed: _busy
+                          ? null
+                          : () => _run(widget.service.signInGoogle,
+                              oauth: widget.realAuth),
+                    ),
                   if (!widget.realAuth || widget.facebookOAuthEnabled) ...[
                     const SizedBox(height: 12),
                     _ProviderButton(
@@ -533,6 +547,13 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                       onPressed: _busy ? null : _phoneOtp,
                     ),
                   ],
+                  if (_waitingForOAuth &&
+                      widget.service is SupabaseSignInAdapter)
+                    TextButton(
+                      onPressed: () => (widget.service as SupabaseSignInAdapter)
+                          .cancelOAuthWait(),
+                      child: const Text('Dừng chờ đăng nhập'),
+                    ),
                   const SizedBox(height: AppSpacing.sm),
                   OnboardingTextAction(
                     label: OnboardingSignInScreen.later,

@@ -79,6 +79,8 @@ class _AuthGateState extends State<AuthGate> {
   StreamSubscription<String?>? _subscription;
   late final Future<GuestModeStore> _guestStore = GuestModeStore.open();
   late String? _userId = widget.auth.currentUserId;
+  late final SupabaseSignInAdapter _signInService =
+      SupabaseSignInAdapter(widget.auth);
   bool _guestReady = false;
   bool _guestSelected = false;
   String? _localError;
@@ -201,7 +203,7 @@ class _AuthGateState extends State<AuthGate> {
       theme: AppTheme.light,
       scrollBehavior: const AppScrollBehavior(),
       home: OnboardingSignInScreen(
-        service: SupabaseSignInAdapter(widget.auth),
+        service: _signInService,
         realAuth: true,
         initialError: _localError,
         onBack: () {},
