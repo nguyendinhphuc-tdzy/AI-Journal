@@ -2,6 +2,8 @@
 assets/images/app-icons/ (transparent 1254 px PNGs).
 
 Writes:
+- the app's own icon (ic_launcher, "Mặc định") from nudaeng-default-v1.png,
+  a scene with its sky: [DEFAULT_CROP] framed, opaque, full bleed;
 - assets/images/app-icon-<id>.png: 256 px, transparent, for the picker in Hồ sơ;
 - android/app/src/main/res/mipmap-<density>/ic_launcher_<id>.png: legacy
   launcher icons (Android 7), the art on a rounded tinted square;
@@ -32,6 +34,15 @@ ICONS = [
     ("nurse", "nudaeng-nurse-v1.png", "#F4E1EA"),
     ("repair", "nudaeng-repair-worker-v1.png", "#E6E2D3"),
 ]
+
+# The app's own icon: Nudaeng with the gull on its head, from the 736 x 1308
+# scene. [DEFAULT_CROP] is what a launcher shows (the middle 72 dp of the
+# adaptive layer), loose enough for a circle to keep the gull and the hand;
+# the layer takes 18 dp more each side, the scene's edges drawn out where it
+# runs out (seen only by launchers that show past the 72 dp).
+DEFAULT_MASTER = "nudaeng-default-v1.png"
+DEFAULT_CROP = (36, 816, 474, 1254)
+DEFAULT_SKY = "#CEEFFF"
 
 # Launcher sizes per density: legacy icon (48 dp) and adaptive layer (108 dp).
 DENSITIES = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
@@ -67,8 +78,55 @@ def placed(character: Image.Image, canvas: int, box: float, tint=None,
     return out
 
 
+def default_icon() -> None:
+    scene = Image.open(MASTERS / DEFAULT_MASTER).convert("RGBA")
+    left, top, right, bottom = DEFAULT_CROP
+    shown = right - left
+    unit = shown / 72  # scene px per dp
+    side = round(108 * unit)
+    # The 108 dp layer around it; past the scene, its edge rows and
+    # columns drawn out.
+    inner = round(18 * unit)
+    x0, y0 = left - inner, top - inner
+    pad = side  # more than any overhang
+    ext = Image.new("RGBA", (scene.width + 2 * pad, scene.height + 2 * pad))
+    ext.paste(scene, (pad, pad))
+    w, h = scene.size
+    ext.paste(scene.crop((0, 0, 1, h)).resize((pad, h)), (0, pad))
+    ext.paste(scene.crop((w - 1, 0, w, h)).resize((pad, h)), (pad + w, pad))
+    ext.paste(ext.crop((0, pad, w + 2 * pad, pad + 1)).resize(
+        (w + 2 * pad, pad)), (0, 0))
+    ext.paste(ext.crop((0, pad + h - 1, w + 2 * pad, pad + h)).resize(
+        (w + 2 * pad, pad)), (0, pad + h))
+    layer = ext.crop((x0 + pad, y0 + pad, x0 + pad + side, y0 + pad + side))
+    # What the launcher shows of it, for the picker and the legacy icon.
+    face = layer.crop((inner, inner, side - inner, side - inner))
+    face.resize((256, 256), Image.LANCZOS).save(
+        MOBILE / "assets/images/app-icon-default.png", optimize=True)
+    for density, scale in DENSITIES.items():
+        folder = RES / f"mipmap-{density}"
+        size = round(48 * scale)
+        mask = Image.new("L", (size, size), 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            (0, 0, size - 1, size - 1), radius=round(size * 0.22), fill=255)
+        legacy = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        legacy.paste(face.resize((size, size), Image.LANCZOS), (0, 0), mask)
+        legacy.save(folder / "ic_launcher.png", optimize=True)
+        layer.resize((round(108 * scale),) * 2, Image.LANCZOS).save(
+            folder / "ic_launcher_foreground.png", optimize=True)
+    (RES / "mipmap-anydpi-v26" / "ic_launcher.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<adaptive-icon xmlns:android='
+        '"http://schemas.android.com/apk/res/android">\n'
+        '    <background android:drawable="@color/app_icon_default" />\n'
+        '    <foreground android:drawable='
+        '"@mipmap/ic_launcher_foreground" />\n'
+        '</adaptive-icon>\n')
+
+
 def main() -> None:
-    colors = []
+    default_icon()
+    colors = [f'    <color name="app_icon_default">{DEFAULT_SKY}</color>']
     for icon_id, master, tint in ICONS:
         character = art(MASTERS / master)
         placed(character, 256, 0.94).save(

@@ -42,9 +42,18 @@ names and in-app labels use the generic "Phục vụ nhà hàng" instead: no thi
 brand name without permission (company rule). Rights to use these images as the
 app's launcher icons were confirmed by the product owner on 30/10/2026.
 
+## The app's own icon ("Mặc định")
+
+`nudaeng-default-v1.png` (736 × 1308, opaque): Nudaeng with a gull on its head,
+by the sea. Chosen by the product owner on 30/10/2026 as the official app icon,
+replacing Flutter's logo. The export frames Nudaeng, the gull and the hand
+(`DEFAULT_CROP`), without the second gull or the ship, on its own sky.
+
 ## Where they are used
 
 `tool/app_icons/export.py` builds, from these masters:
+- the default launcher icon (`res/mipmap-*/ic_launcher.png`, adaptive
+  `mipmap-anydpi-v26/ic_launcher.xml`) and `assets/images/app-icon-default.png`;
 - `assets/images/app-icon-<id>.png` (256 px, transparent): the picker in Hồ sơ;
 - Android launcher icons per profession (`res/mipmap-*/ic_launcher_<id>.png`,
   adaptive `mipmap-anydpi-v26/ic_launcher_<id>.xml` with a tinted background).
