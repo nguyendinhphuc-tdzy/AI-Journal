@@ -6,6 +6,7 @@ import 'package:ai_diary/features/journal/data/journal_repository.dart';
 import 'package:ai_diary/features/journal/journal_scope.dart';
 import 'package:ai_diary/features/journal/presentation/ai_reflection_screen.dart';
 import 'package:ai_diary/features/journal/presentation/journal_list_screen.dart';
+import 'package:ai_diary/features/journal/presentation/kept_analysis_chip.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_scope.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
@@ -149,6 +150,28 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     expect(find.textContaining('cho bản trước khi bạn sửa'), findsOneWidget);
+  });
+
+  testWidgets('The list shows each entry\'s kept feeling; a tap reads it '
+      'again', (tester) async {
+    final kept = await _journals.create(const JournalContent(body: 'Có AI.'));
+    await _journals.create(const JournalContent(body: 'Không có AI.'));
+    await _pump(tester, const JournalListScreen());
+    await tester.pumpAndSettle();
+    expect(find.byType(KeptAnalysisChip), findsNWidgets(2));
+    expect(find.text('Nhẹ nhõm'), findsNothing, reason: 'nothing kept yet');
+
+    // Kept after the list is shown (the analysis comes after the save).
+    await (await AnalysisArchive.open(userId: _user)).save(_saved(kept.id));
+    await tester.pumpAndSettle();
+    expect(find.text('Nhẹ nhõm'), findsOneWidget, reason: 'only that entry');
+
+    await tester.tap(find.text('Nhẹ nhõm'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(AiReflectionScreen), findsOneWidget);
+    expect(find.text(FakeAi.reflection['observation']!.replaceFirst('b', 'B')),
+        findsOneWidget);
   });
 
   testWidgets('Deleting an entry deletes its analysis', (tester) async {

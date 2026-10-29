@@ -10,6 +10,7 @@ import '../../../core/widgets/app_ui.dart';
 import '../../journal/data/journal_entry.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/journal_list_screen.dart';
+import '../../journal/presentation/kept_analysis_chip.dart';
 import '../../journal/presentation/write_journal_screen.dart';
 import '../../insights/presentation/emotion_week_screen.dart';
 import '../../onboarding/data/onboarding_scope.dart';
@@ -498,6 +499,9 @@ class _RecentEntries extends StatelessWidget {
                   style: _Journal.preview
                       .copyWith(color: AppColors.textSecondary)),
             ],
+            // The AI analysis kept for it, to read again.
+            KeptAnalysisChip(
+                entry: entry, padding: const EdgeInsets.only(top: 8)),
           ],
         ),
       ),

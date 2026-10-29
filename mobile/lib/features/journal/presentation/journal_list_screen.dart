@@ -13,6 +13,7 @@ import '../../sound/app_sound.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../data/analysis_archive.dart';
 import 'delete_entry_dialog.dart';
+import 'kept_analysis_chip.dart';
 import 'write_journal_screen.dart';
 
 /// Every saved entry, newest first, grouped by month, to read or keep
@@ -344,6 +345,9 @@ class _EntryRow extends StatelessWidget {
                     style:
                         AppText.meta.copyWith(color: AppColors.primaryAction),
                   ),
+                  // Its AI analysis, to read again.
+                  KeptAnalysisChip(
+                      entry: entry, padding: const EdgeInsets.only(top: 6)),
                 ],
               ),
             ),

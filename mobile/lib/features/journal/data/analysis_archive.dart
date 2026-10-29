@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_ai_service.dart';
@@ -62,6 +63,9 @@ class SavedAnalysis {
 class AnalysisArchive {
   AnalysisArchive._(this._prefs, this.userId);
 
+  /// Ticks when any analysis is kept or removed, for what shows them.
+  static final changes = ValueNotifier<int>(0);
+
   static Future<AnalysisArchive> open({String? userId}) async =>
       AnalysisArchive._(await SharedPreferences.getInstance(), userId);
 
@@ -84,9 +88,15 @@ class AnalysisArchive {
             if (of(key.substring(_prefix.length)) case final saved?) saved,
       ]..sort((a, b) => b.savedAt.compareTo(a.savedAt));
 
-  Future<void> save(SavedAnalysis analysis) => _prefs.setString(
-      '$_prefix${analysis.entryId}', jsonEncode(analysis.toJson()));
+  Future<void> save(SavedAnalysis analysis) async {
+    await _prefs.setString(
+        '$_prefix${analysis.entryId}', jsonEncode(analysis.toJson()));
+    changes.value++;
+  }
 
   /// With its entry: an analysis never outlives what it read.
-  Future<void> remove(String entryId) => _prefs.remove('$_prefix$entryId');
+  Future<void> remove(String entryId) async {
+    await _prefs.remove('$_prefix$entryId');
+    changes.value++;
+  }
 }
