@@ -10,11 +10,13 @@ import '../../../core/widgets/app_ui.dart';
 import '../../../navigation/app_shell.dart';
 import '../data/journal_entry.dart';
 import '../journal_scope.dart';
+import '../data/analysis_archive.dart';
 import '../data/api_ai_service.dart';
-import '../../onboarding/data/data_policy.dart';
 import '../../onboarding/data/onboarding_scope.dart';
-import 'ai_reflection_screen.dart';
 import '../../onboarding/data/onboarding_store.dart';
+import 'ai_conversation.dart';
+import 'ai_reflection_screen.dart';
+import 'sentence_case.dart';
 import '../../profile/data/writing_preferences.dart';
 import '../../sound/app_sound.dart';
 import '../../streak/streak_screen.dart';
@@ -25,10 +27,21 @@ class WriteJournalScreen extends StatefulWidget {
 
   static const title = 'Nhật ký hôm nay';
   static const prompt = 'Hôm nay bạn cảm thấy thế nào?';
-  static const followUpPrompt =
-      'Gần đây, điều gì trong chuyện học khiến bạn thấy áp lực?';
   static const finishLabel = 'Lưu nhật ký';
   static const deeperLabel = 'Nhìn lại cùng bạn';
+  static const thinkingLabel = 'Nudaeng đang nghĩ câu hỏi tiếp theo...';
+  static const deeperFailed =
+      'Chưa tạo được câu hỏi. Nội dung vẫn còn ở đây, bạn thử lại nhé.';
+  static const deeperNeedsAccount =
+      'Nhìn lại cùng bạn cần đăng nhập. Bạn vẫn viết và lưu nhật ký bình thường.';
+  static const aiOff =
+      'Phản hồi AI đang tắt. Bạn có thể bật lại trong Hồ sơ.';
+
+  /// After this many questions, a gentle note suggests saving; asking on
+  /// is still allowed.
+  static const deepNudgeAfter = 5;
+  static const deepNudge = 'Bạn đã đi khá sâu rồi, lưu lại nhé?';
+  static const reviewLabel = 'Xem phân tích AI';
   static const confirmTitle = 'Bạn đã hoàn tất chưa?';
   static const confirmBody =
       'Nhật ký sẽ được lưu. Bạn vẫn có thể mở lại để viết tiếp từ Trang chủ.';
@@ -44,10 +57,15 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   late final _controller = TextEditingController(text: widget.entry?.body);
   late JournalEntry? _saved = widget.entry;
   bool _saving = false;
-  final _followUpController = TextEditingController();
+
+  /// "Nhìn lại cùng bạn" so far: each AI question with the answer to it.
+  /// The last answer is the one being written.
+  final List<({String question, TextEditingController answer})> _deeper = [];
+
+  /// Waiting for the AI's next question.
+  bool _asking = false;
   final _followUpFocus = FocusNode();
   final _scrollController = ScrollController();
-  bool _hasFollowUp = false;
   JournalPaper _paper = JournalPaper.doPaper;
   bool _hasText = false;
   double _textSize = 16;
@@ -64,10 +82,46 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     // Back to a page written before.
     if (widget.entry != null) AppSound.instance.play(SoundCue.pageTurn);
     _loadPreferences();
+    _loadKeptAnalysis();
   }
 
+  /// The analysis kept for the entry being written again, to read again.
+  SavedAnalysis? _kept;
+
+  Future<void> _loadKeptAnalysis() async {
+    final entry = widget.entry;
+    if (entry == null) return;
+    final userId =
+        context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
+    try {
+      final kept = (await AnalysisArchive.open(userId: userId)).of(entry.id);
+      if (mounted && kept != null) setState(() => _kept = kept);
+    } catch (_) {}
+  }
+
+  void _review(SavedAnalysis kept) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final entry = _saved ?? widget.entry;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AiReflectionScreen.review(
+          journalContent: entry?.body ?? _entryText,
+          saved: kept,
+          entry: entry,
+        ),
+      ),
+    );
+  }
+
+  bool get _hasFollowUp => _deeper.isNotEmpty;
+
+  /// The field being written: the entry, or the answer to the last question.
+  TextEditingController get _current =>
+      _hasFollowUp ? _deeper.last.answer : _controller;
+
   void _onTextChanged() {
-    final hasText = _controller.text.trim().isNotEmpty;
+    final hasText = _current.text.trim().isNotEmpty;
     if (hasText != _hasText) setState(() => _hasText = hasText);
   }
 
@@ -143,10 +197,37 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     }
   }
 
+  /// The entry as saved: what was written first, then each "Nhìn lại cùng
+  /// bạn" question on its own line above its answer, so it still reads
+  /// as a conversation later. A question left unanswered is not kept.
   String get _entryText => [
         _controller.text.trim(),
-        if (_hasFollowUp) _followUpController.text.trim(),
-      ].where((answer) => answer.isNotEmpty).join('\n\n');
+        for (final round in _deeper)
+          if (round.answer.text.trim() case final answer
+              when answer.isNotEmpty)
+            '${round.question}\n$answer',
+      ].where((part) => part.isNotEmpty).join('\n\n');
+
+  /// What the AI reads: each question with what was written for it, and
+  /// why the user journals (OB03), if said.
+  AiConversation _conversation(OnboardingStore? onboarding) => AiConversation(
+        prompt: WriteJournalScreen.prompt,
+        entry: _controller.text,
+        rounds: [
+          for (final round in _deeper)
+            (question: round.question, answer: round.answer.text),
+        ],
+        goal: onboarding?.goal?.label,
+      );
+
+  /// AI for this account now: signed in (guests have none) and not turned
+  /// off in Hồ sơ. The onboarding choice does not turn it off (product
+  /// decision, 29/10/2026); never a mock insight.
+  ApiAIService? get _ai {
+    final ai = AiRemoteScope.maybeOf(context);
+    final onboarding = OnboardingScope.maybeOf(context);
+    return onboarding == null || onboarding.aiInApp ? ai : null;
+  }
 
   void _showEmptyEntryMessage() {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -155,10 +236,44 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     ));
   }
 
-  void _goDeeper() {
-    if (_hasFollowUp || _controller.text.trim().isEmpty) return;
-    setState(() => _hasFollowUp = true);
+  bool get _canGoDeeper => _hasText && !_asking;
+
+  /// "Nhìn lại cùng bạn": the AI reads what is written so far and asks one
+  /// more question to dig into it; the answer goes under it.
+  Future<void> _goDeeper() async {
+    if (!_canGoDeeper) return;
+    final ai = _ai;
+    if (ai == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(AiRemoteScope.maybeOf(context) == null
+              ? WriteJournalScreen.deeperNeedsAccount
+              : WriteJournalScreen.aiOff)));
+      return;
+    }
+    final conversation =
+        _conversation(OnboardingScope.maybeOf(context)).text();
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _asking = true);
     _preferences?.feedback();
+    final String question;
+    try {
+      question = await ai.goDeeper(conversation);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _asking = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(WriteJournalScreen.deeperFailed)));
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _asking = false;
+      _deeper.add((
+        question: sentenceCase(question),
+        answer: TextEditingController()..addListener(_onTextChanged),
+      ));
+      _hasText = false;
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _followUpFocus.requestFocus();
@@ -227,17 +342,9 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
       // Written in Study, it stays a Study entry when edited here.
       source: saved?.content.source,
     );
-    final scopedOnboarding = OnboardingScope.maybeOf(context);
     final journals = JournalScope.of(context);
-    final remoteAi = AiRemoteScope.maybeOf(context);
-    bool useAi;
+    final ai = _ai;
     try {
-      final settings = scopedOnboarding ?? await OnboardingStore.open();
-      // Cloud AI needs an explicit, current policy choice; never use mock insights.
-      useAi = remoteAi != null &&
-          settings.aiEnabled == true &&
-          settings.aiPolicyVersion == DataPolicy.localOllama.version;
-      if (!mounted) return;
       _saved = saved == null
           ? await journals.create(content)
           : await journals.update(saved.id, content);
@@ -253,8 +360,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     AppSound.instance.play(SoundCue.penClick);
     await _preferences?.feedback();
     if (!mounted) return;
-    if (useAi) {
-      _openReflection();
+    if (ai != null) {
+      _openReflection(ai);
     } else if (!StreakState.shared.completedToday) {
       // No reflection without AI, but the day's first entry still counts:
       // the streak celebrates it, then Home.
@@ -275,20 +382,33 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
   void dispose() {
     _controller.removeListener(_onTextChanged);
     _controller.dispose();
-    _followUpController.dispose();
+    for (final round in _deeper) {
+      round.answer.dispose();
+    }
     _followUpFocus.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  void _openReflection() {
+  /// The analysis of the whole entry, "Nhìn lại cùng bạn" included: the AI
+  /// reads the questions with the answers, and "Nhật ký" shows them too.
+  void _openReflection(ApiAIService ai) {
     FocusManager.instance.primaryFocus?.unfocus();
+    final conversation = _conversation(OnboardingScope.maybeOf(context));
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => AiReflectionScreen(
           journalContent: _entryText,
-          remote: AiRemoteScope.maybeOf(context),
+          analysisContent: conversation.text(
+              budget: AiConversation.reflectionBudget),
+          entryParts: [
+            (question: WriteJournalScreen.prompt, answer: _controller.text),
+            for (final round in _deeper)
+              (question: round.question, answer: round.answer.text),
+          ],
+          remote: ai,
+          entry: _saved,
         ),
       ),
     );
@@ -348,15 +468,33 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
+                                  if (_kept case final kept?) ...[
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton.icon(
+                                        onPressed: () => _review(kept),
+                                        icon: const Icon(
+                                            Icons.auto_awesome_outlined,
+                                            size: 18),
+                                        label: const Text(
+                                            WriteJournalScreen.reviewLabel),
+                                      ),
+                                    ),
+                                    const SizedBox(height: AppSpacing.xs),
+                                  ],
                                   _buildPrompt(WriteJournalScreen.prompt),
                                   const SizedBox(height: AppSpacing.md),
-                                  if (_hasFollowUp) ...[
+                                  // Each question asked: what was written
+                                  // before it, then the question.
+                                  for (final (i, round) in _deeper.indexed) ...[
                                     _RuledLines(
                                       style: _writingStyle,
                                       on: ruled,
                                       bleed: _gutter,
                                       child: Text(
-                                        _controller.text,
+                                        i == 0
+                                            ? _controller.text
+                                            : _deeper[i - 1].answer.text,
                                         strutStyle:
                                             _RuledLines.strut(_writingStyle),
                                         style: _writingStyle.copyWith(
@@ -364,8 +502,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: AppSpacing.xl),
-                                    _buildPrompt(
-                                        WriteJournalScreen.followUpPrompt),
+                                    _buildPrompt(round.question),
                                     const SizedBox(height: AppSpacing.md),
                                   ],
                                   _RuledLines(
@@ -375,10 +512,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                     // The rows carry on down the page.
                                     below: 2000,
                                     child: TextField(
-                                      key: ValueKey(_hasFollowUp),
-                                      controller: _hasFollowUp
-                                          ? _followUpController
-                                          : _controller,
+                                      key: ValueKey(_deeper.length),
+                                      controller: _current,
                                       focusNode:
                                           _hasFollowUp ? _followUpFocus : null,
                                       minLines: 3,
@@ -408,6 +543,14 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                                       ),
                                     ),
                                   ),
+                                  if (_asking) ...[
+                                    const SizedBox(height: AppSpacing.md),
+                                    _buildThinking(),
+                                  ] else if (_deeper.length >=
+                                      WriteJournalScreen.deepNudgeAfter) ...[
+                                    const SizedBox(height: AppSpacing.md),
+                                    _buildNudge(),
+                                  ],
                                   SizedBox(height: mascotSize),
                                 ],
                               ),
@@ -502,6 +645,34 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     );
   }
 
+  /// While the AI writes the next question.
+  Widget _buildThinking() => Semantics(
+        liveRegion: true,
+        child: const Row(children: [
+          SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: AppColors.primaryAction),
+          ),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(WriteJournalScreen.thinkingLabel,
+                style: AppText.bodySecondary),
+          ),
+        ]),
+      );
+
+  /// Many questions in: a gentle note to save, never a stop.
+  Widget _buildNudge() => const Row(children: [
+        Icon(Icons.bookmark_border_rounded,
+            size: 18, color: AppColors.primaryAction),
+        SizedBox(width: 12),
+        Expanded(
+          child: Text(WriteJournalScreen.deepNudge,
+              style: AppText.bodySecondary),
+        ),
+      ]);
+
   /// Tools on their own line, then the two actions across the page; on a
   /// short screen all in one row.
   Widget _buildActions({required bool compact}) {
@@ -528,8 +699,8 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     final deeper = AppPrimaryButton(
       label: WriteJournalScreen.deeperLabel,
       icon: Icons.auto_awesome,
-      // Something to go deeper on first.
-      onPressed: _hasFollowUp || !_hasText ? null : _goDeeper,
+      // Something to go deeper on first; one question at a time.
+      onPressed: _canGoDeeper ? _goDeeper : null,
       compact: compact,
     );
     if (compact) {
@@ -566,7 +737,9 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
           ),
           const SizedBox(height: AppSpacing.sm),
           LayoutBuilder(
-            builder: (context, actions) => actions.maxWidth >= 320
+            // The width both labels need grows with the text size.
+            builder: (context, actions) => actions.maxWidth >=
+                    MediaQuery.textScalerOf(context).scale(320)
                 // Finish as wide as its word; going deeper, the main
                 // action, takes the rest, its label on one line.
                 ? Row(children: [

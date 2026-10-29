@@ -211,7 +211,7 @@ void main() {
     expect(await _journals.entries(), hasLength(1), reason: 'save finished');
     expect(store.firstEntryId, isNotNull);
 
-    await tester.tap(find.text(OnboardingAiDataScreen.withAiLabel));
+    await tester.tap(find.text(OnboardingAiDataScreen.continueLabel));
     await _settle(tester);
     expect(
         (tester.widget<FilledButton>(_ctaIn(OnboardingFirstEntryScreen)).child!

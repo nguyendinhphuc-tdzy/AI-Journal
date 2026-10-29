@@ -56,20 +56,92 @@ def test_migration_applied():
     assert "album_memories" in tables
 
 
-def test_public_mock_ai_preserved():
-    deeper = client.post(
-        "/api/v1/ai/go-deeper",
-        json={"content": "I felt peaceful today."},
-    )
-    assert deeper.status_code == 200
-    assert deeper.json()["question"]
+def test_ai_requires_authentication_in_all_provider_modes(monkeypatch):
+    from app.core.config import Settings
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
 
-    reflection = client.post(
-        "/api/v1/ai/reflection",
-        json={"content": "I finished my task.", "mood": "relieved"},
+    # An invalid Bearer token is 401 when the verifier is configured.
+    # Without SUPABASE_URL, a configuration failure intentionally returns 503.
+    monkeypatch.setattr(
+        "app.core.auth.get_settings",
+        lambda: Settings(database_url="sqlite://", supabase_url="https://test-ref.supabase.co"),
     )
-    assert reflection.status_code == 200
-    assert reflection.json()["emotion"] == "relieved"
+    app.dependency_overrides.clear()
+    invoked = []
+    def provider_spy():
+        invoked.append(True)
+        return MockAIProvider()
+
+    app.dependency_overrides[get_ai_provider] = provider_spy
+    try:
+        for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
+            for headers in ({}, {"Authorization": "Bearer not-a-jwt"}):
+                response = client.post(
+                    path, json={"content": "private entry"}, headers=headers
+                )
+                assert response.status_code == 401
+                assert response.headers.get("www-authenticate") == "Bearer"
+        # Authorization must be rejected before any model provider is invoked.
+        assert not invoked
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_authenticated_ai_and_bounded_request_content():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    user = AuthenticatedUser(user_id=uuid4(), email="test@example.com")
+    app.dependency_overrides[get_current_user] = lambda: user
+    # The developer may set AI_PROVIDER=ollama in backend/.env.
+    # Tests must not make requests to their actual Ollama instance.
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        deeper = client.post(
+            "/api/v1/ai/go-deeper", json={"content": "I felt peaceful today."}
+        )
+        assert deeper.status_code == 200
+        assert deeper.json()["question"]
+
+        reflection = client.post(
+            "/api/v1/ai/reflection",
+            json={"content": "I finished my task.", "mood": "relieved"},
+        )
+        assert reflection.status_code == 200
+        assert reflection.json()["emotion"] == "relieved"
+
+        for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
+            assert client.post(path, json={"content": " "}).status_code == 422
+            assert client.post(path, json={"content": "x" * 8001}).status_code == 422
+            assert client.post(path, json={"content": "ok", "mood": "m" * 65}).status_code == 422
+            assert client.post(path, json={"content": "x" * 8000}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ai_per_user_rate_limit_does_not_affect_another_account():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    a = AuthenticatedUser(user_id=uuid4(), email="quota-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="quota-b@example.com")
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        for _ in range(12):
+            assert client.post("/api/v1/ai/go-deeper", json={
+                "content": "A short journal entry"
+            }).status_code == 200
+        blocked = client.post("/api/v1/ai/go-deeper", json={
+            "content": "One request too many"
+        })
+        assert blocked.status_code == 429
+        assert "journal entry" not in blocked.text
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post("/api/v1/ai/go-deeper", json={
+            "content": "Private second account"
+        }).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_journal_crud_requires_authentication():
@@ -216,6 +288,18 @@ def test_me_creates_and_updates_owned_profiles():
 
         invalid_tz = client.patch("/api/v1/me", json={"timezone": "Fake/Timezone"})
         assert invalid_tz.status_code == 422
+
+        # Null must be rejected with a client error rather than a database
+        # integrity error (500); omitting discoverable remains valid.
+        assert client.patch("/api/v1/me", json={"discoverable": None}).status_code == 422
+        enabled = client.patch("/api/v1/me", json={"discoverable": True})
+        assert enabled.status_code == 200
+        assert enabled.json()["discoverable"] is True
+        assert client.patch("/api/v1/me", json={"discoverable": None}).status_code == 422
+        assert client.get("/api/v1/me").json()["discoverable"] is True
+        disabled = client.patch("/api/v1/me", json={"discoverable": False})
+        assert disabled.status_code == 200
+        assert disabled.json()["discoverable"] is False
 
         invalid_owner = client.patch(
             "/api/v1/me", json={"user_id": str(second.user_id)}
@@ -1001,6 +1085,47 @@ def test_pr17_album_memory_owner_isolation_and_e05_place():
         app.dependency_overrides.clear()
 
 
+def test_album_and_memory_offset_pagination_remains_owner_scoped():
+    a = AuthenticatedUser(user_id=uuid4(), email="paged@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="other@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        ids = []
+        for index in range(4):
+            result = client.post("/api/v1/albums", json={"name": f"Album {index}"})
+            assert result.status_code == 201, result.text
+            ids.append(result.json()["id"])
+        first = client.get("/api/v1/albums?limit=2&offset=0")
+        second = client.get("/api/v1/albums?limit=2&offset=2")
+        assert first.status_code == second.status_code == 200
+        assert len(first.json()) == len(second.json()) == 2
+        assert set(x["id"] for x in first.json()).isdisjoint(
+            x["id"] for x in second.json()
+        )
+        assert client.get("/api/v1/albums?offset=-1").status_code == 422
+        assert client.get("/api/v1/albums?offset=100001").status_code == 422
+
+        aid = ids[0]
+        for index in range(5):
+            result = client.post(f"/api/v1/albums/{aid}/memories", json={
+                "note": f"Entry {index}", "display_date": "2026-10-29",
+            })
+            assert result.status_code == 201
+        page1 = client.get(f"/api/v1/albums/{aid}/memories?limit=3&offset=0")
+        page2 = client.get(f"/api/v1/albums/{aid}/memories?limit=3&offset=3")
+        assert len(page1.json()) == 3
+        assert len(page2.json()) == 2
+        assert set(x["id"] for x in page1.json()).isdisjoint(
+            x["id"] for x in page2.json()
+        )
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/albums?limit=2&offset=0").json() == []
+        assert client.get(f"/api/v1/albums/{aid}/memories?offset=2").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_guided_journal_roundtrip_version_and_owner_isolation():
     """Structured guided fields survive server JSON serialization and updates."""
     alice = AuthenticatedUser(user_id=uuid4(), email="alice@example.test")
@@ -1144,6 +1269,8 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
             "display_date": "2026-10-28",
         })
         assert memory.status_code == 201
+        assert memory.json()["photo_available"] is False
+        assert "photo_path" not in memory.json()
         memory_id = memory.json()["id"]
         url = f"/api/v1/albums/{album_id}/memories/{memory_id}/photo"
         headers = {"Authorization": "Bearer valid-test-token"}
@@ -1160,7 +1287,13 @@ def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
         assert calls[-1][0] == "POST"
         assert calls[-1][2] == "Bearer valid-test-token"
         info = client.get(f"/api/v1/albums/{album_id}/memories/{memory_id}")
-        assert info.json()["photo_path"].startswith(str(owner.user_id) + "/")
+        assert info.status_code == 200
+        assert info.json()["photo_available"] is True
+        assert "photo_path" not in info.json()
+        listed = client.get(f"/api/v1/albums/{album_id}/memories")
+        assert listed.status_code == 200
+        assert listed.json()[0]["photo_available"] is True
+        assert "photo_path" not in listed.json()[0]
         response = client.get(url, headers=headers)
         assert response.status_code == 200
         assert response.content == image

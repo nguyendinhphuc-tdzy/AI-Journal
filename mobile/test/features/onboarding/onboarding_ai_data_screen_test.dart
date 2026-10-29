@@ -5,6 +5,7 @@ import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_ai_data_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_features_screen.dart';
+import 'package:ai_diary/features/onboarding/presentation/onboarding_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -40,8 +41,8 @@ Future<OnboardingStore> _pump(
   return store;
 }
 
-Finder get _withAi => find.widgetWithText(FilledButton, 'Tiếp tục với AI');
-Finder get _journalOnly => find.widgetWithText(TextButton, 'Chỉ viết nhật ký');
+Finder get _continue => find.widgetWithText(FilledButton, 'Tiếp tục');
+Finder get _journalOnly => find.text('Chỉ viết nhật ký');
 
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
@@ -66,13 +67,17 @@ void main() {
     for (final (heading, body) in [
       (OnboardingAiDataScreen.storageHeading, DataPolicy.localOllama.storage),
       (OnboardingAiDataScreen.aiHeading, DataPolicy.localOllama.aiRequest),
-      (OnboardingAiDataScreen.choiceHeading, DataPolicy.choiceNote),
+      (OnboardingAiDataScreen.choiceHeading, DataPolicy.aiOffNote),
     ]) {
       expect(find.text(heading), findsOneWidget);
       expect(find.text(body), findsOneWidget);
     }
-    expect(DataPolicy.choiceNote,
-        'Bạn vẫn có thể viết và lưu nhật ký khi không dùng phản hồi AI.');
+    // Version 2 says what really happens: sent on save and "Nhìn lại cùng
+    // bạn", and Hồ sơ turns it off.
+    expect(DataPolicy.localOllama.version, 'local-ollama-demo-2');
+    expect(DataPolicy.localOllama.aiRequest, contains('Khi bạn lưu nhật ký'));
+    expect(DataPolicy.localOllama.aiRequest, contains('Nhìn lại cùng bạn'));
+    expect(DataPolicy.aiOffNote, contains('tắt phản hồi AI trong Hồ sơ'));
   });
 
   for (final ai in [true, false]) {
@@ -99,20 +104,20 @@ void main() {
     expect(find.text('Cách app dùng dữ liệu'), findsNothing);
   });
 
-  testWidgets('Two explicit paths; no pre-set toggle', (tester) async {
+  testWidgets('One way on, no "Chỉ viết nhật ký" that AI would not honour',
+      (tester) async {
     await _pump(tester);
-    expect(_withAi, findsOneWidget);
-    expect(_journalOnly, findsOneWidget);
+    expect(_continue, findsOneWidget);
+    expect(_journalOnly, findsNothing);
+    expect(find.text('Tiếp tục với AI'), findsNothing);
     expect(find.byType(Switch), findsNothing);
     expect(find.byType(Checkbox), findsNothing);
-    expect(tester.widget<FilledButton>(_withAi).onPressed, isNotNull);
   });
 
-  testWidgets('Tiếp tục với AI: AI on with the copy shown → OB07',
-      (tester) async {
+  testWidgets('Tiếp tục: AI on with the copy shown → OB07', (tester) async {
     final store = await _pump(tester);
     expect(store.aiEnabled, isNull, reason: 'nothing chosen on arrival');
-    await tester.tap(_withAi);
+    await tester.tap(_continue);
     await _settle(tester);
     expect(store.aiEnabled, isTrue);
     expect(store.aiPolicyVersion, DataPolicy.localOllama.version,
@@ -123,36 +128,25 @@ void main() {
   testWidgets('No AI (guest): says it needs an account, one way on, AI off',
       (tester) async {
     final store = await _pump(tester, ai: false);
-    expect(find.text(OnboardingAiDataScreen.guestTitle), findsOneWidget);
-    expect(find.text(OnboardingAiDataScreen.title), findsNothing,
-        reason: 'nothing to choose');
+    expect(find.text(OnboardingAiDataScreen.title), findsOneWidget);
     expect(find.text(OnboardingAiDataScreen.needsAccountLabel), findsOneWidget);
     expect(find.text(OnboardingAiDataScreen.needsAccountBody), findsOneWidget);
     expect(find.text(OnboardingAiDataScreen.demoLabel), findsNothing);
     expect(find.text(DataPolicy.current.aiRequest), findsNothing,
         reason: 'no "simulated reply" that never comes');
-    expect(_withAi, findsNothing);
-    expect(_journalOnly, findsNothing);
-    await tester.tap(find.widgetWithText(
-        FilledButton, OnboardingAiDataScreen.continueLabel));
+    expect(find.text(DataPolicy.aiOffNote), findsNothing,
+        reason: 'nothing to turn off');
+    await tester.tap(_continue);
     await _settle(tester);
     expect(store.aiEnabled, isFalse);
     expect(store.aiPolicyVersion, isNull);
     expect(store.step, OnboardingStep.firstEntry);
   });
 
-  testWidgets('Chỉ viết nhật ký: AI off → OB07', (tester) async {
-    final store = await _pump(tester);
-    await tester.tap(_journalOnly);
-    await _settle(tester);
-    expect(store.aiEnabled, isFalse);
-    expect(store.step, OnboardingStep.firstEntry);
-  });
-
   testWidgets('The choice is about AI only: no other consent recorded',
       (tester) async {
     await _pump(tester);
-    await tester.tap(_withAi);
+    await tester.tap(_continue);
     await _settle(tester);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getKeys(),
@@ -222,9 +216,22 @@ void main() {
       testWidgets('OB06 fits $size at text scale $scale', (tester) async {
         await _pump(tester, size: size, textScale: scale);
         expect(tester.takeException(), isNull);
-        expect(tester.getRect(_journalOnly).bottom,
+        expect(tester.getRect(_continue).bottom,
             lessThanOrEqualTo(size.height));
-        expect(tester.getSize(_journalOnly).height, greaterThanOrEqualTo(48));
+        expect(tester.getSize(_continue).height, greaterThanOrEqualTo(48));
+      });
+      testWidgets('OB06\'s long copy keeps Nudaeng at $size, scale $scale',
+          (tester) async {
+        await _pump(tester, size: size, textScale: scale);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.takeException(), isNull);
+        expect(
+            find.descendant(
+                of: find.byType(OnboardingMascot),
+                matching: find.byType(Image)),
+            findsOneWidget,
+            reason: 'never hidden for want of room');
       });
       testWidgets('OB06 without AI fits $size at text scale $scale',
           (tester) async {

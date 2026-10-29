@@ -10,7 +10,10 @@ import '../../../core/widgets/app_ui.dart';
 import '../../journal/data/journal_entry.dart';
 import '../../journal/journal_scope.dart';
 import '../../journal/presentation/journal_list_screen.dart';
+import '../../journal/data/saved_quotes.dart';
+import '../../journal/presentation/kept_analysis_chip.dart';
 import '../../journal/presentation/write_journal_screen.dart';
+import '../../insights/presentation/emotion_week_screen.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../../profile/profile_screen.dart';
 import '../../streak/streak_state.dart';
@@ -38,6 +41,7 @@ class HomeScreen extends StatefulWidget {
   static const startLabel = 'Viết nhật ký';
   static const latestTitle = 'Nhật ký gần đây';
   static const weekTitle = 'Nhìn lại tuần này';
+  static const weekOpen = 'Xem cảm xúc tuần này';
 
   /// A saved reflection, in "Đã lưu".
   static const savedReflectionLabel = 'Nhìn lại hôm nay';
@@ -93,7 +97,18 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _loadNickname();
     _loadScene();
+    _loadSavedQuotes();
     HomeSceneSettings.changes.addListener(_loadScene);
+  }
+
+  /// The quotes this account kept, back in "Đã lưu" after a restart.
+  Future<void> _loadSavedQuotes() async {
+    final userId =
+        context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
+    try {
+      final quotes = await SavedQuotes.open(userId: userId);
+      if (mounted && quotes.all().isNotEmpty) quotes.show();
+    } catch (_) {}
   }
 
   @override
@@ -496,6 +511,9 @@ class _RecentEntries extends StatelessWidget {
                   style: _Journal.preview
                       .copyWith(color: AppColors.textSecondary)),
             ],
+            // The AI analysis kept for it, to read again.
+            KeptAnalysisChip(
+                entry: entry, padding: const EdgeInsets.only(top: 8)),
           ],
         ),
       ),
@@ -561,12 +579,16 @@ class _SeeAll extends StatelessWidget {
 class _JournalCard extends StatelessWidget {
   const _JournalCard({
     required this.child,
+    this.onTap,
     this.color = AppColors.surface,
     this.padding = const EdgeInsets.fromLTRB(
         AppSpacing.lg, 18, AppSpacing.lg, AppSpacing.lg),
   });
 
   final Widget child;
+
+  /// The whole card opens something, when given.
+  final VoidCallback? onTap;
   final Color color;
   final EdgeInsetsGeometry padding;
 
@@ -591,14 +613,21 @@ class _JournalCard extends StatelessWidget {
             type: MaterialType.transparency,
             borderRadius: _radius,
             clipBehavior: Clip.antiAlias,
-            child: Padding(padding: padding, child: child),
+            child: onTap == null
+                ? Padding(padding: padding, child: child)
+                : InkWell(
+                    onTap: onTap,
+                    child: Padding(padding: padding, child: child),
+                  ),
           ),
         ),
       );
 }
 
-/// The week so far (Monday first): a dot for each day with an entry, how
-/// much was written, then the AI suggestion.
+/// The week so far (Monday first): a dot for each day with an entry and how
+/// much was written. No "Góc nhìn từ AI" here until the backend writes a
+/// real one for the week: a fixed text under that label would be a fake AI
+/// reading of what the user wrote.
 class _ThisWeek extends StatelessWidget {
   const _ThisWeek({required this.entries});
 
@@ -621,6 +650,9 @@ class _ThisWeek extends StatelessWidget {
     final written = {for (final entry in week) _day(entry.createdAt)};
     return _JournalCard(
       color: AppColors.primaryLight,
+      // The week's feelings in full.
+      onTap: () => Navigator.push(context,
+          MaterialPageRoute(builder: (_) => const EmotionWeekScreen())),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -646,17 +678,20 @@ class _ThisWeek extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           const Divider(height: 1, color: AppColors.softAccent),
-          const SizedBox(height: AppSpacing.md),
-          const _JournalEyebrow(HomeScreen.insightLabel,
-              icon: Icons.auto_awesome, accent: true),
-          const SizedBox(height: AppSpacing.sm),
-          // Mock suggestion for the prototype; replace with the API's.
-          const Text(
-            'Tuần này, bạn có vẻ khá hào hứng với những trải nghiệm mới. '
-            'Những điều bạn chia sẻ cho thấy đây là một tuần có nhiều khoảnh '
-            'khắc vui vẻ. Cảm ơn bạn đã dành thời gian viết nhật ký hôm nay.',
-            style: _Journal.preview,
-          ),
+          const SizedBox(height: 12),
+          Row(children: [
+            const Icon(Icons.show_chart_rounded,
+                size: 20, color: AppColors.primaryAction),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Text(HomeScreen.weekOpen,
+                  style: _Journal.day.copyWith(
+                      color: AppColors.primaryAction,
+                      fontWeight: FontWeight.w600)),
+            ),
+            const Icon(Icons.chevron_right_rounded,
+                color: AppColors.primaryAction),
+          ]),
         ],
       ),
     );
@@ -729,17 +764,14 @@ class _DayDot extends StatelessWidget {
 
 /// A small line above a card's words: what it is and when, with an icon.
 class _JournalEyebrow extends StatelessWidget {
-  const _JournalEyebrow(this.text, {required this.icon, this.accent = false});
+  const _JournalEyebrow(this.text, {required this.icon});
 
   final String text;
   final IconData icon;
 
-  /// In the action colour instead of the secondary text colour.
-  final bool accent;
-
   @override
   Widget build(BuildContext context) {
-    final color = accent ? AppColors.primaryAction : AppColors.textSecondary;
+    const color = AppColors.textSecondary;
     return Row(children: [
       Icon(icon, size: 18, color: color),
       const SizedBox(width: AppSpacing.sm),
@@ -761,6 +793,20 @@ class _SavedItem extends StatelessWidget {
         List<Map<String, dynamic>>.from(savedThisWeekItems.value)..remove(item);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(_quote ? 'Đã bỏ lưu trích dẫn' : 'Đã bỏ lưu phân tích')));
+    if (_quote) {
+      // Let go for good, not only until the next start.
+      _forget(context
+          .getInheritedWidgetOfExactType<OnboardingScope>()
+          ?.store
+          .userId);
+    }
+  }
+
+  Future<void> _forget(String? userId) async {
+    try {
+      await (await SavedQuotes.open(userId: userId))
+          .remove(item['content'] as String? ?? '');
+    } catch (_) {}
   }
 
   Future<void> _copy(BuildContext context) async {
@@ -851,7 +897,7 @@ class _SavedItem extends StatelessWidget {
             Row(children: [
               Expanded(
                   child:
-                      Text('— ${item['author'] ?? ''}', style: _Journal.soft)),
+                      Text('– ${item['author'] ?? ''}', style: _Journal.soft)),
               IconButton(
                 tooltip: 'Bỏ lưu trích dẫn',
                 icon: const Icon(Icons.bookmark,

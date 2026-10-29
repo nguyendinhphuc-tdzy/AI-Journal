@@ -1,9 +1,14 @@
 from fastapi import APIRouter, Depends
 
+from .quota import enforce_ai_quota
+
 from app.schemas.ai import AiTextRequest, GoDeeperResponse, ReflectionResponse
 from .service import AIProvider, get_ai_provider
 
-router = APIRouter(prefix="/ai", tags=["ai"])
+# Never expose mock or Ollama through an unauthenticated AI route.
+router = APIRouter(
+    prefix="/ai", tags=["ai"], dependencies=[Depends(enforce_ai_quota)]
+)
 
 
 @router.post("/go-deeper", response_model=GoDeeperResponse)

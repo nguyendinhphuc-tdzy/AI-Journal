@@ -60,12 +60,13 @@ def _delete_photo_if_present(memory: AlbumMemory, authorization: str | None) -> 
 @router.get("", response_model=list[AlbumRead])
 def list_albums(
     limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100000),
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     items = db.scalars(
         select(Album).where(Album.user_id == user.user_id)
-        .order_by(Album.created_at.desc(), Album.id.desc()).limit(limit)
+        .order_by(Album.created_at.desc(), Album.id.desc()).offset(offset).limit(limit)
     ).all()
     return [_album_read(db, album) for album in items]
 
@@ -130,6 +131,7 @@ def delete_album(
 def list_memories(
     album_id: UUID,
     limit: int = Query(default=100, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100000),
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -140,7 +142,7 @@ def list_memories(
         ).order_by(
             AlbumMemory.display_date.desc(), AlbumMemory.created_at.desc(),
             AlbumMemory.id.desc(),
-        ).limit(limit)
+        ).offset(offset).limit(limit)
     ).all()
 
 

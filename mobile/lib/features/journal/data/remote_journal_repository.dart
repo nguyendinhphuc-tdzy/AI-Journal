@@ -9,7 +9,8 @@ import 'journal_repository.dart';
 ///
 /// This adapter does not upload older local entries or guest content. It is
 /// injected only when an actual SupabaseAuthService session is active AND
-/// JOURNAL_CLOUD_ENABLED=true AND no existing local entries would be hidden.
+/// JOURNAL_CLOUD_ENABLED=true. Existing local entries are exposed explicitly
+/// alongside cloud via CombinedJournalRepository, never silently hidden.
 /// Backend must first deploy Alembic 20261026_08.
 class RemoteJournalRepository extends ChangeNotifier implements JournalRepository {
   RemoteJournalRepository({required this.client, required this.localDrafts});
@@ -185,4 +186,63 @@ class RemoteJournalRepository extends ChangeNotifier implements JournalRepositor
 
   @override
   Future<void> deleteDraft(String key) => localDrafts.deleteDraft(key);
+}
+
+/// Explicit two-source archive for accounts with legacy on-device journals.
+/// New entries go to cloud; existing device IDs remain local, never silently
+/// uploaded, discarded, or hidden behind a feature flag.
+class CombinedJournalRepository extends ChangeNotifier implements JournalRepository {
+  CombinedJournalRepository({required this.local, required this.remote}) {
+    local.addListener(notifyListeners);
+    remote.addListener(notifyListeners);
+  }
+
+  final LocalJournalRepository local;
+  final RemoteJournalRepository remote;
+
+  JournalRepository _owner(String id) {
+    if (id.startsWith('cloud-')) return remote;
+    return local;
+  }
+
+  @override
+  Future<List<JournalEntry>> entries() async {
+    final parts = await Future.wait([local.entries(), remote.entries()]);
+    final entries = [...parts[0], ...parts[1]];
+    entries.sort((a, b) {
+      final date = b.createdAt.compareTo(a.createdAt);
+      return date != 0 ? date : b.id.compareTo(a.id);
+    });
+    return entries;
+  }
+
+  @override
+  Future<JournalEntry?> entry(String id) => _owner(id).entry(id);
+
+  @override
+  Future<JournalEntry> create(JournalContent content) => remote.create(content);
+
+  @override
+  Future<JournalEntry> update(String id, JournalContent content) =>
+      _owner(id).update(id, content);
+
+  @override
+  Future<void> delete(String id) => _owner(id).delete(id);
+
+  @override
+  Future<JournalDraft?> draft(String key) => local.draft(key);
+
+  @override
+  Future<void> saveDraft(String key, JournalDraft draft) =>
+      local.saveDraft(key, draft);
+
+  @override
+  Future<void> deleteDraft(String key) => local.deleteDraft(key);
+
+  @override
+  void dispose() {
+    local.removeListener(notifyListeners);
+    remote.removeListener(notifyListeners);
+    super.dispose();
+  }
 }

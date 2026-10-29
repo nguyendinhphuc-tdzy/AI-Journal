@@ -28,6 +28,7 @@ Map<String, Object?> _memory() => {
   'id': _memoryId, 'album_id': _albumId,
   'title': 'Buổi sáng', 'note': 'Cà phê ở đây',
   'display_date': '2026-10-27', 'place': null,
+  'photo_available': false,
   'created_at': '2026-10-28T00:00:00Z',
   'updated_at': '2026-10-28T00:00:00Z',
 };
@@ -169,6 +170,35 @@ void main() {
     }
   });
 
+  test('photo availability metadata deletes via owner-scoped endpoint', () async {
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'DELETE') return http.Response('', 204);
+        if (request.method == 'PATCH') {
+          return _response({..._memory(), 'photo_available': true});
+        }
+        return _response(_memory());
+      }),
+    );
+    final local = await LocalAlbumRepository.open(userId: 'photo-user');
+    final repo = RemoteAlbumRepository(client: api, localDrafts: local);
+    try {
+      await repo.updateMemory(
+        'cloud-$_albumId', 'cloud-$_memoryId',
+        MemoryContent(note: 'No photo', displayDate: DateTime(2026, 10, 27)),
+      );
+      expect(requests.map((r) => r.method), ['PATCH', 'DELETE']);
+      expect(requests.last.url.path, endsWith('/photo'));
+      expect(requests.last.headers['authorization'], 'Bearer jwt');
+    } finally {
+      repo.dispose();
+      api.close();
+    }
+  });
+
   test('without JWT, private albums fail before network', () async {
     var count = 0;
     final api = ApiClient(
@@ -179,6 +209,85 @@ void main() {
     final repo = RemoteAlbumRepository(client: api, localDrafts: local);
     await expectLater(repo.albums(), throwsA(isA<MissingAccessTokenException>()));
     expect(count, 0);
+    repo.dispose();
+    api.close();
+  });
+  test('album and memory pages above 100 items are fully loaded', () async {
+    String id(int index) =>
+        '00000000-0000-0000-0000-${index.toString().padLeft(12, '0')}';
+    final albums = [
+      for (var i = 1; i <= 105; i++) {..._album(), 'id': id(i)}
+    ];
+    final memories = [
+      for (var i = 1; i <= 105; i++) {..._memory(), 'id': id(i)}
+    ];
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        final offset = int.parse(request.url.queryParameters['offset'] ?? '0');
+        final limit = int.parse(request.url.queryParameters['limit'] ?? '100');
+        final items = request.url.path.endsWith('/memories') ? memories : albums;
+        return _response(items.skip(offset).take(limit).toList());
+      }),
+    );
+    final local = await LocalAlbumRepository.open(userId: 'owner');
+    final repo = RemoteAlbumRepository(client: api, localDrafts: local);
+    try {
+      expect(await repo.albums(), hasLength(105));
+      expect(await repo.memories('cloud-$_albumId'), hasLength(105));
+      expect(requests, hasLength(4));
+      expect(requests[1].url.queryParameters['offset'], '100');
+      expect(requests[3].url.queryParameters['offset'], '100');
+      expect(requests.every((r) => r.headers['authorization'] == 'Bearer jwt'),
+          isTrue);
+    } finally {
+      repo.dispose();
+      api.close();
+    }
+  });
+
+  test('two loads at once right after a new photo: both see it', () async {
+    // Home, the album list and the open album all reload on a change, so
+    // the first download of a new photo can be asked for twice at once.
+    final cache = await Directory.systemTemp.createTemp('cloud-photo-cache');
+    addTearDown(() => cache.delete(recursive: true));
+    var downloads = 0;
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/photo')) {
+          downloads++;
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return http.Response.bytes([0xff, 0xd8, 0xff, 0xe0, 9], 200,
+              headers: const {'content-type': 'image/jpeg'});
+        }
+        return _response([
+          {..._memory(), 'photo_available': true}
+        ]);
+      }),
+    );
+    final repo = RemoteAlbumRepository(
+      client: api,
+      localDrafts: await LocalAlbumRepository.open(userId: 'cache-user'),
+      userId: '11111111-2222-3333-4444-555555555555',
+      photoCacheRoot: () async => cache,
+    );
+    final loads = await Future.wait([
+      repo.memories('cloud-$_albumId'),
+      repo.memories('cloud-$_albumId'),
+    ]);
+    for (final memories in loads) {
+      final photo = File(memories.single.content.photoPath!);
+      expect(await photo.readAsBytes(), [0xff, 0xd8, 0xff, 0xe0, 9]);
+    }
+    expect(downloads, 1, reason: 'one download, shared');
+    expect(
+        cache.listSync(recursive: true).whereType<File>().where(
+            (file) => file.path.endsWith('.tmp')),
+        isEmpty,
+        reason: 'no half-written file left behind');
     repo.dispose();
     api.close();
   });
