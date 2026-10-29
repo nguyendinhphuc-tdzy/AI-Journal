@@ -80,6 +80,7 @@ class AIReflectionScreen extends StatefulWidget {
   static const ratingFailed = 'Chưa lưu được đánh giá. Bạn thử lại nhé.';
   static const deviceOnly = 'Phân tích này chỉ lưu trên máy này, không có '
       'trên máy khác khi bạn đăng nhập.';
+  static const backToEntry = 'Quay lại nhật ký';
 
   @override
   State<AIReflectionScreen> createState() => _AIReflectionScreenState();
@@ -364,6 +365,16 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
   void _showInsight() {
     setState(() => _stage = _ReflectionStage.insight);
   }
+
+  /// Opened from an entry (read again, or asked for from an older one):
+  /// the way out is back to it, from the top too.
+  bool get _fromEntry => widget.saved != null || widget.backOnContinue;
+
+  /// The button under the analysis goes straight back to the entry (no
+  /// quote to show first): it says so instead of "Tiếp tục".
+  bool get _closesToEntry =>
+      widget.saved != null ||
+      (widget.backOnContinue && !(_real && _remoteQuote != null));
 
   /// "Tiếp tục" under the analysis: the quote first when there is one.
   void _afterInsight() {
@@ -661,6 +672,20 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
           return Column(children: [
             Expanded(
                 child: ListView(padding: const EdgeInsets.all(24), children: [
+              if (_fromEntry) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    tooltip: AIReflectionScreen.backToEntry,
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.arrow_back),
+                    style: IconButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        minimumSize: const Size(48, 48)),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+              ],
               const AppEyebrow('Góc suy ngẫm', icon: Icons.auto_awesome),
               const SizedBox(height: AppSpacing.sm),
               Semantics(
@@ -871,7 +896,9 @@ class _AIReflectionScreenState extends State<AIReflectionScreen> {
             width: double.infinity,
             child: AppPrimaryButton(
               onPressed: _openingStreak ? null : _afterInsight,
-              label: 'Tiếp tục',
+              label: _closesToEntry
+                  ? AIReflectionScreen.backToEntry
+                  : 'Tiếp tục',
             ),
           ),
         ],
