@@ -313,6 +313,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
             OnboardingStep.features => OnboardingFeaturesScreen(
                 onBack: _back,
                 onContinue: () => _goTo(OnboardingStep.aiAndData),
+                aiAvailable: widget.reflections != null,
               ),
             OnboardingStep.aiAndData => OnboardingAiDataScreen(
                 policy: widget.reflections == null

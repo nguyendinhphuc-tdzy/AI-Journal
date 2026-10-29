@@ -5,6 +5,7 @@ import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_ai_data_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_features_screen.dart';
+import 'package:ai_diary/features/onboarding/presentation/onboarding_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -218,6 +219,19 @@ void main() {
         expect(tester.getRect(_continue).bottom,
             lessThanOrEqualTo(size.height));
         expect(tester.getSize(_continue).height, greaterThanOrEqualTo(48));
+      });
+      testWidgets('OB06\'s long copy keeps Nudaeng at $size, scale $scale',
+          (tester) async {
+        await _pump(tester, size: size, textScale: scale);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.takeException(), isNull);
+        expect(
+            find.descendant(
+                of: find.byType(OnboardingMascot),
+                matching: find.byType(Image)),
+            findsOneWidget,
+            reason: 'never hidden for want of room');
       });
       testWidgets('OB06 without AI fits $size at text scale $scale',
           (tester) async {
