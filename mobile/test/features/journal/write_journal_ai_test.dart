@@ -20,15 +20,23 @@ import '../../support/fake_ai.dart';
 late InMemoryJournalRepository _journals;
 
 /// The editor as a signed-in account has it: AI, and the user's onboarding
-/// answers (here "Chỉ viết nhật ký" and, if given, a goal).
-Future<void> _pump(WidgetTester tester, FakeAi ai, {String? goal}) async {
+/// answers. [aiChoice] is the AI choice recorded in onboarding: none (a
+/// new account, AI on by default), or 'off' for an older account that
+/// chose "Chỉ viết nhật ký".
+Future<void> _pump(WidgetTester tester, FakeAi ai,
+    {String? goal, String? aiChoice}) async {
   SharedPreferences.setMockInitialValues({
     'onboarding.completed': true,
-    'onboarding.ai': 'off',
+    if (aiChoice != null) 'onboarding.ai': aiChoice,
     if (goal != null) 'onboarding.goal': goal,
   });
-  final onboarding = await OnboardingStore.open();
   _journals = InMemoryJournalRepository();
+  await _pumpKeeping(tester, ai);
+}
+
+/// The editor again, with the settings and entries as they are now.
+Future<void> _pumpKeeping(WidgetTester tester, FakeAi ai) async {
+  final onboarding = await OnboardingStore.open();
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = const Size(412, 915);
   addTearDown(tester.view.reset);
@@ -127,7 +135,7 @@ void main() {
     });
   });
 
-  testWidgets('Signed in: AI reflects on save even after "Chỉ viết nhật ký"',
+  testWidgets('Signed in: AI is on by default and reflects on save',
       (tester) async {
     final ai = FakeAi();
     await _pump(tester, ai);
@@ -145,6 +153,32 @@ void main() {
     expect(find.text('Điều gì giúp bạn thấy nhẹ lòng nhất hôm nay?'),
         findsOneWidget);
     expect(await _journals.entries(), hasLength(1));
+  });
+
+  testWidgets('An older account that chose "Chỉ viết nhật ký" stays off: '
+      'nothing sent, until it turns AI on in Hồ sơ', (tester) async {
+    final fake = FakeAi();
+    await _pump(tester, fake, aiChoice: 'off');
+    await tester.enterText(find.byType(TextField), 'Riêng tư.');
+    await tester.pump();
+    await _ask(tester);
+    expect(find.text(WriteJournalScreen.aiOff), findsOneWidget);
+    await _save(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(AiReflectionScreen), findsNothing);
+    expect(fake.deeperSent, isEmpty);
+    expect(fake.reflectionSent, isEmpty);
+    expect(await _journals.entries(), hasLength(1));
+
+    // Turned on in Hồ sơ: AI from then on.
+    await (await OnboardingStore.open()).saveAiInApp(true);
+    await tester.pumpWidget(const SizedBox());
+    await _pumpKeeping(tester, fake);
+    await tester.enterText(find.byType(TextField), 'Giờ thì bật.');
+    await _save(tester);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byType(AiReflectionScreen), findsOneWidget);
+    expect(fake.reflectionSent, hasLength(1));
   });
 
   testWidgets('Nhìn lại cùng bạn: the AI asks from what was written',
