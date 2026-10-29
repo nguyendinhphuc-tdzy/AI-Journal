@@ -291,4 +291,128 @@ void main() {
     repo.dispose();
     api.close();
   });
+
+  test('one failed private photo does not hide other memories', () async {
+    final cache = await Directory.systemTemp.createTemp('album-partial');
+    addTearDown(() => cache.delete(recursive: true));
+    final broken = '11111111-2222-3333-4444-555555555556';
+    final uid = '11111111-2222-3333-4444-555555555555';
+    var downloads = 0;
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/photo')) {
+          downloads++;
+          if (request.url.path.contains(broken)) {
+            return _response({'detail': 'image unavailable'}, 503);
+          }
+          return http.Response.bytes([0xff, 0xd8, 0xff, 0xe0, 7], 200);
+        }
+        return _response([
+          {..._memory(), 'photo_available': true},
+          {..._memory(), 'id': broken, 'photo_available': true},
+        ]);
+      }),
+    );
+    final repo = RemoteAlbumRepository(
+      client: api,
+      localDrafts: await LocalAlbumRepository.open(userId: uid),
+      userId: uid, photoCacheRoot: () async => cache,
+    );
+    try {
+      final items = await repo.memories('cloud-$_albumId');
+      expect(items, hasLength(2));
+      expect(await File(items.first.content.photoPath!).exists(), isTrue);
+      expect(items.last.content.photoPath, isNotNull);
+      expect(await File(items.last.content.photoPath!).exists(), isFalse);
+      await repo.memories('cloud-$_albumId');
+      expect(downloads, 3, reason: 'good image cached, failed image retried');
+    } finally {
+      repo.dispose();
+      api.close();
+    }
+  });
+
+  test('editing a cloud memory without changing its photo skips reupload',
+      () async {
+    final uid = '11111111-2222-3333-4444-555555555555';
+    final cache = await Directory.systemTemp.createTemp('album-no-reupload');
+    addTearDown(() => cache.delete(recursive: true));
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('/photo')) {
+          return http.Response.bytes([0xff, 0xd8, 0xff, 0xe0, 7], 200);
+        }
+        if (request.method == 'GET' &&
+            request.url.path.endsWith('/memories')) {
+          // GET /memories returns a JSON array, even for one memory.
+          return _response([{..._memory(), 'photo_available': true}]);
+        }
+        if (request.method == 'PATCH') {
+          return _response({..._memory(), 'photo_available': true});
+        }
+        return _response({..._memory(), 'photo_available': true});
+      }),
+    );
+    final repo = RemoteAlbumRepository(
+      client: api,
+      localDrafts: await LocalAlbumRepository.open(userId: uid),
+      userId: uid, photoCacheRoot: () async => cache,
+    );
+    try {
+      final old = (await repo.memories('cloud-$_albumId')).single;
+      final edited = await repo.updateMemory(
+        'cloud-$_albumId', old.id,
+        MemoryContent(note: 'Edited note', photoPath: old.content.photoPath,
+            displayDate: old.content.displayDate),
+      );
+      expect(edited.content.photoPath, old.content.photoPath);
+      expect(requests.where((r) => r.method == 'PATCH'), hasLength(1));
+      expect(requests.where((r) => r.method == 'PUT'), isEmpty);
+      expect(requests.where((r) => r.method == 'DELETE'), isEmpty);
+    } finally {
+      repo.dispose();
+      api.close();
+    }
+  });
+
+  test('create then edit with same picked photo uploads only once', () async {
+    final folder = await Directory.systemTemp.createTemp('album-new-photo');
+    addTearDown(() => folder.delete(recursive: true));
+    final file = File('${folder.path}/photo.jpg');
+    await file.writeAsBytes([0xff, 0xd8, 0xff, 0xe0, 5]);
+    final requests = <http.Request>[];
+    final api = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      client: MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'PUT') return _response({});
+        return _response({
+          ..._memory(),
+          'photo_available': request.method == 'PATCH',
+        }, request.method == 'POST' ? 201 : 200);
+      }),
+    );
+    final repo = RemoteAlbumRepository(
+      client: api,
+      localDrafts: await LocalAlbumRepository.open(userId: 'new-photo'),
+    );
+    try {
+      final created = await repo.createMemory('cloud-$_albumId',
+          MemoryContent(note: 'First', photoPath: file.path,
+              displayDate: DateTime(2026, 10, 27)));
+      await repo.updateMemory('cloud-$_albumId', created.id,
+          MemoryContent(note: 'Edited', photoPath: file.path,
+              displayDate: created.content.displayDate));
+      expect(requests.where((r) => r.method == 'PUT'), hasLength(1));
+      expect(requests.where((r) => r.method == 'PATCH'), hasLength(1));
+    } finally {
+      repo.dispose();
+      api.close();
+    }
+  });
+
 }

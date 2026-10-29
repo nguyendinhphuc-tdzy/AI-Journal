@@ -74,10 +74,12 @@ void main() {
     }
     // Version 2 says what really happens: sent on save and "Nhìn lại cùng
     // bạn", and Hồ sơ turns it off.
-    expect(DataPolicy.localOllama.version, 'local-ollama-demo-2');
-    expect(DataPolicy.localOllama.aiRequest, contains('Khi bạn lưu nhật ký'));
+    expect(DataPolicy.localOllama.version, 'local-ollama-demo-3');
+    expect(DataPolicy.localOllama.aiRequest, contains('việc lưu nhật ký'));
     expect(DataPolicy.localOllama.aiRequest, contains('Nhìn lại cùng bạn'));
     expect(DataPolicy.aiOffNote, contains('tắt phản hồi AI trong Hồ sơ'));
+    expect(DataPolicy.localOllama.aiRequest, contains('trên thiết bị'));
+    expect(DataPolicy.localOllama.aiRequest, contains('không phải chẩn đoán'));
   });
 
   for (final ai in [true, false]) {

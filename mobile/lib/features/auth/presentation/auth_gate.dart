@@ -79,6 +79,8 @@ class _AuthGateState extends State<AuthGate> {
   StreamSubscription<String?>? _subscription;
   late final Future<GuestModeStore> _guestStore = GuestModeStore.open();
   late String? _userId = widget.auth.currentUserId;
+  late final SupabaseSignInAdapter _signInService =
+      SupabaseSignInAdapter(widget.auth);
   bool _guestReady = false;
   bool _guestSelected = false;
   String? _localError;
@@ -104,6 +106,13 @@ class _AuthGateState extends State<AuthGate> {
           _userId = id;
           _guestSelected = id == null ? _guestSelected : false;
         });
+      }
+    }, onError: (Object error, StackTrace stack) {
+      // OAuth can fail after returning from an external browser; surface a
+      // helpful error on the login screen rather than silently ignoring it.
+      if (mounted) {
+        setState(() => _localError =
+            'Đăng nhập chưa hoàn tất. Vui lòng thử lại.');
       }
     });
   }
@@ -194,7 +203,7 @@ class _AuthGateState extends State<AuthGate> {
       theme: AppTheme.light,
       scrollBehavior: const AppScrollBehavior(),
       home: OnboardingSignInScreen(
-        service: SupabaseSignInAdapter(widget.auth),
+        service: _signInService,
         realAuth: true,
         initialError: _localError,
         onBack: () {},

@@ -50,9 +50,15 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<void> verifyPhoneOtp(String phone, String otp) async {
-    await client.auth.verifyOTP(
+    if (!AppConfig.phoneOtpEnabled) {
+      throw const AuthException('SMS OTP chưa được bật.');
+    }
+    final response = await client.auth.verifyOTP(
       phone: phone, token: otp, type: OtpType.sms,
     );
+    if (response.session == null) {
+      throw const AuthException('Chưa xác nhận được phiên đăng nhập OTP.');
+    }
   }
 
   @override

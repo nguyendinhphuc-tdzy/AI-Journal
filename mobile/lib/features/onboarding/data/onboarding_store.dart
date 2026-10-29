@@ -117,10 +117,14 @@ class OnboardingStore {
     }
   }
 
-  /// Hồ sơ's "Phản hồi AI": AI in the app (on save, "Nhìn lại cùng bạn")
-  /// for a signed-in account. On unless turned off there; the onboarding
-  /// choice does not turn it off.
-  bool get aiInApp => _prefs.getString(_key(_aiInAppKey)) != 'off';
+  /// AI defaults on for new signed-in users, but a legacy account which
+  /// explicitly selected "Chỉ viết nhật ký" must remain OFF until it opts
+  /// in via Profile. Never silently undo a previous privacy choice.
+  bool get aiInApp => switch (_prefs.getString(_key(_aiInAppKey))) {
+        'on' => true,
+        'off' => false,
+        _ => aiEnabled != false,
+      };
 
   Future<void> saveAiInApp(bool on) =>
       _prefs.setString(_key(_aiInAppKey), on ? 'on' : 'off');

@@ -32,6 +32,10 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
   /// screens at once (Home, the album list, the open album), and a new photo
   /// is not cached yet: they share one download instead of racing on it.
   final _downloads = <String, Future<void>>{};
+  /// A newly uploaded image is still at its original device path until
+  /// the next cloud fetch caches it. Edits during this session must not
+  /// re-upload the exact same image.
+  final _uploadedPaths = <String, String>{};
 
   static const _prefix = 'cloud-';
 
@@ -199,10 +203,16 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     final revision = memory.updatedAt.microsecondsSinceEpoch;
     final path = '${folder.path}/$stem-$revision.private';
     if (!await File(path).exists()) {
-      await (_downloads[path] ??=
-          _download(memory, path).whenComplete(() {
-        _downloads.remove(path);
-      }));
+      try {
+        await (_downloads[path] ??=
+            _download(memory, path).whenComplete(() {
+          _downloads.remove(path);
+        }));
+      } catch (_) {
+        // A failed image must not hide this memory or the entire album.
+        // Preserve the private cache path so an edit does not delete it.
+        // Opening the album again retries this download.
+      }
     }
     return Memory(
       id: memory.id,
@@ -338,6 +348,7 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     if (content.photoPath case final path?) {
       try {
         await _uploadPhoto(albumId, saved.id, path);
+        _uploadedPaths[_id(saved.id, entity: 'memory')] = path;
       } catch (_) {
         // Avoid duplicate note-only memories after a failed photo upload.
         await deleteMemory(albumId, saved.id);
@@ -356,6 +367,20 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     );
   }
 
+  /// Detect this account's cloud cache file; it is not a newly selected image.
+  bool _isCachedPhoto(String memoryId, String path) {
+    final uid = userId;
+    if (uid == null || !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(uid)) {
+      return false;
+    }
+    final stem = _id(memoryId, entity: 'memory');
+    final normalized = path.replaceAll('\\', '/');
+    return RegExp(
+      '/cloud_memory_photos/${RegExp.escape(uid)}/'
+      '${RegExp.escape(stem)}-[0-9]+[.]private\$',
+    ).hasMatch(normalized);
+  }
+
   @override
   Future<Memory> updateMemory(
     String albumId, String memoryId, MemoryContent content,
@@ -368,7 +393,12 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     );
     final saved = _memory(raw);
     if (content.photoPath case final path?) {
-      await _uploadPhoto(albumId, memoryId, path);
+      final id = _id(memoryId, entity: 'memory');
+      if (!_isCachedPhoto(memoryId, path) &&
+          _uploadedPaths[id] != path) {
+        await _uploadPhoto(albumId, memoryId, path);
+        _uploadedPaths[id] = path;
+      }
     } else if (raw['photo_available'] == true) {
       await client.deleteNoContent(_photoUrl(albumId, memoryId));
     }
@@ -391,6 +421,7 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
       '${_id(memoryId, entity: 'memory')}',
       requireAuth: true,
     );
+    _uploadedPaths.remove(_id(memoryId, entity: 'memory'));
     notifyListeners();
   }
 

@@ -1,5 +1,7 @@
-import '../../auth/data/auth_service.dart';
+import 'dart:async';
 import 'dart:convert';
+
+import '../../auth/data/auth_service.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -132,11 +134,60 @@ class SupabaseSignInAdapter implements SignInService {
     _user.value = SignedInUser(method: SignInMethod.email, email: email);
   }
 
-  @override
-  Future<void> signInGoogle() => auth.signInGoogle();
+  void Function()? _cancelOAuthWait;
+
+  /// Stop waiting locally. The external provider could still finish a login
+  /// if its browser tab remains open; callers must not claim it was revoked.
+  void cancelOAuthWait() => _cancelOAuthWait?.call();
+
+  /// Subscribe BEFORE launching the browser: a fast deep-link callback can
+  /// otherwise race the listener. Opening a browser is never a login.
+  Future<void> _awaitOAuth(Future<void> Function() openBrowser) async {
+    if (_cancelOAuthWait != null) {
+      throw const SignInFailed('Đang chờ một lần đăng nhập khác.');
+    }
+    final event = Completer<Object?>();
+    _cancelOAuthWait = () {
+      if (!event.isCompleted) event.complete(false);
+    };
+    final subscription = auth.userChanges.listen(
+      (id) {
+        if (id != null && !event.isCompleted) event.complete(true);
+      },
+      onError: (Object error, StackTrace stack) {
+        if (!event.isCompleted) event.complete(error);
+      },
+    );
+    try {
+      await openBrowser();
+      if (auth.currentUserId != null) return;
+      final result = await event.future.timeout(
+        const Duration(minutes: 2),
+        onTimeout: () => const SignInFailed(
+          'Không nhận được phiên đăng nhập. Quay lại ứng dụng rồi thử lại.',
+        ),
+      );
+      if (result == true && auth.currentUserId != null) return;
+      if (result is SignInFailed) throw result;
+      if (result == false) {
+        throw const SignInFailed(
+          'Đã dừng chờ. Hãy đóng trang đăng nhập bên ngoài nếu còn mở.',
+        );
+      }
+      throw const SignInFailed(
+        'Đăng nhập không hoàn tất. Kiểm tra tài khoản rồi thử lại.',
+      );
+    } finally {
+      _cancelOAuthWait = null;
+      await subscription.cancel();
+    }
+  }
 
   @override
-  Future<void> signInFacebook() => auth.signInFacebook();
+  Future<void> signInGoogle() => _awaitOAuth(auth.signInGoogle);
+
+  @override
+  Future<void> signInFacebook() => _awaitOAuth(auth.signInFacebook);
 
   @override
   Future<void> signOut() => auth.signOut();

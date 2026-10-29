@@ -12,6 +12,7 @@ class _FakeAuth implements AuthService {
   String? lastOtp;
   int signupCalls = 0;
   int facebookCalls = 0;
+  int otpRequests = 0;
 
   @override
   String? get currentUserId => null;
@@ -30,6 +31,7 @@ class _FakeAuth implements AuthService {
   @override
   Future<void> requestPhoneOtp(String phone) async {
     lastPhone = phone;
+    otpRequests++;
   }
   @override
   Future<void> verifyPhoneOtp(String phone, String otp) async {
@@ -75,7 +77,9 @@ void main() {
       (tester) async {
     final auth = _FakeAuth();
     addTearDown(auth.controller.close);
-    await tester.pumpWidget(MaterialApp(home: AuthScreen(auth: auth)));
+    await tester.pumpWidget(MaterialApp(
+      home: AuthScreen(auth: auth, phoneOtpEnabled: true),
+    ));
     await tester.tap(find.text('Điện thoại'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '+84901234567');
@@ -114,6 +118,37 @@ void main() {
     await tester.tap(facebookButton);
     await tester.pumpAndSettle();
     expect(auth.facebookCalls, 1);
+  });
+
+  testWidgets('Phone OTP is hidden when no SMS provider is configured',
+      (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(home: AuthScreen(auth: auth)));
+    expect(find.text('Điện thoại'), findsNothing);
+    expect(find.text('Gửi mã SMS'), findsNothing);
+    expect(auth.otpRequests, 0);
+  });
+
+  testWidgets('Resend SMS is rate limited on the client', (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(
+      home: AuthScreen(auth: auth, phoneOtpEnabled: true,
+          startWithPhone: true),
+    ));
+    await tester.enterText(find.byType(TextField).first, '+84901234567');
+    await tester.ensureVisible(find.text('Gửi mã SMS'));
+    await tester.tap(find.text('Gửi mã SMS'));
+    await tester.pumpAndSettle();
+    expect(auth.otpRequests, 1);
+    final resend = find.text('Gửi lại mã OTP');
+    await tester.ensureVisible(resend);
+    await tester.tap(resend);
+    await tester.pumpAndSettle();
+    expect(auth.otpRequests, 1);
+    expect(find.textContaining('giây trước khi yêu cầu mã mới'),
+        findsOneWidget);
   });
 
 }
