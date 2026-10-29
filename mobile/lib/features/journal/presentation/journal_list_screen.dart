@@ -10,6 +10,8 @@ import '../data/journal_mood.dart';
 import '../data/journal_repository.dart';
 import '../journal_scope.dart';
 import '../../sound/app_sound.dart';
+import '../../onboarding/data/onboarding_scope.dart';
+import '../data/analysis_archive.dart';
 import 'delete_entry_dialog.dart';
 import 'write_journal_screen.dart';
 
@@ -97,8 +99,17 @@ class _JournalListScreenState extends State<JournalListScreen> {
       context, MaterialPageRoute(builder: (_) => const WriteJournalScreen()));
 
   /// Asks first; the list reloads itself once the store changed.
+  /// The entry goes, and with it the analysis kept for it.
   void _delete(JournalEntry entry) => DeleteEntryDialog.show(context,
-      entry: entry, onConfirm: () => _journals!.delete(entry.id));
+      entry: entry, onConfirm: () async {
+        // Read before the wait: this screen may be gone after it.
+        final userId = context
+            .getInheritedWidgetOfExactType<OnboardingScope>()
+            ?.store
+            .userId;
+        await _journals!.delete(entry.id);
+        await (await AnalysisArchive.open(userId: userId)).remove(entry.id);
+      });
 
   @override
   Widget build(BuildContext context) {

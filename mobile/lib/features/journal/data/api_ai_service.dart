@@ -49,6 +49,23 @@ class AiAnalysis {
 
   final AiQuote? quote;
 
+  /// The same fields [AiAnalysis.fromJson] reads, to keep it.
+  Map<String, Object?> toJson() => {
+        'emotion': emotion,
+        'observation': observation,
+        'reflection': reflection,
+        'question': question,
+        if (title != null) 'title': title,
+        if (analysis != null) 'analysis': analysis,
+        if (topics.isNotEmpty) 'topics': topics,
+        if (quote case final quote?)
+          'quote': {
+            'text': quote.text,
+            'author': quote.author,
+            if (quote.source != null) 'source': quote.source,
+          },
+      };
+
   factory AiAnalysis.fromJson(Map<String, dynamic> json) {
     String requiredText(String key) {
       final value = json[key];

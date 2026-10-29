@@ -10,6 +10,7 @@ import '../../../core/widgets/app_ui.dart';
 import '../../../navigation/app_shell.dart';
 import '../data/journal_entry.dart';
 import '../journal_scope.dart';
+import '../data/analysis_archive.dart';
 import '../data/api_ai_service.dart';
 import '../../onboarding/data/onboarding_scope.dart';
 import '../../onboarding/data/onboarding_store.dart';
@@ -40,6 +41,7 @@ class WriteJournalScreen extends StatefulWidget {
   /// is still allowed.
   static const deepNudgeAfter = 5;
   static const deepNudge = 'Bạn đã đi khá sâu rồi, lưu lại nhé?';
+  static const reviewLabel = 'Xem phân tích AI';
   static const confirmTitle = 'Bạn đã hoàn tất chưa?';
   static const confirmBody =
       'Nhật ký sẽ được lưu. Bạn vẫn có thể mở lại để viết tiếp từ Trang chủ.';
@@ -80,6 +82,36 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
     // Back to a page written before.
     if (widget.entry != null) AppSound.instance.play(SoundCue.pageTurn);
     _loadPreferences();
+    _loadKeptAnalysis();
+  }
+
+  /// The analysis kept for the entry being written again, to read again.
+  SavedAnalysis? _kept;
+
+  Future<void> _loadKeptAnalysis() async {
+    final entry = widget.entry;
+    if (entry == null) return;
+    final userId =
+        context.getInheritedWidgetOfExactType<OnboardingScope>()?.store.userId;
+    try {
+      final kept = (await AnalysisArchive.open(userId: userId)).of(entry.id);
+      if (mounted && kept != null) setState(() => _kept = kept);
+    } catch (_) {}
+  }
+
+  void _review(SavedAnalysis kept) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final entry = _saved ?? widget.entry;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AiReflectionScreen.review(
+          journalContent: entry?.body ?? _entryText,
+          saved: kept,
+          entry: entry,
+        ),
+      ),
+    );
   }
 
   bool get _hasFollowUp => _deeper.isNotEmpty;
@@ -376,6 +408,7 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
               (question: round.question, answer: round.answer.text),
           ],
           remote: ai,
+          entry: _saved,
         ),
       ),
     );
@@ -435,6 +468,20 @@ class _WriteJournalScreenState extends State<WriteJournalScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
+                                  if (_kept case final kept?) ...[
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton.icon(
+                                        onPressed: () => _review(kept),
+                                        icon: const Icon(
+                                            Icons.auto_awesome_outlined,
+                                            size: 18),
+                                        label: const Text(
+                                            WriteJournalScreen.reviewLabel),
+                                      ),
+                                    ),
+                                    const SizedBox(height: AppSpacing.xs),
+                                  ],
                                   _buildPrompt(WriteJournalScreen.prompt),
                                   const SizedBox(height: AppSpacing.md),
                                   // Each question asked: what was written
