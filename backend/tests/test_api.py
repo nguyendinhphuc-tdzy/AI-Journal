@@ -1656,3 +1656,53 @@ def test_quotes_are_scoped_and_weekly_chart_uses_real_analysis_only():
         assert client.delete(f"/api/v1/saved-quotes/{qid}").status_code == 204
     finally:
         app.dependency_overrides.clear()
+
+
+
+def test_weekly_narrative_caches_and_invalidates_with_journal_updates():
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    class NarrativeAI(MockAIProvider):
+        calls = 0
+
+        def summarize_week(self, aggregate_json: str) -> str:
+            self.calls += 1
+            assert "This is raw journal text" not in aggregate_json
+            return "Tuần này bạn có những khoảnh khắc bình yên."
+
+    user = AuthenticatedUser(user_id=uuid4(), email="narrative@example.com")
+    provider = NarrativeAI()
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+    try:
+        diary = client.post("/api/v1/journals", json={
+            "content": "This is raw journal text",
+            "mood": "Bình yên",
+        }).json()
+        assert client.post(f"/api/v1/journals/{diary['id']}/analysis").status_code == 200
+        now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+        monday = now - timedelta(days=now.weekday())
+        url = f"/api/v1/insights/week?start={monday}"
+        assert client.get(url).json()["summary_status"] == "not_requested"
+        result = client.get(url + "&generate_summary=true")
+        assert result.status_code == 200, result.text
+        assert result.json()["summary_status"] == "ready"
+        assert "bạn" in result.json()["summary"]
+        assert provider.calls == 1
+
+        cached = client.get(url)
+        assert cached.status_code == 200
+        assert cached.json()["summary_status"] == "ready"
+        assert provider.calls == 1
+        # A journal edit invalidates the narrative and its prior analysis.
+        assert client.put(f"/api/v1/journals/{diary['id']}",
+                          json={"content": "Now it changed"}).status_code == 200
+        after = client.get(url)
+        assert after.status_code == 200
+        assert after.json()["summary"] is None
+        assert after.json()["summary_status"] == "no_data"
+        assert provider.calls == 1
+    finally:
+        app.dependency_overrides.clear()

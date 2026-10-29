@@ -34,7 +34,6 @@ def get_week(
         description="Explicitly allow sending aggregates to Ollama (no raw entries)"),
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    provider: AIProvider = Depends(get_ai_provider),
 ):
     if start.weekday() != 0:
         raise HTTPException(422, "start must be a Monday")
@@ -116,7 +115,9 @@ def get_week(
                         "days": [d.model_dump(mode="json") for d in days],
                         "top_emotions": [e.model_dump() for e in top],
                     }, ensure_ascii=False)
-                    generated = provider.summarize_week(aggregate)
+                    # Provider selection is lazy: existing chart data must
+                    # still work when Ollama is offline or not configured.
+                    generated = get_ai_provider().summarize_week(aggregate)
                 finally:
                     gate.close()
             except HTTPException as exc:
