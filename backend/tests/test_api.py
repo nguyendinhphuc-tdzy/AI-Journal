@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261028_15"
+    assert revision == "20261029_16"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -54,6 +54,9 @@ def test_migration_applied():
     assert "journal_places" in tables
     assert "albums" in tables
     assert "album_memories" in tables
+    assert "journal_analyses" in tables
+    assert "saved_quotes" in tables
+    assert "weekly_insights" in tables
 
 
 def test_ai_requires_authentication_in_all_provider_modes(monkeypatch):
@@ -1506,5 +1509,150 @@ def test_community_disabled_by_default_and_moderation():
         app.dependency_overrides[get_current_user] = lambda: a
         assert client.delete(f"/api/v1/community/posts/{pid}").status_code == 204
         assert client.get("/api/v1/community/feed").json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+
+def test_ai_emotions_match_flutter_scale_without_fabricating_unknown():
+    from app.modules.ai.emotions import classify_emotion
+
+    assert classify_emotion("Buồn chán") == ("sad", 25)
+    assert classify_emotion("Bình yên") == ("calm", 80)
+    assert classify_emotion("Không vui") == (None, None)
+    assert classify_emotion("Nặng nề nhưng tìm thấy sự dịu nhẹ") == ("mixed", 60)
+    assert classify_emotion("Không rõ cảm xúc gì") == (None, None)
+
+
+def test_analysis_routes_auth_and_saved_journal_version_lifecycle():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+    a = AuthenticatedUser(user_id=uuid4(), email="analyze-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="analyze-b@example.com")
+    app.dependency_overrides.clear()
+    try:
+        for path in ("/api/v1/saved-quotes", "/api/v1/insights/week?start=2026-10-26",
+                     "/api/v1/journals/1/analysis"):
+            assert client.get(path).status_code == 401
+        assert client.post("/api/v1/journals/1/analysis").status_code == 401
+        app.dependency_overrides[get_current_user] = lambda: a
+        app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+        saved = client.post("/api/v1/journals", json={
+            "title": "Memory", "content": "My diary from yesterday",
+            "mood": "Bình yên",
+        })
+        assert saved.status_code == 201, saved.text
+        jid = saved.json()["id"]
+        absent = client.get(f"/api/v1/journals/{jid}/analysis")
+        assert absent.status_code == 404
+        created = client.post(f"/api/v1/journals/{jid}/analysis")
+        assert created.status_code == 200, created.text
+        payload = created.json()
+        assert payload["analysis"]["emotion"] == "Bình yên"
+        assert payload["analysis"]["mood_group"] == "calm"
+        assert payload["analysis"]["mood_score"] == 80
+        assert payload["body_version"] == 1 and payload["stale"] is False
+        # An accidental repeat must not re-infer and must not duplicate rows.
+        assert client.post(f"/api/v1/journals/{jid}/analysis").json()["id"] == payload["id"]
+        listing = client.get("/api/v1/journals?include=analysis")
+        assert listing.status_code == 200, listing.text
+        entry = next(x for x in listing.json()["items"] if x["id"] == jid)
+        assert entry["analysis"]["id"] == payload["id"]
+        assert client.get("/api/v1/journals?include=anything").status_code == 422
+        feedback = client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "up"
+        })
+        assert feedback.status_code == 200 and feedback.json()["feedback"] == "up"
+        assert client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "invalid"
+        }).status_code == 422
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/journals/{jid}/analysis").status_code == 404
+        assert client.post(f"/api/v1/journals/{jid}/analysis").status_code == 404
+        assert client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "down"
+        }).status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        edit = client.put(f"/api/v1/journals/{jid}", json={"content": "Updated diary"})
+        assert edit.status_code == 200 and edit.json()["body_version"] == 2
+        old = client.get(f"/api/v1/journals/{jid}/analysis")
+        assert old.json()["stale"] is True
+        assert client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "down"
+        }).status_code == 409
+        new = client.post(f"/api/v1/journals/{jid}/analysis")
+        assert new.status_code == 200, new.text
+        assert new.json()["body_version"] == 2
+        assert new.json()["feedback"] is None
+        assert client.delete(f"/api/v1/journals/{jid}").status_code == 204
+        assert client.get(f"/api/v1/journals/{jid}/analysis").status_code == 404
+        from sqlalchemy import select
+        from app.core.database import SessionLocal
+        from app.models.journal_analysis import JournalAnalysis
+        with SessionLocal() as db:
+            assert db.scalar(select(JournalAnalysis).where(
+                JournalAnalysis.journal_id == jid,
+            )) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_quotes_are_scoped_and_weekly_chart_uses_real_analysis_only():
+    from datetime import timedelta, datetime
+    from zoneinfo import ZoneInfo
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+    a = AuthenticatedUser(user_id=uuid4(), email="insights-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="insights-b@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        bad = client.post("/api/v1/saved-quotes", json={
+            "text": "  ", "author": "Someone"
+        })
+        assert bad.status_code == 422
+        q = client.post("/api/v1/saved-quotes", json={
+            "text": "A verified quote from the client's catalog",
+            "author": "Example author",
+        })
+        assert q.status_code == 201, q.text
+        qid = q.json()["id"]
+        assert client.post("/api/v1/saved-quotes", json={
+            "text": "A verified quote from the client's catalog",
+            "author": "Example author",
+        }).status_code == 201
+        own = client.get("/api/v1/saved-quotes")
+        assert own.status_code == 200
+        assert len([x for x in own.json()["items"] if x["id"] == qid]) == 1
+
+        journal = client.post("/api/v1/journals", json={
+            "content": "This week I felt peaceful.", "mood": "Bình yên",
+        })
+        jid = journal.json()["id"]
+        from_date = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+        monday = from_date - timedelta(days=from_date.weekday())
+        url = f"/api/v1/insights/week?start={monday.isoformat()}"
+        assert client.get(url).status_code == 200
+        week_before = client.get(url).json()
+        assert week_before["summary"] is None
+        assert sum(d["analyzed_count"] for d in week_before["days"]) == 0
+        assert client.post(f"/api/v1/journals/{jid}/analysis").status_code == 200
+        week = client.get(url)
+        assert week.status_code == 200, week.text
+        body = week.json()
+        assert sum(d["analyzed_count"] for d in body["days"]) == 1
+        assert body["top_emotions"] == [{"mood_group": "calm", "count": 1}]
+        assert any(d["score"] == 80 for d in body["days"])
+        assert body["summary"] is None and body["summary_status"] == "not_requested"
+        no_fake = client.get(url + "&generate_summary=true")
+        assert no_fake.status_code == 200
+        assert no_fake.json()["summary"] is None
+        assert no_fake.json()["summary_status"] == "unavailable"
+        assert client.get("/api/v1/insights/week?start=2026-10-27").status_code == 422
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/saved-quotes").json()["items"] == []
+        assert sum(d["analyzed_count"] for d in client.get(url).json()["days"]) == 0
+        assert client.delete(f"/api/v1/saved-quotes/{qid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/saved-quotes/{qid}").status_code == 204
     finally:
         app.dependency_overrides.clear()
