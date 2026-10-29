@@ -125,7 +125,7 @@ class LocalSavedPlacesStore implements SavedPlacesStore {
 
   @override
   Future<List<CommunityStop>?> stops() =>
-      _read(stopsKey, CommunityStop.fromJson);
+      _read(_key(stopsKey), CommunityStop.fromJson);
 
   @override
   Future<void> keepStops(List<CommunityStop> stops) =>

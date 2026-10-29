@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../auth/data/guest_mode_store.dart';
 import '../../auth/presentation/auth_gate.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -286,9 +287,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
       _storeReady = true;
       final id = AuthScope.maybeOf(context)?.currentUserId;
       _signedIn = id != null;
-      _effectiveLocalStore = id == null
+      // A guest's pins live under the guest's own key, which leaving guest
+      // mode discards; never the old shared key, which outlived every
+      // guest and showed one guest's pins to the next.
+      final owner = id ??
+          (GuestScope.maybeOf(context) != null ? GuestModeStore.userId : null);
+      _effectiveLocalStore = owner == null
           ? widget.savedPlacesStore
-          : LocalSavedPlacesStore(userId: id);
+          : LocalSavedPlacesStore(userId: owner);
       if (_signedIn) {
         _savedPlaces.clear();
         _anonymousPlaces.clear();

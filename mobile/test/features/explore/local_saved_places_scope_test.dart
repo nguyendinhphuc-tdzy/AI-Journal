@@ -23,4 +23,17 @@ void main() {
     expect(prefs.containsKey('users.account-b.explore.savedPlaces'), isTrue);
     expect(prefs.containsKey('explore.savedPlaces'), isFalse);
   });
+
+  test('community stops are read from the key they are kept under', () async {
+    SharedPreferences.setMockInitialValues({
+      // An old shared value: never read for an owner.
+      'explore.communityStops': '[]',
+    });
+    const a = LocalSavedPlacesStore(userId: 'account-a');
+    const b = LocalSavedPlacesStore(userId: 'account-b');
+    expect(await a.stops(), isNull, reason: 'not the shared key');
+    await a.keepStops([]);
+    expect(await a.stops(), isEmpty, reason: 'its own key, kept');
+    expect(await b.stops(), isNull);
+  });
 }
