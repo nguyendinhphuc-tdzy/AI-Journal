@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/data/app_data.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -89,6 +90,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int _promptIndex = 0;
   String? _nickname;
+
+  /// The streak pill shows only a count the server confirmed: never for a
+  /// guest or the device-only demo (as the streak screen), never 0 before
+  /// the account's real count is read.
+  bool _streakVerified = false;
+  bool _streakRequested = false;
   HomeScene _scene = HomeScene.street;
   SceneEffect _effect = SceneEffect.none;
 
@@ -99,6 +106,24 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadScene();
     _loadSavedQuotes();
     HomeSceneSettings.changes.addListener(_loadScene);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final api = StreakApiScope.maybeOf(context)?.client;
+    if (api == null || _streakRequested) return;
+    _streakRequested = true;
+    _loadStreak(api);
+  }
+
+  Future<void> _loadStreak(ApiClient api) async {
+    try {
+      await StreakState.shared.loadFrom(api);
+      if (mounted) setState(() => _streakVerified = true);
+    } catch (_) {
+      // Unreachable or malformed: no pill rather than a made-up number.
+    }
   }
 
   /// The quotes this account kept, back in "Đã lưu" after a restart.
@@ -180,14 +205,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       titleStyle: _Journal.greeting,
                       subtitleStyle: _OnSky.subtitle,
                       trailing: [
-                        ValueListenableBuilder<int>(
-                          valueListenable: StreakState.shared,
-                          builder: (context, count, _) => AppPill(
-                            icon: Icons.local_fire_department_outlined,
-                            label: '$count ngày',
-                            semanticLabel: 'Chuỗi $count ngày liên tiếp',
+                        if (_streakVerified)
+                          ValueListenableBuilder<int>(
+                            valueListenable: StreakState.shared,
+                            builder: (context, count, _) => AppPill(
+                              icon: Icons.local_fire_department_outlined,
+                              label: '$count ngày',
+                              semanticLabel: 'Chuỗi $count ngày liên tiếp',
+                            ),
                           ),
-                        ),
                         Semantics(
                           container: true,
                           label: 'Ảnh đại diện hồ sơ',

@@ -25,7 +25,6 @@ void main() {
         await tester.pumpWidget(const AiDiaryApp());
         await tester.pumpAndSettle();
         final originalHome = tester.element(find.byType(HomeScreen));
-        final expectedStreak = StreakState.shared.nextCount;
         await tester.ensureVisible(find.text('Viết nhật ký'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Viết nhật ký'));
@@ -83,17 +82,20 @@ void main() {
         expect(find.byType(StreakScreen), findsOneWidget);
         expect(ModalRoute.of(tester.element(find.byType(StreakScreen))),
             isA<PageRouteBuilder<void>>());
-        expect(find.text('Bạn đã viết nhật ký $expectedStreak ngày liên tục!'),
-            findsOneWidget);
+        // No account, no server count: the day is celebrated, never a
+        // made-up number of days.
+        expect(find.text('Bạn đã lưu nhật ký hôm nay!'), findsOneWidget);
+        expect(find.textContaining('ngày liên tục'), findsNothing);
         await tester.tap(find.text('Khám phá tiếp'));
         await tester.pumpAndSettle();
         expect(tester.element(find.byType(HomeScreen)), same(originalHome));
-        // Home's streak pill (back at the top of Home): short text, the
-        // full words for screen readers.
+        // Back at the top of Home: no streak pill without an account, as
+        // on the streak screen.
         await tester.drag(find.byKey(const PageStorageKey('home-scroll')),
             const Offset(0, 2000));
         await tester.pumpAndSettle();
-        expect(find.text('$expectedStreak ngày'), findsOneWidget);
+        expect(find.byIcon(Icons.local_fire_department_outlined), findsNothing);
+        expect(find.textContaining(' ngày'), findsNothing);
         expect(
             find.byType(WriteJournalScreen, skipOffstage: false), findsNothing);
         expect(
