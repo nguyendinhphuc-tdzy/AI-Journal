@@ -1,9 +1,9 @@
 """Explicit, private 24-hour friend shares. Never read album notes for recipients."""
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
@@ -12,10 +12,13 @@ from app.models.friendship import Friendship
 from app.models.memory_share import MemoryShare
 from app.models.memory_share_recipient import MemoryShareRecipient
 from app.models.user_profile import UserProfile
+from app.modules.albums.photos_router import validate_image
 from app.modules.friends.router import blocked, pair
+from app.modules.messages.service import deliver_share
 from app.modules.messages.service import deliver_share
 
 router = APIRouter(prefix="/memory-shares", tags=["memory-shares"])
+PHOTO_MAX_BYTES = 3 * 1024 * 1024
 
 class PlacePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -53,6 +56,7 @@ class SharedMemory(BaseModel):
     place: PlacePayload
     category: str | None
     expires_at: datetime
+    has_photo: bool = False
 
 class ReceivedShare(SharedMemory):
     sender_id: UUID
@@ -77,7 +81,21 @@ def active(share: MemoryShare, now: datetime) -> bool:
 def presented(share: MemoryShare) -> dict:
     return dict(share_id=share.id, memory_id=share.memory_id, title=share.title,
                 text=share.text, place=share.place, category=share.category,
-                expires_at=share.expires_at)
+                expires_at=share.expires_at, has_photo=share.photo_type is not None)
+
+def drop_photo(share: MemoryShare) -> None:
+    share.photo = None
+    share.photo_type = None
+
+def readable(db: Session, s: MemoryShare | None, reader: UUID) -> MemoryShare:
+    """The share for its owner or an eligible recipient while active; else 404."""
+    if s is None or not active(s, datetime.now(timezone.utc)):
+        missing()
+    if reader != s.owner_id and (
+        db.get(MemoryShareRecipient, (s.id, reader)) is None or
+        not eligible(db, s.owner_id, reader)):
+        missing()
+    return s
 
 @router.post("", response_model=ShareInfo, status_code=status.HTTP_201_CREATED)
 def create_share(payload: ShareCreate, user: AuthenticatedUser = Depends(get_current_user),
@@ -99,11 +117,17 @@ def create_share(payload: ShareCreate, user: AuthenticatedUser = Depends(get_cur
         if old.memory_id != payload.memory_id:
             raise HTTPException(status_code=422, detail="Replacement memory mismatch")
     now = datetime.now(timezone.utc)
+    # Photos never outlive their 24 hours: the owner's expired ones go now.
+    db.execute(update(MemoryShare).where(
+        MemoryShare.owner_id == user.user_id, MemoryShare.expires_at <= now,
+        MemoryShare.photo_type.is_not(None)).values(photo=None, photo_type=None)
+        .execution_options(synchronize_session=False))
     share = MemoryShare(memory_id=payload.memory_id, owner_id=user.user_id,
         title=payload.title, text=payload.text, place=payload.place.model_dump(),
         category=payload.category, created_at=now, expires_at=now + timedelta(hours=24))
     if old is not None:
         old.revoked_at = now
+        drop_photo(old)
     db.add(share)
     db.flush()
     db.add_all(MemoryShareRecipient(share_id=share.id, owner_id=user.user_id,
@@ -145,14 +169,35 @@ def mine(user: AuthenticatedUser = Depends(get_current_user),
 @router.get("/{share_id}", response_model=SharedMemory)
 def read_shared_memory(share_id: UUID, user: AuthenticatedUser = Depends(get_current_user),
                        db: Session = Depends(get_db)):
+    return presented(readable(db, db.get(MemoryShare, share_id), user.user_id))
+
+@router.put("/{share_id}/photo", status_code=204)
+async def upload_share_photo(share_id: UUID, request: Request,
+                             user: AuthenticatedUser = Depends(get_current_user),
+                             db: Session = Depends(get_db)):
+    """The owner's image for an active share (JPEG/PNG/WebP, at most 3 MB)."""
     s = db.get(MemoryShare, share_id)
-    if s is None or not active(s, datetime.now(timezone.utc)):
+    if s is None or s.owner_id != user.user_id or not active(s, datetime.now(timezone.utc)):
         missing()
-    if user.user_id != s.owner_id and (
-        db.get(MemoryShareRecipient, (s.id, user.user_id)) is None or
-        not eligible(db, s.owner_id, user.user_id)):
-        missing()
-    return presented(s)
+    content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    data = b""
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > PHOTO_MAX_BYTES:
+            raise HTTPException(413, "Photo must not exceed 3 MB")
+    validate_image(data, content_type)
+    s.photo = data
+    s.photo_type = content_type
+    db.commit()
+
+@router.get("/{share_id}/photo")
+def download_share_photo(share_id: UUID, user: AuthenticatedUser = Depends(get_current_user),
+                         db: Session = Depends(get_db)):
+    s = readable(db, db.get(MemoryShare, share_id), user.user_id)
+    if s.photo_type is None or s.photo is None:
+        raise HTTPException(404, "Photo not found")
+    return Response(s.photo, media_type=s.photo_type,
+                    headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
 
 @router.delete("/{share_id}", status_code=204)
 def revoke_share(share_id: UUID, user: AuthenticatedUser = Depends(get_current_user),
@@ -160,6 +205,7 @@ def revoke_share(share_id: UUID, user: AuthenticatedUser = Depends(get_current_u
     s = db.get(MemoryShare, share_id)
     if s is None or s.owner_id != user.user_id:
         missing()
-    if s.revoked_at is None:
-        s.revoked_at = datetime.now(timezone.utc)
+    if s.revoked_at is None or s.photo_type is not None:
+        s.revoked_at = s.revoked_at or datetime.now(timezone.utc)
+        drop_photo(s)
         db.commit()
