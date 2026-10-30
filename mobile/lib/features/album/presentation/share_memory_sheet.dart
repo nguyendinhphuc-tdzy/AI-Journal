@@ -253,7 +253,14 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
     return text.isEmpty ? null : text;
   }
 
-  bool get _hasContent => _content.photoPath != null || _sharedText != null;
+  /// The server needs a description on every post
+  /// ([FriendsSharing.needsText]), photo or not.
+  bool get _needsText =>
+      widget.sharing is FriendsSharing &&
+      (widget.sharing as FriendsSharing).needsText;
+
+  bool get _hasContent =>
+      _sharedText != null || (!_needsText && _content.photoPath != null);
 
   /// What would be posted, or null while something is missing or the
   /// service cannot send it yet.
@@ -615,7 +622,7 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
                   textCapitalization: TextCapitalization.sentences,
                   onChanged: (_) => _changed(() {}),
                   decoration: InputDecoration(
-                    hintText: _content.photoPath == null
+                    hintText: _content.photoPath == null || _needsText
                         ? ShareMemorySheet.textHintNote
                         : ShareMemorySheet.textHintPhoto,
                   ),
