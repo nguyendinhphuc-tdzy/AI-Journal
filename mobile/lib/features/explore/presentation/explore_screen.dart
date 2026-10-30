@@ -13,6 +13,9 @@ import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../data/explore_highlight.dart';
 import '../../social/presentation/friend_space_screen.dart';
+import '../../messages/data/chat_message.dart';
+import '../../messages/messages_scope.dart';
+import '../../messages/presentation/send_place_sheet.dart';
 import '../data/device_location.dart';
 import '../data/explore_places_repository.dart';
 import '../data/place_lookup.dart';
@@ -1105,6 +1108,26 @@ class _ExploreScreenState extends State<ExploreScreen> {
     ));
 
   Future<void> _showShareBottomSheet(SavedPlace place) async {
+    // Signed in: to real friends, as a message each (no private note).
+    final messages = MessagesScope.maybeOf(context);
+    if (messages != null) {
+      try {
+        final recipients = await sendPlaceToFriends(
+            context,
+            messages.repository,
+            SharedPlace(
+              name: place.name,
+              category: place.category,
+              latitude: place.latitude,
+              longitude: place.longitude,
+            ));
+        if (!mounted || recipients == null) return;
+        await _showDeliveryAnimation(recipients);
+      } on SendPlaceFailed catch (failure) {
+        if (mounted) _toast(failure.message);
+      }
+      return;
+    }
     // The friends list here is a sample: never pretend to send a real
     // account's place.
     if (_cloudPlaces != null) {
@@ -1310,8 +1333,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     Expanded(child: _buildSearch()),
                     const SizedBox(width: 12),
                     _buildFriends(),
-                    const SizedBox(width: 8),
-                    _buildInbox(),
+                    // Signed in, messages live in the "Tin nhắn" tab.
+                    if (MessagesScope.maybeOf(context) == null) ...[
+                      const SizedBox(width: 8),
+                      _buildInbox(),
+                    ],
                   ]),
                   const SizedBox(height: 12),
                   _buildMoods(),

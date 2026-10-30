@@ -19,6 +19,8 @@ import '../../album/data/album_unlocks.dart';
 import '../../album/data/memory_share.dart';
 import '../../album/data/album_sharing.dart';
 import '../../social/data/friends_sharing.dart';
+import '../../messages/data/messages_repository.dart';
+import '../../messages/messages_scope.dart';
 import '../../journal/data/api_ai_service.dart';
 import '../../journal/data/remote_journal_repository.dart';
 import '../../onboarding/data/onboarding_scope.dart';
@@ -250,6 +252,12 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
   late final ApiAIService? _ai = _api == null ? null : ApiAIService(_api);
 
   /// A10's audience: the account's friends on the app. Guests have none.
+  /// Messages between friends; guests have none.
+  late final MessagesController? _messages = _api == null
+      ? null
+      : MessagesController(
+          RemoteMessagesRepository(_api, myId: widget.userId));
+
   late final MemorySharing _memorySharing = _api == null
       ? const NoAlbumPublishing() as MemorySharing
       : RemoteFriendsSharing(_api);
@@ -315,6 +323,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
 
   @override
   void dispose() {
+    _messages?.dispose();
     _api?.close();
     super.dispose();
   }
@@ -393,9 +402,13 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           final withStreak = _api == null
               ? withPlaceLookup
               : StreakApiScope(client: _api, child: withPlaceLookup);
-          return _ai == null
+          final messages = _messages;
+          final withMessages = messages == null
               ? withStreak
-              : AiRemoteScope(service: _ai, child: withStreak);
+              : MessagesScope(controller: messages, child: withStreak);
+          return _ai == null
+              ? withMessages
+              : AiRemoteScope(service: _ai, child: withMessages);
         },
       );
 }

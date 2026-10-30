@@ -6,12 +6,13 @@ import '../features/album/presentation/share_memory_sheet.dart';
 import '../features/explore/data/explore_highlight.dart';
 import '../features/explore/presentation/explore_screen.dart';
 import '../features/home/presentation/home_screen.dart';
+import '../features/messages/presentation/messages_screen.dart';
 import 'app_destinations.dart';
 import '../features/study/presentation/study_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialIndex = 0})
-      : assert(initialIndex >= 0 && initialIndex < 4);
+      : assert(initialIndex >= 0 && initialIndex < 5);
 
   final int initialIndex;
 
@@ -31,6 +32,7 @@ class _AppShellState extends State<AppShell> {
         const StudyScreen(),
         AlbumScreen(onShare: _shareToExplore, onUnshare: _unshare),
         ExploreScreen(highlight: _shared),
+        const MessagesScreen(),
       ];
 
   /// A10 → E01: Explore with the new pin and its card open.

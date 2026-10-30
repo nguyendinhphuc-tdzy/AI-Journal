@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../auth/data/auth_service.dart';
+import '../../messages/data/messages_repository.dart';
+import '../../messages/messages_scope.dart';
+import '../../messages/presentation/chat_screen.dart';
+import '../../messages/presentation/messages_screen.dart';
 
 /// Real Supabase-account friendship, found by @username; never sample friends.
 class RealFriendsScreen extends StatefulWidget {
@@ -188,13 +192,20 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
 
   Widget _person(Map<String, dynamic> person,
       {required String label, required VoidCallback? onTap,
-      VoidCallback? secondaryAction, String? secondaryTooltip}) => ListTile(
+      VoidCallback? secondaryAction, String? secondaryTooltip,
+      VoidCallback? onMessage}) => ListTile(
         leading: const CircleAvatar(child: Icon(Icons.person_outline)),
         title: Text(_label(person), maxLines: 1,
             overflow: TextOverflow.ellipsis),
         subtitle: _secondary(person).isNotEmpty
             ? Text(_secondary(person)) : null,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (onMessage != null)
+            IconButton(
+              tooltip: 'Nhắn tin cho ${_label(person)}',
+              onPressed: onMessage,
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+            ),
           if (secondaryAction != null)
             IconButton(
               tooltip: secondaryTooltip,
@@ -205,6 +216,25 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
               child: Text(label)),
         ]),
       );
+
+  /// The conversation with a friend, from the "Tin nhắn" feature.
+  Future<void> _openChat(String userId) async {
+    final messages = MessagesScope.maybeOf(context);
+    if (messages == null) return;
+    try {
+      final conversation = await messages.repository.open(userId);
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => ChatScreen(
+              repository: messages.repository,
+              conversation: conversation,
+              onSeen: messages.seen)));
+    } on MessagesUnavailable {
+      _message(MessagesText.unavailable);
+    } catch (_) {
+      _message(MessagesText.failed);
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -291,7 +321,11 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
                       }
                       return _person(person,
                           label: status == 'pending' ? 'Hủy lời mời' : 'Hủy kết bạn',
-                          onTap: () => _remove(userId));
+                          onTap: () => _remove(userId),
+                          onMessage: status == 'accepted' &&
+                                  MessagesScope.maybeOf(context) != null
+                              ? () => _openChat(userId)
+                              : null);
                     }),
                     const SizedBox(height: 40),
                   ],
