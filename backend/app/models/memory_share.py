@@ -1,8 +1,8 @@
 """Friends-only time-bound Memory shares. No public photo URLs."""
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
-from sqlalchemy import DateTime, ForeignKey, Uuid, String, Text, JSON
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, ForeignKey, LargeBinary, Uuid, String, Text, JSON
+from sqlalchemy.orm import Mapped, deferred, mapped_column
 from app.core.database import Base
 
 
@@ -23,3 +23,7 @@ class MemoryShare(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The share's own image (sent by its owner), served only to the owner and
+    # its recipients while active; loaded only when asked for.
+    photo: Mapped[bytes | None] = deferred(mapped_column(LargeBinary, nullable=True))
+    photo_type: Mapped[str | None] = mapped_column(String(16), nullable=True)

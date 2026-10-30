@@ -93,7 +93,9 @@ Geoapify configuration/availability determines live lookup. Cloud Saved Places a
 | `GET /memory-shares/received?limit=50` | Active authorized shares only with sender_id, display_name, username and shared snapshot; limit 1–100. Map bounds filtering is future work. |
 | `GET /memory-shares/mine?memory_id=UUID` | Current user's active share metadata; optional cloud memory filter. Local-only shares are listed without filter. |
 | `GET /memory-shares/{share_id}` | Authorized shared snapshot only, never memory.note or storage photo key; old legacy shares without snapshot are unreadable. |
-| `DELETE /memory-shares/{share_id}` | Owner only; revoke (204). |
+| `DELETE /memory-shares/{share_id}` | Owner only; revoke (204); the share's photo is deleted with it. |
+| `PUT /memory-shares/{share_id}/photo` | Owner only, active share; raw body JPEG/PNG/WebP (signature checked), at most 3 MB; 204. Replaces the previous photo. Never the album's stored photo or its storage key. |
+| `GET /memory-shares/{share_id}/photo` | Owner or an eligible recipient while active; image bytes with `Cache-Control: private, no-store`; 404 when none. Share reads include `has_photo`. |
 | `POST /community/posts`, `GET /community/feed?limit=20`, `GET /community/mine` | Community posting and feed, when enabled; feed limit 1–50 |
 | `DELETE /community/posts/{post_id}`, `POST /community/posts/{post_id}/reports` | Delete own post / report |
 | `GET /community/moderation/pending`, `POST /community/moderation/{post_id}/{decision}`, `GET /community/moderation/reports` | Moderator-only routes, feature-gated |
