@@ -8,6 +8,8 @@ import '../../../core/widgets/app_ui.dart';
 import '../album_scope.dart';
 import '../data/album.dart';
 import '../data/album_repository.dart';
+import '../data/remote_album_repository.dart';
+import '../data/local_album_cloud_importer.dart';
 import '../data/album_unlocks.dart';
 import '../data/memory_share.dart';
 import 'album_backdrop.dart';
@@ -75,6 +77,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
   var _loading = true;
   var _failed = false;
   var _creating = false;
+  var _importing = false;
 
   /// The album just created: it fades in with a glow.
   String? _newId;
@@ -193,6 +196,86 @@ class _AlbumScreenState extends State<AlbumScreen> {
       ));
   }
 
+  /// Explicit per-account copy only, never automatic background sync.
+  Future<void> _importLocal() async {
+    final source = _repository;
+    if (source is! CombinedAlbumRepository || _importing) return;
+    final candidates = await source.local.albums();
+    if (!mounted || candidates.isEmpty) return;
+    final selected = await showDialog<Album>(
+      context: context,
+      builder: (dialog) => SimpleDialog(
+        title: const Text('Chọn album trên máy để nhập'),
+        children: [
+          for (final album in candidates)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialog, album),
+              child: Text(album.name, maxLines: 2),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || selected == null) return;
+    final importer = LocalAlbumCloudImporter(
+        local: source.local, remote: source.remote);
+    int count;
+    try {
+      count = await importer.validate(selected);
+    } on StateError catch (error) {
+      if (mounted) {
+        _showImportMessage(error.message.toString());
+      }
+      return;
+    } catch (_) {
+      if (mounted) {
+        _showImportMessage('Album có ảnh không hợp lệ hoặc đã mất. '
+            'Không có dữ liệu nào được tải lên.');
+      }
+      return;
+    }
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Nhập album lên Cloud?'),
+        content: Text('Sao chép "${selected.name}" và $count kỷ niệm lên '
+            'tài khoản đang đăng nhập. Ảnh được gửi lên kho riêng tư. '
+            'Album và ảnh gốc trên máy vẫn được giữ nguyên. '
+            'Không chia sẻ cho bạn bè.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Hủy')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Đồng ý nhập')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _importing = true);
+    try {
+      final imported = await importer.importAlbum(selected);
+      if (!mounted) return;
+      _showImportMessage('Đã nhập "${imported.name}" lên Cloud. '
+          'Bản trên máy vẫn được giữ nguyên.');
+      await _load();
+    } on StateError catch (error) {
+      if (mounted) _showImportMessage(error.message.toString());
+    } catch (_) {
+      if (mounted) {
+        _showImportMessage('Chưa nhập xong. Bản local vẫn còn. '
+            'Kiểm tra album cloud trước khi thử lại để tránh trùng.');
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  void _showImportMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final albums = _albums;
@@ -214,6 +297,25 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 controller: _scroll,
                 slivers: [
                   const SliverToBoxAdapter(child: _Header()),
+                  if (_repository is CombinedAlbumRepository &&
+                      albums != null &&
+                      albums.any((album) => album.id.startsWith('local-')))
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.lg),
+                        child: OutlinedButton.icon(
+                          onPressed: _importing ? null : _importLocal,
+                          icon: _importing
+                              ? const SizedBox(width: 18, height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.cloud_upload_outlined),
+                          label: Text(_importing
+                              ? 'Đang nhập album…'
+                              : 'Nhập album từ máy lên Cloud'),
+                        ),
+                      ),
+                    ),
                   if (_failed && albums != null)
                     SliverToBoxAdapter(
                       child: _Notice(
