@@ -1422,10 +1422,10 @@ def test_friends_only_memory_shares_revoke_expire_and_unfriend():
         memory_id = memory.json()["id"]
         # No share to non-friends, no share without explicit recipients.
         assert client.post("/api/v1/memory-shares", json={
-            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)], "text": "A public caption", "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}
         }).status_code == 422
         assert client.post("/api/v1/memory-shares", json={
-            "memory_id": memory_id, "recipient_ids": []
+            "memory_id": memory_id, "recipient_ids": [], "text": "Caption", "place": {"label": "Park", "latitude": 10, "longitude": 106}
         }).status_code == 422
         assert client.post("/api/v1/friends/requests", json={
             "user_id": str(b.user_id)
@@ -1434,15 +1434,20 @@ def test_friends_only_memory_shares_revoke_expire_and_unfriend():
         assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
         app.dependency_overrides[get_current_user] = lambda: a
         share = client.post("/api/v1/memory-shares", json={
-            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)], "text": "A public caption", "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}
         })
         assert share.status_code == 201, share.text
         sid = share.json()["id"]
         assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 200
+        assert any(row["id"] == sid for row in client.get("/api/v1/memory-shares/mine", params={"memory_id": memory_id}).json())
         app.dependency_overrides[get_current_user] = lambda: b
         view = client.get(f"/api/v1/memory-shares/{sid}")
         assert view.status_code == 200, view.text
-        assert view.json()["note"] == "A private day"
+        assert view.json()["text"] == "A public caption"
+        assert "note" not in view.json()
+        assert "A private day" not in view.text
+        received = client.get("/api/v1/memory-shares/received")
+        assert received.status_code == 200 and any(row["share_id"] == sid for row in received.json())
         assert "photo_path" not in view.json()
         assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 404
         app.dependency_overrides[get_current_user] = lambda: c
@@ -1457,7 +1462,7 @@ def test_friends_only_memory_shares_revoke_expire_and_unfriend():
         assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
         app.dependency_overrides[get_current_user] = lambda: a
         new_share = client.post("/api/v1/memory-shares", json={
-            "memory_id": memory_id, "recipient_ids": [str(b.user_id)]
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)], "text": "A public caption", "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}
         })
         assert new_share.status_code == 201, new_share.text
         sid2 = new_share.json()["id"]
@@ -1815,3 +1820,44 @@ def test_username_discovery_privacy_and_friendship_roundtrip():
             assert db.get(UserProfile, alice.user_id).username == "vytuong"
     finally:
         app.dependency_overrides.clear()
+
+def test_memory_sharing_local_snapshot_and_private_data_never_exposed():
+    from app.core.database import SessionLocal
+    from app.models.memory_share import MemoryShare
+    a = AuthenticatedUser(user_id=uuid4(), email="local-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="local-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="local-c@example.com")
+    place = {"label": "Café", "latitude": 10.77, "longitude": 106.69}
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        body = {"recipient_ids": [str(b.user_id)], "title": "Shared", "text": "Visible text", "place": place}
+        assert client.post("/api/v1/memory-shares", json={**body, "recipient_ids": [str(c.user_id)]}).status_code == 422
+        assert client.post("/api/v1/memory-shares", json={**body, "recipient_ids": [str(b.user_id)] * 2}).status_code == 422
+        assert client.post("/api/v1/memory-shares", json={**body, "text": "x" * 301}).status_code == 422
+        first = client.post("/api/v1/memory-shares", json=body)
+        assert first.status_code == 201, first.text
+        sid = first.json()["id"]
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        assert client.get("/api/v1/memory-shares/received").json() == []
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid}").json()["text"] == "Visible text"
+        app.dependency_overrides[get_current_user] = lambda: a
+        second = client.post("/api/v1/memory-shares", json={**body, "text": "Updated", "replacing": sid})
+        assert second.status_code == 201, second.text
+        sid2 = second.json()["id"]
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid2}").json()["text"] == "Updated"
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/blocks", json={"user_id": str(b.user_id)}).status_code == 204
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
+        assert client.get("/api/v1/memory-shares/received").json() == []
+    finally:
+        app.dependency_overrides.clear()
+
