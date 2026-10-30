@@ -24,7 +24,6 @@ async def geoapify_places(client: httpx.AsyncClient, api_key: str, *,
         "apiKey": api_key, "categories": CATEGORIES[category],
         "filter": f"circle:{lon},{lat},{radius}",
         "bias": f"proximity:{lon},{lat}", "lang": "vi", "limit": limit,
-        "format": "geojson",
     }
     if name:
         params["name"] = name
