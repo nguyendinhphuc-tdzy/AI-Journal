@@ -587,6 +587,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       }
     });
     _syncMarkers(fade: true);
+    if (_query.trim().isEmpty) _loadNearbyPois();
     // Filtered: the map goes to what is left, wherever it is.
     if (category != null || mood != null) {
       _frame([
