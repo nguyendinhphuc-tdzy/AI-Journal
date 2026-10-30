@@ -346,7 +346,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
                     skipAccountStep: true,
                     onNicknameSaved: _api == null ? null : (nickname) async {
                       if (nickname != null && nickname.isNotEmpty) {
-                        await _api!.patchJson('/me', {
+                        await _api.patchJson('/me', {
                           'display_name': nickname,
                         }, requireAuth: true);
                       }
