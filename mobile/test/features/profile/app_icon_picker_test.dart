@@ -167,7 +167,7 @@ void main() {
             reason: id);
       }
       final kotlin = File(
-              'android/app/src/main/kotlin/com/example/ai_diary/MainActivity.kt')
+              'android/app/src/main/kotlin/com/aijournal/mobile/MainActivity.kt')
           .readAsStringSync();
       for (final icon in AppIcon.values) {
         expect(kotlin, contains('"${icon.id}"'), reason: icon.id);

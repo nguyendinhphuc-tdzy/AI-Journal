@@ -27,6 +27,7 @@ Không gửi mật khẩu, mã OTP, JWT/access token, nội dung nhật ký ho�
 - **Thống kê và nhận xét tuần:** dữ liệu tổng hợp từ nhật ký/phân tích đã lưu; phần nhận xét bằng AI chỉ được yêu cầu tạo khi bạn bấm chức năng tương ứng và có thể được lưu theo tuần trong tài khoản.
 - **Dữ liệu trên thiết bị:** dữ liệu của chế độ khách, nhật ký cũ chưa đồng bộ và một số tùy chọn/giao diện có thể nằm trên thiết bị của bạn. Đăng nhập tài khoản không đồng nghĩa mọi dữ liệu cũ tự động tải lên máy chủ.
 - **Tìm kiếm địa điểm (nếu bật):** từ khóa hoặc địa chỉ bạn nhập để tìm nơi chốn có thể được gửi qua backend tới Geoapify. Quyền vị trí của thiết bị chỉ được yêu cầu khi bạn dùng chức năng cần vị trí.
+- **Thông báo đẩy (nếu bật):** token đăng ký FCM và mã cài đặt ứng dụng, nền tảng thiết bị, thời gian đăng ký gần nhất được lưu riêng trên server nhằm chuyển lời mời kết bạn, tin nhắn mới và chia sẻ kỷ niệm. Token được chuyển tới Google/Firebase để gửi thông báo. Màn hình khóa chỉ hiển thị thông báo chung, không chứa nội dung nhật ký, tin nhắn hoặc tọa độ. Có thể xóa token khi đăng xuất; xóa tài khoản sẽ xóa token liên quan. Không có push nếu Firebase chưa được cấu hình.
 - **Dữ liệu kết nối kỹ thuật:** trong quá trình hoạt động, mạng, hệ điều hành, Supabase và các dịch vụ hạ tầng liên quan có thể xử lý dữ liệu kỹ thuật cần thiết để cung cấp kết nối, xác thực, vận hành và xử lý lỗi.
 
 **Chia sẻ 24 giờ:** nội dung bài chia sẻ chỉ có hiệu lực trong 24 giờ; khi hết hạn hoặc thu hồi, phần xem trước của bài trong tin nhắn không còn hiển thị nội dung. Lịch sử hội thoại và thông tin tin nhắn đã được gửi có thể vẫn được lưu. Ghi chú riêng của album/địa điểm không được tự động gửi cho người nhận.
@@ -41,6 +42,7 @@ Dữ liệu được xử lý để tạo và bảo vệ phiên đăng nhập, l
 - **FastAPI và Ollama:** backend của dự án trung chuyển yêu cầu và thực hiện xử lý AI trên hệ thống Ollama mà nhóm cấu hình. Khi AI được tắt, ứng dụng không chủ động gửi nhật ký mới để phân tích AI qua các thao tác nêu trên.
 - **Meta/Facebook:** nếu bạn chọn Facebook Login, Meta thực hiện bước xác thực và cung cấp những thông tin mà bạn chấp thuận cho nhà cung cấp đăng nhập.
 - **Geoapify:** chỉ khi sử dụng tính năng tìm kiếm địa điểm có hỗ trợ nhà cung cấp này.
+- **Google/Firebase Cloud Messaging:** khi bạn bật nhận thông báo đẩy, FCM token và thông báo chung được xử lý để chuyển thông báo tới thiết bị.
 
 Chúng tôi không yêu cầu mật khẩu Facebook của bạn. Việc xử lý thông tin bởi các nhà cung cấp nêu trên còn chịu điều khoản và chính sách riêng của từng nhà cung cấp.
 
