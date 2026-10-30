@@ -30,6 +30,7 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
   bool _busy = false;
   bool _searching = false;
   bool _discoverable = false;
+  bool _savedProfileHasName = false;
   List<Map<String, dynamic>> _friends = [];
   List<Map<String, dynamic>> _results = [];
 
@@ -76,6 +77,11 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
       if (!mounted) return;
       setState(() {
         _discoverable = profile['discoverable'] == true;
+        _savedProfileHasName =
+            (profile['display_name'] is String &&
+                (profile['display_name'] as String).trim().isNotEmpty) ||
+            (profile['username'] is String &&
+                (profile['username'] as String).trim().isNotEmpty);
         _name.text = (profile['display_name'] as String?) ?? '';
         _username.text = (profile['username'] as String?) ?? '';
         _friends = friends.whereType<Map<String, dynamic>>().toList();
@@ -125,8 +131,7 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
       }, success: 'Đã lưu tên và username');
 
   Future<void> _toggleDiscoverable(bool value) => _mutate(() async {
-        if (value && _name.text.trim().isEmpty &&
-            _username.text.trim().isEmpty) {
+        if (value && !_savedProfileHasName) {
           throw const FormatException('Choose name first');
         }
         await _api.patchJson('/me', {'discoverable': value},
@@ -251,7 +256,9 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
                     ),
                     if (_searching) const LinearProgressIndicator(),
                     if (_results.isNotEmpty)
-                      ..._results.map((person) => _person(person,
+                      ..._results.where((person) => !_friends.any(
+                          (friend) => friend['user_id'] == person['user_id']
+                      )).map((person) => _person(person,
                         label: 'Kết bạn',
                         onTap: () => _request(person['user_id'] as String))),
                     const Divider(height: 32),
