@@ -10,11 +10,26 @@ import 'package:ai_diary/features/messages/presentation/messages_screen.dart';
 import 'package:ai_diary/features/messages/presentation/messages_tab_icon.dart';
 import 'package:ai_diary/features/messages/presentation/send_place_sheet.dart';
 import 'package:ai_diary/features/social/data/app_friend.dart';
+import 'package:ai_diary/features/sound/app_sound.dart';
 import 'package:ai_diary/navigation/app_destinations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// The interface sounds asked for, by file.
+class _Sounds implements SoundBackend {
+  final played = <String>[];
+  @override
+  Future<void> effect(String asset, double volume) async => played.add(asset);
+  @override
+  Future<void> music(String? asset, double volume) async {}
+  @override
+  Future<void> pauseMusic() async {}
+  @override
+  Future<void> preload(Iterable<String> assets) async {}
+}
 
 const _minhAnh = AppFriend('u1', 'Minh Anh');
 const _giaHuy = AppFriend('u2', 'Gia Huy');
@@ -294,7 +309,7 @@ void main() {
     expect(find.byType(TextField), findsNothing);
   });
 
-  testWidgets('Shared place and 24-hour memory cards; an expired one is gone',
+  testWidgets('Place cards show; 24-hour moments stay out of the chat',
       (tester) async {
     final repository = MockMessagesRepository([_minhAnh]);
     final conversation = await repository.open('u1');
@@ -334,9 +349,13 @@ void main() {
     await _pump(tester, ChatScreen(repository: chat, conversation: conversation));
     expect(find.text('Tiệm bánh cô Hai'), findsOneWidget);
     expect(find.text('Ăn uống'), findsOneWidget);
-    expect(find.text('Buồn ngủ'), findsOneWidget);
+    // 24-hour moments are not chat messages (they are on the map and in
+    // Khoảnh khắc): older ones the server put here are left out...
+    expect(find.text('Buồn ngủ'), findsNothing);
     expect(find.text('Bí mật cũ'), findsNothing);
-    expect(find.text(ChatText.memoryExpired), findsOneWidget);
+    expect(find.text(ChatText.memoryExpired), findsNothing);
+    // ...but read, so the tab's count is not stuck on them.
+    expect(chat.readUpTo, 'e');
   });
 
   testWidgets('Send a place: pick friends; each gets it as a message',
@@ -407,6 +426,65 @@ void main() {
     expect(error, isA<SendPlaceFailed>());
     expect((error! as SendPlaceFailed).message, SendPlaceText.unavailable);
   });
+  group('Sounds', () {
+    late _Sounds sounds;
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      sounds = _Sounds();
+      AppSound.backend = sounds;
+      await AppSound.instance.refresh();
+    });
+    tearDown(() => AppSound.backend = null);
+
+    test('A new message chimes once; not for what was there at start',
+        () async {
+      var now = DateTime(2026, 10, 30, 9);
+      final repository = MockMessagesRepository([_minhAnh]);
+      repository.reply('u1', 'Tin cũ');
+      final controller = MessagesController(repository,
+          poll: const Duration(hours: 1), clock: () => now);
+      addTearDown(controller.dispose);
+      await controller.refresh();
+      expect(controller.unread, 1);
+      expect(sounds.played, isEmpty, reason: 'already there');
+      repository.reply('u1', 'Tin mới');
+      await controller.refresh();
+      expect(sounds.played, ['message_in.wav']);
+      // The open conversation noticed it too: one chime, not two.
+      controller.chime();
+      expect(sounds.played, hasLength(1));
+      now = now.add(MessagesController.chimeGap);
+      repository.reply('u1', 'Tin nữa');
+      await controller.refresh();
+      expect(sounds.played, ['message_in.wav', 'message_in.wav']);
+      await controller.refresh();
+      expect(sounds.played, hasLength(2), reason: 'nothing new');
+    });
+
+    testWidgets('Sending pops; a message arriving in the open chat chimes',
+        (tester) async {
+      final repository = MockMessagesRepository([_minhAnh]);
+      final conversation = await repository.open('u1');
+      var chimes = 0;
+      await _pump(
+          tester,
+          ChatScreen(
+              repository: repository,
+              conversation: conversation,
+              onIncoming: () => chimes++));
+      await tester.enterText(find.byType(TextField), 'Alo');
+      await tester.pump();
+      await tester.tap(find.byTooltip(ChatText.sendTooltip));
+      await tester.pumpAndSettle();
+      expect(sounds.played, ['message_out.wav']);
+      expect(chimes, 0, reason: 'my own message');
+      repository.reply('u1', 'Nghe nè');
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(chimes, 1);
+      expect(find.text('Hôm nay'), findsOneWidget, reason: 'a day line');
+    });
+  });
 }
 
 /// [repository] with these messages in every conversation (cards).
@@ -432,8 +510,11 @@ class _FixedMessages implements MessagesRepository {
   Future<ChatMessage> send(String conversationId, String text,
           {required String clientId}) =>
       repository.send(conversationId, text, clientId: clientId);
+  String? readUpTo;
+
   @override
-  Future<void> markRead(String conversationId, String messageId) async {}
+  Future<void> markRead(String conversationId, String messageId) async =>
+      readUpTo = messageId;
   @override
   Future<int> unreadCount() async => 0;
   @override

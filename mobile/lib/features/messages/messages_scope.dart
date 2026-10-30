@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import '../sound/app_sound.dart';
 import 'data/messages_repository.dart';
 
 /// The signed-in account's messages: the repository, and the unread count
@@ -9,10 +10,20 @@ import 'data/messages_repository.dart';
 /// front (no push notifications yet).
 class MessagesController extends ChangeNotifier with WidgetsBindingObserver {
   MessagesController(this.repository,
-      {this.poll = const Duration(seconds: 30)});
+      {this.poll = const Duration(seconds: 20), DateTime Function()? clock})
+      : _clock = clock ?? DateTime.now;
 
   final MessagesRepository repository;
   final Duration poll;
+  final DateTime Function() _clock;
+
+  /// One chime for one arrival: the tab's count and an open conversation
+  /// may both notice the same message a few seconds apart.
+  static const chimeGap = Duration(seconds: 8);
+  DateTime? _lastChime;
+
+  /// The count has been read once: only increases after that chime.
+  var _counted = false;
 
   int _unread = 0;
   bool _available = true;
@@ -51,6 +62,8 @@ class MessagesController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> refresh() async {
     try {
       final count = await repository.unreadCount();
+      if (_counted && count > _unread) chime();
+      _counted = true;
       _set(count, true);
     } on MessagesUnavailable {
       _set(0, false);
@@ -61,6 +74,17 @@ class MessagesController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// A conversation was read on screen: count again at once.
   void seen() => refresh();
+
+  /// A friend's message arrived: the soft bell, at the interface's volume
+  /// (Hồ sơ → Âm thanh giao diện; silent when off), at most once per
+  /// [chimeGap].
+  void chime() {
+    final now = _clock();
+    final last = _lastChime;
+    if (last != null && now.difference(last) < chimeGap) return;
+    _lastChime = now;
+    AppSound.instance.play(SoundCue.messageIn);
+  }
 
   void _set(int unread, bool available) {
     if (unread == _unread && available == _available) return;
