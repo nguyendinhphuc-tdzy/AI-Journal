@@ -57,7 +57,7 @@ def test_migration_applied():
     assert "journal_analyses" in tables
     assert "saved_quotes" in tables
     assert "weekly_insights" in tables
-    assert {"conversations", "messages", "conversation_reads", "device_tokens"}.issubset(tables)
+    assert {"conversations", "messages", "conversation_reads", "message_hides", "device_tokens"}.issubset(tables)
 
 
 def test_ai_requires_authentication_in_all_provider_modes(monkeypatch):
@@ -2296,5 +2296,36 @@ def test_messages_recall_for_both_hide_or_clear_for_one():
         assert len(listing) == 1 and listing[0]["last_message"]["text"] == "Còn đó không?"
         assert [m["text"] for m in client.get(url).json()["items"]] == ["Còn đó không?"]
         assert listing[0]["unread_count"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_share_rate_limit_five_moments_per_minute():
+    """Shared moments no longer create chat messages; they need their own quota."""
+    from sqlalchemy import func, select
+    from app.models.memory_share import MemoryShare
+    from app.core.database import SessionLocal
+    a = AuthenticatedUser(user_id=uuid4(), email="share-limit-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="share-limit-b@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests",
+                           json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        payload = {
+            "recipient_ids": [str(b.user_id)],
+            "text": "Khoảnh khắc có hạn mức",
+            "place": {"label": "Hồ Chí Minh", "latitude": 10.77, "longitude": 106.7},
+        }
+        for _ in range(5):
+            resp = client.post("/api/v1/memory-shares", json=payload)
+            assert resp.status_code == 201, resp.text
+        blocked = client.post("/api/v1/memory-shares", json=payload)
+        assert blocked.status_code == 429, blocked.text
+        with SessionLocal() as db:
+            assert db.scalar(select(func.count()).select_from(MemoryShare).where(
+                MemoryShare.owner_id == a.user_id)) == 5
     finally:
         app.dependency_overrides.clear()
