@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, Uuid
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Table, Uuid, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -25,12 +25,14 @@ def utc_now() -> datetime:
 
 class UserProfile(Base):
     __tablename__ = "user_profiles"
+    __table_args__ = (UniqueConstraint("username", name="uq_user_profiles_username"),)
 
     user_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("auth.users.id", name="fk_user_profiles_auth_users", ondelete="CASCADE"),
         primary_key=True,
     )
+    username: Mapped[str | None] = mapped_column(String(24), nullable=True)
     discoverable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Ho_Chi_Minh")
