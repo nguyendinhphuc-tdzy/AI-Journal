@@ -69,6 +69,14 @@ def send_fcm(client: httpx.Client, project_id: str, bearer: str,
             err = resp.json().get("error", {})
             if err.get("status") == "UNREGISTERED":
                 return True
+            # FCM HTTP v1 often reports UNREGISTERED only inside
+            # details[].errorCode while the top-level status is NOT_FOUND.
+            if any(
+                isinstance(d, dict) and d.get("errorCode") == "UNREGISTERED"
+                for d in err.get("details", [])
+                if isinstance(err.get("details"), list)
+            ):
+                return True
         except ValueError:
             pass
     # Never log token, upstream body, private event IDs or auth credentials.
