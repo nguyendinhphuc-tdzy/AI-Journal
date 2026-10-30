@@ -187,14 +187,23 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
       }, success: 'Đã cập nhật danh sách bạn bè');
 
   Widget _person(Map<String, dynamic> person,
-      {required String label, required VoidCallback? onTap}) => ListTile(
+      {required String label, required VoidCallback? onTap,
+      VoidCallback? secondaryAction, String? secondaryTooltip}) => ListTile(
         leading: const CircleAvatar(child: Icon(Icons.person_outline)),
         title: Text(_label(person), maxLines: 1,
             overflow: TextOverflow.ellipsis),
         subtitle: _secondary(person).isNotEmpty
             ? Text(_secondary(person)) : null,
-        trailing: TextButton(onPressed: _busy ? null : onTap,
-            child: Text(label)),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (secondaryAction != null)
+            IconButton(
+              tooltip: secondaryTooltip,
+              onPressed: _busy ? null : secondaryAction,
+              icon: const Icon(Icons.close),
+            ),
+          TextButton(onPressed: _busy ? null : onTap,
+              child: Text(label)),
+        ]),
       );
 
   @override
@@ -276,7 +285,9 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
                       if (status == 'pending' && direction == 'incoming') {
                         return _person(person,
                             label: 'Chấp nhận',
-                            onTap: () => _accept(userId));
+                            onTap: () => _accept(userId),
+                            secondaryAction: () => _remove(userId),
+                            secondaryTooltip: 'Từ chối lời mời');
                       }
                       return _person(person,
                           label: status == 'pending' ? 'Hủy lời mời' : 'Hủy kết bạn',
