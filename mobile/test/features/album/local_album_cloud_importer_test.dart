@@ -35,7 +35,7 @@ void main() {
   test('explicit import copies private photo, keeps local and deduplicates', () async {
     final dir = await Directory.systemTemp.createTemp('album-import');
     addTearDown(() => dir.delete(recursive: true));
-    final photo = File(dir.path + '/photo.jpg');
+    final photo = File([dir.path, 'photo.jpg'].join('/'));
     await photo.writeAsBytes([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
     final local = await LocalAlbumRepository.open(userId: user);
     final album = await local.create(name: 'Ảnh của mình');
@@ -54,7 +54,7 @@ void main() {
         if (request.method == 'PUT' && request.url.path.endsWith('/photo')) {
           return reply({'photo_available': true});
         }
-        if (request.method == 'GET' && request.url.path.endsWith('/' + cloudAlbum)) {
+        if (request.method == 'GET' && request.url.path.endsWith('/$cloudAlbum')) {
           return reply(albumResponse());
         }
         throw StateError('Unexpected mock request');
@@ -65,7 +65,7 @@ void main() {
     expect(await importer.validate(album), 1);
     expect(requests, isEmpty, reason: 'preview performs no writes');
     final created = await importer.importAlbum(album);
-    expect(created.id, 'cloud-' + cloudAlbum);
+    expect(created.id, 'cloud-$cloudAlbum');
     expect(requests.where((r) => r.method == 'POST').length, 2);
     expect(requests.where((r) => r.method == 'PUT').length, 1);
     expect(requests.every((r) => r.headers['authorization'] == 'Bearer user-jwt'), isTrue);
@@ -80,7 +80,7 @@ void main() {
     addTearDown(() => dir.delete(recursive: true));
     final local = await LocalAlbumRepository.open(userId: user);
     final album = await local.create(name: 'Only photos');
-    final bad = File(dir.path + '/wrong.jpg');
+    final bad = File([dir.path, 'wrong.jpg'].join('/'));
     await bad.writeAsBytes([1, 2, 3]);
     final memory = await local.createMemory(album.id,
       MemoryContent(photoPath: bad.path, displayDate: DateTime(2026)));
@@ -111,7 +111,7 @@ void main() {
           posted++;
           return reply({}, 503);
         }
-        if (request.method == 'GET' && request.url.path.endsWith('/' + cloudAlbum)) {
+        if (request.method == 'GET' && request.url.path.endsWith('/$cloudAlbum')) {
           return reply(albumResponse());
         }
         throw StateError('Unexpected request');
