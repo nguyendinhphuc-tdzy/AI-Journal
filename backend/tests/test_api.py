@@ -1939,19 +1939,15 @@ def test_message_conversations_acl_unread_idempotency_place_and_share():
         assert memory.status_code == 201, memory.text
         share_id = memory.json()["id"]
         app.dependency_overrides[get_current_user] = lambda: b
+        # Moments are not chat messages: the conversation is unchanged.
         messages = client.get(f"/api/v1/conversations/{cid}/messages").json()["items"]
-        assert len(messages) == 4
-        assert messages[-1]["kind"] == "memory_share"
-        assert messages[-1]["memory_share"]["text"] == "Public caption"
-        assert "note" not in str(messages[-1])
-        assert client.get("/api/v1/conversations").json()[0]["last_message"]["memory_share"]["text"] == "Public caption"
-        # Deleting/revoking a share must remove sensitive previews from both APIs.
+        assert len(messages) == 3
+        assert all(m["kind"] != "memory_share" for m in messages)
+        assert client.get("/api/v1/conversations").json()[0]["last_message"]["kind"] == "place"
+        assert any(r["share_id"] == share_id for r in client.get("/api/v1/memory-shares/received").json())
         app.dependency_overrides[get_current_user] = lambda: a
         assert client.delete(f"/api/v1/memory-shares/{share_id}").status_code == 204
         app.dependency_overrides[get_current_user] = lambda: b
-        after = client.get(f"/api/v1/conversations/{cid}/messages").json()["items"][-1]["memory_share"]
-        assert set(after) == {"share_id", "expires_at"}
-        assert set(client.get("/api/v1/conversations").json()[0]["last_message"]["memory_share"]) == {"share_id", "expires_at"}
         # Unfriending preserves history but blocks sends and opening new chats.
         assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
         listing = client.get("/api/v1/conversations").json()

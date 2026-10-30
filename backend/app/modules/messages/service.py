@@ -81,15 +81,6 @@ def deliver(db: Session, conversation: Conversation, sender: UUID,
     db.flush()
     return message
 
-def deliver_share(db: Session, share: MemoryShare, recipient_ids: list[UUID],
-                  at: datetime) -> None:
-    # Called before commit of memory share: either ALL recipients get a message,
-    # or the share and messages roll back together.
-    enforce_rate(db, share.owner_id, len(recipient_ids), at)
-    for recipient in recipient_ids:
-        conv = get_or_create(db, share.owner_id, recipient)
-        deliver(db, conv, share.owner_id, "memory_share", at, share_id=share.id)
-
 def _read_condition(cursor: ConversationRead | None):
     if cursor is None or cursor.last_read_at is None:
         return None
