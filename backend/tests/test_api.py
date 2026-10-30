@@ -2168,6 +2168,13 @@ def test_fcm_payload_only_safe_metadata_and_invalid_token_detection():
         assert send_fcm(c, "fcm-project", "fake-oauth", "fcm-secret",
                         "message", {}) is True
     with httpx.Client(transport=httpx.MockTransport(
+        lambda req: httpx.Response(404, json={"error": {
+          "status": "NOT_FOUND", "details": [{
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "UNREGISTERED"}]}}))) as c:
+        assert send_fcm(c, "fcm-project", "fake-oauth", "fcm-secret",
+                        "message", {}) is True
+    with httpx.Client(transport=httpx.MockTransport(
         lambda req: httpx.Response(404, json={
           "error": {"status": "NOT_FOUND"}}))) as c:
         assert send_fcm(c, "fcm-project", "fake-oauth", "fcm-secret",
