@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'album.dart';
 import 'album_repository.dart';
-import 'memory.dart';
 import 'remote_album_repository.dart';
 
 /// A deliberate, per-account copy from legacy device albums to private cloud.
@@ -24,7 +23,7 @@ class LocalAlbumCloudImporter {
   static const int maxBytes = 5 * 1024 * 1024;
 
   Future<SharedPreferences> get _prefs async =>
-      _preferences ?? SharedPreferences.getInstance();
+      _preferences ?? await SharedPreferences.getInstance();
 
   String _key(Album album) {
     final user = remote.userId;
