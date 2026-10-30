@@ -106,7 +106,7 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
     } on ApiException catch (error) {
       _message(error.statusCode == 409
           ? 'Username đã được dùng hoặc lời mời đã tồn tại.'
-          : 'Không thể thực hiện (HTTP ' + error.statusCode.toString() + ').');
+          : 'Không thể thực hiện (HTTP ${error.statusCode}).');
     } on FormatException {
       _message('Tên hoặc username chưa hợp lệ. Username: 3–24 ký tự a-z, 0-9, _.');
     } catch (_) {
@@ -158,7 +158,7 @@ class _RealFriendsScreenState extends State<RealFriendsScreen> {
     setState(() => _searching = true);
     try {
       final items = await _api.getList(
-          '/friends/discover?q=' + Uri.encodeQueryComponent(q),
+          '/friends/discover?q=${Uri.encodeQueryComponent(q)}',
           requireAuth: true);
       if (!mounted || version != _searchVersion) return;
       setState(() {
