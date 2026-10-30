@@ -56,7 +56,7 @@ def _get(db: Session, own: UUID, other: UUID) -> Friendship:
     return item
 
 
-@router.get("", response_model=list[FriendRead])
+@router.get("", response_model=list[FriendRead], response_model_exclude_none=True)
 def list_friends(user: AuthenticatedUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     items = db.scalars(select(Friendship).where(
@@ -68,7 +68,8 @@ def list_friends(user: AuthenticatedUser = Depends(get_current_user),
                 item.user_high_id if item.user_low_id == user.user_id else item.user_low_id)]
 
 
-@router.post("/requests", response_model=FriendRead, status_code=201)
+@router.post("/requests", response_model=FriendRead, status_code=201,
+             response_model_exclude_none=True)
 def request_friend(payload: FriendTarget,
                    user: AuthenticatedUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
@@ -95,7 +96,8 @@ def request_friend(payload: FriendTarget,
     return _read(item, user.user_id, db)
 
 
-@router.post("/{other_id}/accept", response_model=FriendRead)
+@router.post("/{other_id}/accept", response_model=FriendRead,
+             response_model_exclude_none=True)
 def accept_friend(other_id: UUID,
                   user: AuthenticatedUser = Depends(get_current_user),
                   db: Session = Depends(get_db)):
@@ -124,7 +126,8 @@ class DiscoveryRead(BaseModel):
     username: str | None = None
 
 
-@router.get("/discover", response_model=list[DiscoveryRead])
+@router.get("/discover", response_model=list[DiscoveryRead],
+            response_model_exclude_none=True)
 def discover_friends(
     q: str = Query(min_length=3, max_length=60),
     user: AuthenticatedUser = Depends(get_current_user),
