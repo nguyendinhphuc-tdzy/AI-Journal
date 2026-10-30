@@ -149,35 +149,56 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
       '/albums/${_id(albumId, entity: 'album')}/memories/'
       '${_id(memoryId, entity: 'memory')}/photo';
 
-  Future<void> _uploadPhoto(
-      String albumId, String memoryId, String path) async {
+  /// Shared cloud MIME/size validation, also used before an explicit local
+  /// album import so unsupported photos cannot create partial cloud copies.
+  static Future<String> validatePhotoFile(String path) async {
     final file = File(path);
+    if (!await file.exists()) {
+      throw ArgumentError('Ảnh đã mất khỏi thiết bị');
+    }
     final size = await file.length();
     if (size < 1 || size > 5 * 1024 * 1024) {
-      throw ArgumentError('Ảnh cloud cần có kích thước tối đa 5 MB');
+      throw ArgumentError('Ảnh cloud cần có kích thước tối đa 5 MiB');
     }
     final head = await file.openRead(0, 12).fold<List<int>>(
         <int>[], (bytes, chunk) => bytes..addAll(chunk));
-    String type;
     if (head.length >= 3 &&
         head[0] == 0xff && head[1] == 0xd8 && head[2] == 0xff) {
-      type = 'image/jpeg';
-    } else if (head.length >= 8 &&
+      return 'image/jpeg';
+    }
+    if (head.length >= 8 &&
         head.take(8).toList().join(',') == '137,80,78,71,13,10,26,10') {
-      type = 'image/png';
-    } else if (head.length >= 12 &&
+      return 'image/png';
+    }
+    if (head.length >= 12 &&
         String.fromCharCodes(head.take(4)) == 'RIFF' &&
         String.fromCharCodes(head.skip(8).take(4)) == 'WEBP') {
-      type = 'image/webp';
-    } else {
-      throw ArgumentError('Ảnh không phải JPEG, PNG hoặc WebP');
+      return 'image/webp';
     }
-    await client.putBytes(_photoUrl(albumId, memoryId), await file.readAsBytes(),
+    throw ArgumentError('Ảnh không phải JPEG, PNG hoặc WebP');
+  }
+
+  Future<void> _uploadPhoto(
+      String albumId, String memoryId, String path) async {
+    final type = await validatePhotoFile(path);
+    await client.putBytes(
+        _photoUrl(albumId, memoryId), await File(path).readAsBytes(),
         contentType: type);
   }
 
   Future<void> _download(Memory memory, String path) async {
     final bytes = await client.getBytes(_photoUrl(memory.albumId, memory.id));
+    // Reject truncated/invalid responses instead of poisoning the private cache.
+    if (bytes.isEmpty || bytes.length > 5 * 1024 * 1024 ||
+        !(bytes.length >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 &&
+            bytes[2] == 0xff) &&
+        !(bytes.length >= 8 &&
+            bytes.take(8).toList().join(',') == '137,80,78,71,13,10,26,10') &&
+        !(bytes.length >= 12 &&
+            String.fromCharCodes(bytes.take(4)) == 'RIFF' &&
+            String.fromCharCodes(bytes.skip(8).take(4)) == 'WEBP')) {
+      throw const FormatException('Invalid private photo download');
+    }
     // Its own temporary file, so no other writer can take it away.
     final pending =
         File('$path.${DateTime.now().microsecondsSinceEpoch}.tmp');
@@ -333,13 +354,9 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
   @override
   Future<Memory> createMemory(String albumId, MemoryContent content) async {
     final body = _content(content);
-    // Validate the local photo before creating any remote data.
+    // Validate the exact file type/size *before* creating remote data.
     if (content.photoPath case final path?) {
-      final file = File(path);
-      if (!await file.exists() ||
-          await file.length() > 5 * 1024 * 1024) {
-        throw ArgumentError('Ảnh không tồn tại hoặc quá 5 MB');
-      }
+      await validatePhotoFile(path);
     }
     final saved = _memory(await client.postJson(
       '/albums/${_id(albumId, entity: 'album')}/memories',
@@ -349,10 +366,15 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
       try {
         await _uploadPhoto(albumId, saved.id, path);
         _uploadedPaths[_id(saved.id, entity: 'memory')] = path;
-      } catch (_) {
-        // Avoid duplicate note-only memories after a failed photo upload.
-        await deleteMemory(albumId, saved.id);
-        rethrow;
+      } catch (error, stack) {
+        // Best-effort compensation. A failed cleanup must not conceal the
+        // original upload problem. Never retry a timed-out write blindly.
+        try {
+          await deleteMemory(albumId, saved.id);
+        } catch (_) {
+          // A partial note-only cloud memory may need manual cleanup.
+        }
+        Error.throwWithStackTrace(error, stack);
       }
     }
     notifyListeners();
@@ -386,6 +408,13 @@ class RemoteAlbumRepository extends ChangeNotifier implements AlbumRepository {
     String albumId, String memoryId, MemoryContent content,
   ) async {
     final body = _content(content);
+    // An invalid replacement must never patch the cloud note first.
+    if (content.photoPath case final path?) {
+      if (!_isCachedPhoto(memoryId, path) &&
+          _uploadedPaths[_id(memoryId, entity: 'memory')] != path) {
+        await validatePhotoFile(path);
+      }
+    }
     final raw = await client.patchJson(
       '/albums/${_id(albumId, entity: 'album')}/memories/'
       '${_id(memoryId, entity: 'memory')}',
