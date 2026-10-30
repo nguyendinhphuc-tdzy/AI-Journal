@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261030_19"
+    assert revision == "20261030_20"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -1988,5 +1988,57 @@ def test_messages_rate_limit_per_sender():
         app.dependency_overrides[get_current_user] = lambda: b
         assert client.post(f"/api/v1/conversations/{cid}/messages",
             json={"client_id": "b-message", "text": "Separate quota"}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_share_photo_owner_uploads_recipients_see_revoke_clears():
+    from app.core.database import SessionLocal
+    from app.models.memory_share import MemoryShare
+    a = AuthenticatedUser(user_id=uuid4(), email="photo-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="photo-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="photo-c@example.com")
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 2048
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        share = client.post("/api/v1/memory-shares", json={
+            "recipient_ids": [str(b.user_id)], "title": "Buồn ngủ", "text": "Học bài",
+            "place": {"label": "UEH", "latitude": 10.78, "longitude": 106.69},
+        })
+        assert share.status_code == 201, share.text
+        sid = share.json()["id"]
+        url = f"/api/v1/memory-shares/{sid}/photo"
+        assert client.get(f"/api/v1/memory-shares/{sid}").json()["has_photo"] is False
+        assert client.get(url).status_code == 404
+        # Only real images, at most 3 MB.
+        assert client.put(url, content=b"not an image", headers={"content-type": "image/jpeg"}).status_code == 415
+        assert client.put(url, content=jpeg, headers={"content-type": "text/plain"}).status_code == 415
+        big = b"\xff\xd8\xff\xe0" + b"0" * (3 * 1024 * 1024)
+        assert client.put(url, content=big, headers={"content-type": "image/jpeg"}).status_code == 413
+        assert client.put(url, content=jpeg, headers={"content-type": "image/jpeg"}).status_code == 204
+        # A recipient may not upload; strangers see nothing.
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.put(url, content=jpeg, headers={"content-type": "image/jpeg"}).status_code == 404
+        received = client.get("/api/v1/memory-shares/received").json()
+        assert [r["has_photo"] for r in received if r["share_id"] == sid] == [True]
+        photo = client.get(url)
+        assert photo.status_code == 200
+        assert photo.content == jpeg
+        assert photo.headers["content-type"] == "image/jpeg"
+        assert photo.headers["cache-control"] == "private, no-store"
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(url).status_code == 404
+        # Revoked: gone for the recipient, and the bytes are deleted.
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 204
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(url).status_code == 404
+        with SessionLocal() as db:
+            item = db.get(MemoryShare, UUID(sid))
+            assert item.photo is None and item.photo_type is None
     finally:
         app.dependency_overrides.clear()
