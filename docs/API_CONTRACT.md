@@ -19,7 +19,7 @@
 
 ## Authentication and my profile
 
-Supabase Auth handles email/password, Google/Facebook OAuth and SMS OTP (when configured); the backend only validates access tokens. Flutter flags `AUTH_ENABLED`, `GOOGLE_OAUTH_ENABLED`, `FACEBOOK_OAUTH_ENABLED`, `PHONE_OTP_ENABLED` control the visible login methods, not access to public FastAPI routes.
+Supabase Auth handles email/password, Google OAuth and SMS OTP (when configured); the backend only validates access tokens. Flutter flags `AUTH_ENABLED`, `GOOGLE_OAUTH_ENABLED`, `PHONE_OTP_ENABLED` control the visible login methods, not access to public FastAPI routes.
 
 | Method and path | Request / response |
 | --- | --- |
@@ -89,13 +89,16 @@ Geoapify configuration/availability determines live lookup. Cloud Saved Places a
 | `GET /friends`, `POST /friends/requests`, `POST /friends/{other_id}/accept`, `DELETE /friends/{other_id}` | Authenticated friendship listing/request/accept/remove; list also returns peer display_name and username |
 | `GET /friends/discover?q=...` | Opt-in search by @username prefix or display name (length 3–60), returns user_id/display_name/username without email; username unique and lowercase |
 | `GET /friends/blocks`, `POST /friends/blocks`, `DELETE /friends/blocks/{other_id}` | Block list/add/remove |
-| `POST /memory-shares` | `{"memory_id":"UUID","recipient_ids":["UUID"]}`; 1–20 friends; time-limited share |
-| `GET /memory-shares/{share_id}`, `DELETE /memory-shares/{share_id}` | Read authorized share / revoke owner share |
+| `POST /memory-shares` | Explicit shared snapshot: `{recipient_ids, title?, text, place:{label,latitude,longitude}, category?, memory_id?, replacing?}`; 1–20 unique accepted/unblocked friends, text 1–300 characters, 24h server expiry; optional owned cloud memory or device-only memory without memory_id. Replacement revokes old share atomically. No private memory.note or photos copied. |
+| `GET /memory-shares/received?limit=50` | Active authorized shares only with sender_id, display_name, username and shared snapshot; limit 1–100. Map bounds filtering is future work. |
+| `GET /memory-shares/mine?memory_id=UUID` | Current user's active share metadata; optional cloud memory filter. Local-only shares are listed without filter. |
+| `GET /memory-shares/{share_id}` | Authorized shared snapshot only, never memory.note or storage photo key; old legacy shares without snapshot are unreadable. |
+| `DELETE /memory-shares/{share_id}` | Owner only; revoke (204). |
 | `POST /community/posts`, `GET /community/feed?limit=20`, `GET /community/mine` | Community posting and feed, when enabled; feed limit 1–50 |
 | `DELETE /community/posts/{post_id}`, `POST /community/posts/{post_id}/reports` | Delete own post / report |
 | `GET /community/moderation/pending`, `POST /community/moderation/{post_id}/{decision}`, `GET /community/moderation/reports` | Moderator-only routes, feature-gated |
 
-Social APIs existing in FastAPI do **not** imply the Flutter screens are all connected. Mock Facebook-friends UI is separate from Supabase Facebook OAuth and must not be mistaken for real account connection.
+Social APIs existing in FastAPI do **not** imply the Flutter screens are all connected. Flutter friend selection uses accepted app friendships from GET /friends; Facebook friends are not used.nd must not be mistaken for real account connection.
 
 ## Deployment / API compatibility reminders
 
