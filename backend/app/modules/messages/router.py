@@ -1,7 +1,7 @@
 """JWT-authenticated private conversations, polling, read state and place shares."""
 from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
 from app.models.message import Conversation, ConversationRead, Message
+from app.modules.devices.push import send_push_to_user
 from app.modules.messages.service import (
     now_utc, can_send, conversation_for_user, get_or_create, peer_id,
     enforce_rate, deliver, present_message, present_conversation, unread, utc,
@@ -103,7 +104,7 @@ def list_messages(conversation_id: UUID,
     return {"items": [present_message(db, m, user.user_id) for m in items]}
 
 @conversations_router.post("/{conversation_id}/messages")
-def send_message(conversation_id: UUID, payload: SendText,
+def send_message(conversation_id: UUID, payload: SendText, background_tasks: BackgroundTasks,
                  user: AuthenticatedUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     conversation = conversation_for_user(db, conversation_id, user.user_id)
@@ -126,6 +127,8 @@ def send_message(conversation_id: UUID, payload: SendText,
             message = deliver(db, conversation, user.user_id, "text", at,
                               text=payload.text, client_id=payload.client_id)
         db.commit()
+        background_tasks.add_task(send_push_to_user, peer_id(conversation, user.user_id),
+                                  "message", {"conversation_id": str(conversation.id)})
         return present_message(db, message, user.user_id)
     except IntegrityError:
         db.rollback()
@@ -164,7 +167,7 @@ def all_unread(user: AuthenticatedUser = Depends(get_current_user),
     return {"count": sum(unread(db, c, user.user_id) for c in conversations)}
 
 @place_shares_router.post("", status_code=201)
-def share_place(payload: SendPlace,
+def share_place(payload: SendPlace, background_tasks: BackgroundTasks,
                 user: AuthenticatedUser = Depends(get_current_user),
                 db: Session = Depends(get_db)):
     recipients = payload.recipient_ids
@@ -183,4 +186,7 @@ def share_place(payload: SendPlace,
                 place=payload.place.model_dump(exclude_none=True))
         ids.append(conversation.id)
     db.commit()
+    for recipient, cid in zip(recipients, ids):
+        background_tasks.add_task(send_push_to_user, recipient, "message",
+                                  {"conversation_id": str(cid)})
     return {"conversation_ids": ids}

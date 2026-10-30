@@ -3,8 +3,9 @@ import 'dart:convert';
 /// Explore's own map styles, in the app's palette, on OpenFreeMap's tiles
 /// and fonts (the same sources as its "liberty" style).
 ///
-/// Only what helps find a place: land, parks, water, buildings, roads,
-/// street and area names. No shops or icons, so Nudaeng's pins stand out.
+/// OSM features: land, water, roads, rail, boundaries, buildings and named
+/// amenities (cafe, shop, hospital, school, transport, attractions).
+/// Labels honor MapLibre collision rules so Nudaeng pins remain visible.
 /// One light style for every map in the app (Explore, the place picker) at
 /// any hour: ivory land, light green parks, light blue water, major roads
 /// clearly above minor ones, names dark enough to read; no texture over
@@ -104,6 +105,46 @@ abstract final class ExploreMapStyle {
               1.4, 22),
           ..._road(
               'motorway', ['motorway'], p.motorway, p.motorwayCasing, 1.6, 24),
+          // Secondary network and transit routes were missing from the MVP.
+          {
+            'id': 'railway',
+            'type': 'line',
+            'source': 'openmaptiles',
+            'source-layer': 'transportation',
+            'minzoom': 12,
+            'filter': _classes(['rail', 'transit']),
+            'paint': {
+              'line-color': '#9E938C',
+              'line-width': _width(.4, 2.3),
+              'line-opacity': .75,
+            },
+          },
+          {
+            'id': 'footways',
+            'type': 'line',
+            'source': 'openmaptiles',
+            'source-layer': 'transportation',
+            'minzoom': 15,
+            'filter': _classes(['path', 'pedestrian', 'footway']),
+            'paint': {
+              'line-color': '#C8B9A9',
+              'line-width': _width(.2, 1.8),
+              'line-dasharray': [2, 2],
+            },
+          },
+          {
+            'id': 'administrative_boundaries',
+            'type': 'line',
+            'source': 'openmaptiles',
+            'source-layer': 'boundary',
+            'maxzoom': 13,
+            'paint': {
+              'line-color': '#B6AEA4',
+              'line-width': .7,
+              'line-opacity': .6,
+              'line-dasharray': [3, 2],
+            },
+          },
           {
             'id': 'water_name',
             'type': 'symbol',
@@ -181,6 +222,82 @@ abstract final class ExploreMapStyle {
               'text-size': 15,
             },
             'paint': _halo(p.placeLabel, p),
+          },
+          // Names come from OpenStreetMap's real poi layer (not demo pins).
+          // Important amenities appear first; all named POIs appear at z17+.
+          {
+            'id': 'poi_highlight_dots',
+            'type': 'circle',
+            'source': 'openmaptiles',
+            'source-layer': 'poi',
+            'minzoom': 14,
+            'filter': [
+              'all',
+              ['has', 'name'],
+              _classes(['cafe', 'restaurant', 'fast_food', 'shop', 'grocery',
+                'hospital', 'school', 'college', 'attraction', 'library',
+                'bus', 'railway', 'lodging', 'park', 'fuel', 'pharmacy']),
+            ],
+            'paint': {
+              'circle-color': '#477887',
+              'circle-radius': 2.8,
+              'circle-stroke-width': 1,
+              'circle-stroke-color': '#FFFFFF',
+              'circle-opacity': .82,
+            },
+          },
+          {
+            'id': 'poi_priority_labels',
+            'type': 'symbol',
+            'source': 'openmaptiles',
+            'source-layer': 'poi',
+            'minzoom': 14,
+            'filter': [
+              'all', ['has', 'name'],
+              _classes(['cafe', 'restaurant', 'fast_food', 'shop', 'grocery',
+                'hospital', 'school', 'college', 'attraction', 'library',
+                'bus', 'railway', 'lodging', 'park', 'fuel', 'pharmacy']),
+              ['<=', ['coalesce', ['get', 'rank'], 30], 14],
+            ],
+            'layout': {
+              'text-field': _name,
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 11.5,
+              'text-anchor': 'top',
+              'text-offset': [0, .6],
+              'text-max-width': 9,
+              'text-optional': true,
+            },
+            'paint': _halo('#53645B', p),
+          },
+          {
+            'id': 'poi_other_labels',
+            'type': 'symbol',
+            'source': 'openmaptiles',
+            'source-layer': 'poi',
+            'minzoom': 17,
+            'filter': ['has', 'name'],
+            'layout': {
+              'text-field': _name,
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 11,
+              'text-max-width': 8,
+              'text-optional': true,
+            },
+            'paint': _halo('#5B665F', p),
+          },
+          {
+            'id': 'house_numbers',
+            'type': 'symbol',
+            'source': 'openmaptiles',
+            'source-layer': 'housenumber',
+            'minzoom': 18,
+            'layout': {
+              'text-field': ['get', 'housenumber'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': 9.5,
+            },
+            'paint': _halo('#9C8B7C', p),
           },
         ],
       });

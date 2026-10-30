@@ -96,6 +96,17 @@ Future<Uint8List> createClusterMarker(int count) =>
       text.paint(canvas, centre - Offset(text.width / 2, text.height / 2));
     });
 
+/// Small, neutral POI marker; visually distinct from the user's Nudaeng pins.
+Future<Uint8List> createPoiMarker() => _draw(const Size(88, 88), (canvas) {
+      const centre = Offset(44, 42);
+      canvas.drawCircle(centre.translate(0, 3), 32,
+          Paint()..color = const Color(0x33201F1C));
+      canvas.drawCircle(centre, 30, Paint()..color = Colors.white);
+      canvas.drawCircle(centre, 24,
+          Paint()..color = const Color(0xFF426F83));
+      canvas.drawCircle(centre, 8, Paint()..color = Colors.white);
+    });
+
 /// A pin just dropped (not saved): a teal drop with a white dot, its tip at
 /// the bottom centre.
 Future<Uint8List> createDropMarker() => _draw(const Size(120, 160), (canvas) {

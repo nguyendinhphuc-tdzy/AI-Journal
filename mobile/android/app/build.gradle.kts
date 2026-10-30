@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.ai_diary"
+    namespace = "com.aijournal.mobile"
     compileSdk = maxOf(flutter.compileSdkVersion, 34)
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +15,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.ai_diary"
+        applicationId = "com.aijournal.mobile"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = maxOf(flutter.minSdkVersion, 24)

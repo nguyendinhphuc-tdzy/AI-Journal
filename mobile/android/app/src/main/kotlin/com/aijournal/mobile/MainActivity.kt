@@ -1,4 +1,4 @@
-package com.example.ai_diary
+package com.aijournal.mobile
 
 import android.content.ComponentName
 import android.content.pm.PackageManager

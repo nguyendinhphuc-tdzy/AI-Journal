@@ -153,6 +153,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
   String? _category;
   PlaceMood? _mood;
   List<ExplorePlace> _places = [];
+  List<ExplorePlace> _nearbyPois = const [];
+  int _poiRequestVersion = 0;
+  DateTime? _lastPoiRefresh;
+  LatLng? _lastPoiCentre;
+  String? _lastPoiCategory;
   ExplorePlace? _selected;
   LatLng? _draftPin;
   ExploreHighlight? _highlight;
@@ -541,6 +546,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void dispose() {
     _friendsSharing?.archive?.shares.removeListener(_archiveChanged);
+    ++_poiRequestVersion;
     _friendPostsTimer?.cancel();
     _debounce?.cancel();
     _loadTimeout?.cancel();
@@ -551,29 +557,116 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.dispose();
   }
 
+  static String _poiLabel(String? category) {
+    if (category == null) return 'Địa điểm';
+    if (category.startsWith('catering.cafe')) return 'Quán cà phê';
+    if (category.startsWith('catering')) return 'Ăn uống';
+    if (category.startsWith('commercial')) return 'Cửa hàng';
+    if (category.startsWith('education')) return 'Trường học';
+    if (category.startsWith('healthcare')) return 'Y tế';
+    if (category.startsWith('public_transport')) return 'Giao thông';
+    if (category.startsWith('accommodation')) return 'Lưu trú';
+    if (category.startsWith('tourism') || category.startsWith('entertainment')) {
+      return 'Tham quan';
+    }
+    return 'Địa điểm';
+  }
+
+  String get _poiCategory => switch (_category) {
+    'Food' => 'food',
+    'Study' => 'school',
+    'Chill' => 'cafe',
+    _ => 'all',
+  };
+
+  ExplorePlace _asPoi(PlaceCandidate p) => ExplorePlace(
+    'poi:${p.id ?? '${p.latitude},${p.longitude}'}',
+    p.name ?? p.coordinates,
+    _poiLabel(p.category),
+    p.latitude, p.longitude,
+    sample: false, poi: true, address: p.address,
+  );
+
+  /// Nearby POIs are only loaded when the map is zoomed in; no automatic
+  /// GPS permission is needed. Server caps radius/results and provider costs.
+  Future<void> _loadNearbyPois() async {
+    final lookup = _placeLookup;
+    if (!_styleReady || lookup is! RemotePlaceLookup || _zoom < 14 ||
+        _query.trim().isNotEmpty || _picking) {
+      return;
+    }
+    final center = _currentCameraPosition;
+    final now = DateTime.now();
+    final last = _lastPoiCentre;
+    final category = _poiCategory;
+    if (last != null && _lastPoiRefresh != null &&
+        now.difference(_lastPoiRefresh!) < const Duration(seconds: 20) &&
+        _lastPoiCategory == category &&
+        (last.latitude - center.latitude).abs() < .004 &&
+        (last.longitude - center.longitude).abs() < .004) {
+      return;
+    }
+    _lastPoiCentre = center;
+    _lastPoiCategory = category;
+    _lastPoiRefresh = now;
+    final version = ++_poiRequestVersion;
+    final radius = _zoom >= 17 ? 400 : _zoom >= 16 ? 750 :
+        _zoom >= 15 ? 1200 : 2200;
+    try {
+      final pois = await lookup.nearby(center.latitude, center.longitude,
+          radius: radius, category: category);
+      if (!mounted || version != _poiRequestVersion ||
+          _query.trim().isNotEmpty) {
+        return;
+      }
+      setState(() => _nearbyPois = [for (final p in pois) _asPoi(p)]);
+      _syncMarkers();
+    } catch (_) {
+      // Preserve current pins offline; the named map tiles remain available.
+    }
+  }
+
   Future<void> _search() async {
     final version = ++_searchVersion;
+    final query = _query.trim();
     try {
       final lookup = _placeLookup;
       final List<ExplorePlace> results;
       if (lookup != null) {
-        final candidates = await lookup.search(_query);
+        List<PlaceCandidate> address = const [];
+        List<PlaceCandidate> pois = const [];
+        var succeeded = query.length < 2;
+        try {
+          address = await lookup.search(query);
+          succeeded = true;
+        } catch (_) { /* POI search may still work. */ }
+        if (lookup is RemotePlaceLookup && query.length >= 2) {
+          try {
+            pois = await lookup.nearby(
+              _currentCameraPosition.latitude,
+              _currentCameraPosition.longitude,
+              radius: 5000, name: query,
+            );
+            succeeded = true;
+          } catch (_) { /* Address lookup may still work. */ }
+        }
+        if (!succeeded) throw const PlaceLookupUnavailable();
+        final seen = <String>{};
         results = [
-          for (final candidate in candidates)
-            ExplorePlace(
-              candidate.id ?? '${candidate.latitude},${candidate.longitude}',
-              candidate.name ?? candidate.coordinates,
-              'Địa điểm',
-              candidate.latitude,
-              candidate.longitude,
-              sample: candidate.sample,
-            ),
+          for (final p in pois)
+            if (seen.add('poi:${p.id}')) _asPoi(p),
+          for (final candidate in address)
+            if (seen.add('address:${candidate.id ?? candidate.coordinates}'))
+              ExplorePlace(
+                'address:${candidate.id ?? candidate.coordinates}',
+                candidate.name ?? candidate.coordinates, 'Địa chỉ',
+                candidate.latitude, candidate.longitude,
+                sample: candidate.sample, address: candidate.address,
+              ),
         ];
       } else {
-        // Signed-in sessions never substitute sample provider results.
         results = _signedIn
-            ? const []
-            : await widget.placesRepository.search(_query, null);
+            ? const [] : await widget.placesRepository.search(query, null);
       }
       if (!mounted || version != _searchVersion) return;
       setState(() {
@@ -609,6 +702,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       }
     });
     _syncMarkers(fade: true);
+    if (_query.trim().isEmpty) _loadNearbyPois();
     // Filtered: the map goes to what is left, wherever it is.
     if (category != null || mood != null) {
       _frame([
@@ -744,6 +838,18 @@ class _ExploreScreenState extends State<ExploreScreen> {
         }
         return;
       }
+      if (id is String && id.startsWith('poi:')) {
+        for (final place in [..._places, ..._nearbyPois]) {
+          if (place.id == id) {
+            setState(() {
+              _selected = place;
+              _draftPin = null;
+            });
+            _syncMarkers();
+            return;
+          }
+        }
+      }
       if (id is String && id.startsWith('cluster:')) {
         // A group: the map zooms in until they come apart.
         _frame([
@@ -804,6 +910,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       markers['mine'] = await createShareMarker(active: true);
       markers['mine-past'] = await createShareMarker(active: false);
       markers['ring'] = await createRingMarker();
+      markers['poi'] = await createPoiMarker();
       markers['anonymous'] = await createNudaengMarker(
         'assets/images/loading.gif',
         const Color(0xFF6FBFB5),
@@ -826,6 +933,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         _loadFailed = false;
       });
       _syncMarkers();
+      _loadNearbyPois();
     } catch (_) {
       if (mounted && _map == map) setState(() => _loadFailed = true);
     }
@@ -844,6 +952,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _markerWork = _markerWork.then((_) async {
       if (!mounted || _map != map || !_styleReady) return;
       final places = List<ExplorePlace>.of(_places);
+      final nearby = _query.trim().isEmpty
+          ? List<ExplorePlace>.of(_nearbyPois) : const <ExplorePlace>[];
       final savedPlaces = List<SavedPlace>.of(_visibleSavedPlaces);
       final anonymousPlaces = _showAnonymous
           ? List<CommunityStop>.of(_anonymousPlaces)
@@ -871,13 +981,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final shown = <Symbol>[];
       final groups = <String, List<SavedPlace>>{};
       if (!mounted || _map != map) return;
+      for (final poi in nearby) {
+        await map.addSymbol(
+            SymbolOptions(
+              geometry: LatLng(poi.latitude, poi.longitude),
+              iconImage: 'poi', iconSize: .52, iconAnchor: 'center',
+            ),
+            {'id': poi.id});
+        if (!mounted || _map != map) return;
+      }
       for (final place in places) {
         await map.addSymbol(
             SymbolOptions(
               geometry: LatLng(place.latitude, place.longitude),
-              iconImage: 'nudaeng',
-              iconSize: PinArt.size,
-              iconAnchor: 'bottom',
+              iconImage: place.poi ? 'poi' : 'nudaeng',
+              iconSize: place.poi ? .65 : PinArt.size,
+              iconAnchor: place.poi ? 'center' : 'bottom',
             ),
             {'id': place.id});
         if (!mounted || _map != map) return;
@@ -1212,6 +1331,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (_moving) setState(() => _moving = false);
     // Zoomed: groups come apart or join.
     if ((_zoom - _clusteredAt).abs() > .25) _syncMarkers();
+    if (_query.trim().isEmpty) _loadNearbyPois();
   }
 
   /// The form for a place at [at] ([name] to start from); saved there.
@@ -1765,7 +1885,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
       icon: place != null ? Icons.place_outlined : Icons.push_pin_outlined,
       title: place?.label ?? ExploreScreen.draftTitle,
       subtitle: place != null
-          ? '${place.category} · ${ExploreScreen.sample}'
+          ? (place.address ?? (place.sample
+              ? '${place.category} · ${ExploreScreen.sample}'
+              : place.category))
           : ExploreScreen.draftDetail,
       closeTooltip: place != null
           ? ExploreScreen.closePlaceTooltip
@@ -2121,9 +2243,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
                   color: AppColors.primaryAction),
               title: Text(place.label, style: AppText.label),
               subtitle: Text(
-                  place.sample
+                  place.address ?? (place.sample
                       ? '${place.category} · ${ExploreScreen.sample}'
-                      : place.category,
+                      : place.category),
                   style: AppText.meta),
               onTap: () => _showPlace(place),
             ),

@@ -65,4 +65,46 @@ void main() {
         throwsA(isA<PlaceLookupUnavailable>()));
     api.close();
   });
+
+  test('nearby Vietnamese POIs are fetched through JWT backend, not direct Geoapify', () async {
+    final requests = <http.Request>[];
+    final httpClient = MockClient((request) async {
+      requests.add(request);
+      return http.Response(jsonEncode({'items': [{
+        'provider': 'geoapify',
+        'external_place_id': 'hcm-cafe',
+        'label': 'Quán cà phê Sài Gòn',
+        'formatted_address': 'Quận 1, TP.HCM',
+        'categories': ['catering.cafe'],
+        'latitude': 10.7769,
+        'longitude': 106.7009,
+      }]}), 200, headers: {'content-type': 'application/json'});
+    });
+    final api = ApiClient(client: httpClient,
+        accessTokenProvider: () async => 'test-access-token');
+    final result = await RemotePlaceLookup(api).nearby(
+        10.7769, 106.7009, category: 'cafe', name: 'Cà phê');
+    expect(result, hasLength(1));
+    expect(result.single.name, 'Quán cà phê Sài Gòn');
+    expect(result.single.address, 'Quận 1, TP.HCM');
+    expect(result.single.category, 'catering.cafe');
+    expect(requests.single.url.path, endsWith('/geo/places'));
+    expect(requests.single.url.queryParameters['category'], 'cafe');
+    expect(requests.single.url.queryParameters['q'], 'Cà phê');
+    expect(requests.single.headers['Authorization'], 'Bearer test-access-token');
+    api.close();
+  });
+
+  test('POI browsing fails closed without authenticated session', () async {
+    var sent = false;
+    final api = ApiClient(client: MockClient((request) async {
+      sent = true;
+      return http.Response('{"items":[]}', 200);
+    }));
+    await expectLater(RemotePlaceLookup(api).nearby(10.77, 106.7),
+        throwsA(isA<PlaceLookupUnavailable>()));
+    expect(sent, false);
+    api.close();
+  });
+
 }
