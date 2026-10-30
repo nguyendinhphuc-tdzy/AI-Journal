@@ -17,6 +17,8 @@ import '../../album/data/memory_photos.dart';
 import '../../album/data/album_settings.dart';
 import '../../album/data/album_unlocks.dart';
 import '../../album/data/memory_share.dart';
+import '../../album/data/album_sharing.dart';
+import '../../social/data/friends_sharing.dart';
 import '../../journal/data/api_ai_service.dart';
 import '../../journal/data/remote_journal_repository.dart';
 import '../../onboarding/data/onboarding_scope.dart';
@@ -247,6 +249,11 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
       : null;
   late final ApiAIService? _ai = _api == null ? null : ApiAIService(_api);
 
+  /// A10's audience: the account's friends on the app. Guests have none.
+  late final MemorySharing _memorySharing = _api == null
+      ? const NoAlbumPublishing() as MemorySharing
+      : RemoteFriendsSharing(_api);
+
   late final Future<({
     JournalRepository journals,
     AlbumRepository albums,
@@ -362,6 +369,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
                 repository: data.albums,
                 auth: PinAlbumAuth(LocalAlbumPins(userId: widget.userId)),
                 photos: DeviceMemoryPhotos.forUser(widget.userId),
+                memorySharing: _memorySharing,
                 child: app,
               ),
             ),

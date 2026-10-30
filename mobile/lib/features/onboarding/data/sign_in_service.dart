@@ -6,7 +6,7 @@ import '../../auth/data/auth_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum SignInMethod { email, google, facebook }
+enum SignInMethod { email, google }
 
 /// Who is signed in, and how.
 @immutable
@@ -35,9 +35,6 @@ abstract interface class SignInService {
   Future<bool> signUpEmail(String email, String password);
   Future<void> signInEmail(String email, String password);
   Future<void> signInGoogle();
-
-  /// After Facebook's own login and consent.
-  Future<void> signInFacebook();
   Future<void> signOut();
 }
 
@@ -96,9 +93,6 @@ class MockSignInService implements SignInService {
 
   @override
   Future<void> signInGoogle() => _signIn(SignInMethod.google);
-
-  @override
-  Future<void> signInFacebook() => _signIn(SignInMethod.facebook);
 
   @override
   Future<void> signOut() async {
@@ -197,9 +191,6 @@ class SupabaseSignInAdapter implements SignInService {
 
   @override
   Future<void> signInGoogle() => _awaitOAuth(auth.signInGoogle);
-
-  @override
-  Future<void> signInFacebook() => _awaitOAuth(auth.signInFacebook);
 
   @override
   Future<void> signOut() => auth.signOut();
