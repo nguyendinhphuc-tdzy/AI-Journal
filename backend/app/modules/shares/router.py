@@ -1,7 +1,7 @@
 """Explicit, private 24-hour friend shares. Never read album notes for recipients."""
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ from app.models.user_profile import UserProfile
 from app.modules.albums.photos_router import validate_image
 from app.modules.friends.router import blocked, pair
 from app.modules.messages.service import deliver_share
+from app.modules.devices.push import send_push_to_user
 
 router = APIRouter(prefix="/memory-shares", tags=["memory-shares"])
 PHOTO_MAX_BYTES = 3 * 1024 * 1024
@@ -97,7 +98,8 @@ def readable(db: Session, s: MemoryShare | None, reader: UUID) -> MemoryShare:
     return s
 
 @router.post("", response_model=ShareInfo, status_code=status.HTTP_201_CREATED)
-def create_share(payload: ShareCreate, user: AuthenticatedUser = Depends(get_current_user),
+def create_share(payload: ShareCreate, background_tasks: BackgroundTasks,
+                 user: AuthenticatedUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     if len(set(payload.recipient_ids)) != len(payload.recipient_ids) or any(
         not eligible(db, user.user_id, r) for r in payload.recipient_ids
@@ -134,6 +136,9 @@ def create_share(payload: ShareCreate, user: AuthenticatedUser = Depends(get_cur
     # Messages and share are committed as one transaction or not at all.
     deliver_share(db, share, payload.recipient_ids, now)
     db.commit()
+    for recipient in payload.recipient_ids:
+        background_tasks.add_task(send_push_to_user, recipient, "memory_share",
+                                  {"share_id": str(share.id)})
     return ShareInfo(id=share.id, memory_id=share.memory_id,
                      expires_at=share.expires_at, revoked=False)
 
