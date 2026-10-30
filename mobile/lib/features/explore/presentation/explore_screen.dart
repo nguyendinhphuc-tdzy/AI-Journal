@@ -13,6 +13,9 @@ import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../data/explore_highlight.dart';
 import '../../social/presentation/friend_space_screen.dart';
+import '../../album/album_scope.dart';
+import '../../social/data/friends_sharing.dart';
+import 'widgets/friend_post_card.dart';
 import '../data/device_location.dart';
 import '../data/explore_places_repository.dart';
 import '../data/place_lookup.dart';
@@ -188,6 +191,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
   RemoteSavedPlacesRepository? _cloudPlaces;
   bool _storeReady = false;
   bool _signedIn = false;
+
+  /// Friends' 24-hour posts shared with the user (signed in), asked again
+  /// every minute while Explore is open.
+  RemoteFriendsSharing? _friendsSharing;
+  List<FriendPost> _friendPosts = const [];
+  Timer? _friendPostsTimer;
+
+  /// The friend's post whose card is open, and photos already asked for.
+  FriendPost? _openPost;
+  final _postPhotos = <String, Future<Uint8List>>{};
   PlaceLookup? _placeLookup;
   late SavedPlacesStore _effectiveLocalStore;
   bool _hasUnreadMail = true;
@@ -292,6 +305,14 @@ class _ExploreScreenState extends State<ExploreScreen> {
       _loadKept();
     }
     if (searchChanged) _search();
+    final sharing = AlbumScope.memorySharingOf(context);
+    if (sharing is RemoteFriendsSharing && !identical(sharing, _friendsSharing)) {
+      _friendsSharing = sharing;
+      _friendPostsTimer?.cancel();
+      _friendPostsTimer = Timer.periodic(
+          const Duration(minutes: 1), (_) => _loadFriendPosts());
+      _loadFriendPosts();
+    }
     final cloud = SavedPlacesScope.maybeOf(context);
     if (cloud == null || identical(cloud, _cloudPlaces)) return;
     _cloudPlaces = cloud;
@@ -354,6 +375,43 @@ class _ExploreScreenState extends State<ExploreScreen> {
         : null;
   }
 
+  Future<void> _loadFriendPosts() async {
+    final sharing = _friendsSharing;
+    if (sharing == null) return;
+    try {
+      final posts = await sharing.received();
+      if (!mounted) return;
+      _friendPosts = posts;
+      _syncMarkers();
+    } catch (_) {
+      // Offline: the pins already shown stay until the next try.
+    }
+  }
+
+  /// A friend's post: its card, the pin brought into view.
+  /// A friend's post: its card with the photo, the pin brought into view.
+  void _showFriendPost(FriendPost post) {
+    setState(() {
+      _openPost = post;
+      if (post.hasPhoto) {
+        _postPhotos.putIfAbsent(post.id, () => _friendsSharing!.photo(post.id));
+      }
+      _highlightCard = false;
+      _selected = null;
+      _selectedSavedId = null;
+      _draftPin = null;
+    });
+    _syncMarkers();
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    final camera = CameraUpdate.newLatLngZoom(
+        LatLng(post.latitude, post.longitude), 15);
+    (MediaQuery.disableAnimationsOf(context)
+            ? map.moveCamera(camera)
+            : map.animateCamera(camera))
+        .catchError((Object _) => false);
+  }
+
   Future<void> _focusHighlight() async {
     final highlight = _activeHighlight;
     final map = _map;
@@ -371,6 +429,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   void dispose() {
+    _friendPostsTimer?.cancel();
     _debounce?.cancel();
     _loadTimeout?.cancel();
     _searchController.dispose();
@@ -586,6 +645,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
           return;
         }
       }
+      if (id is String && id.startsWith('friend:')) {
+        for (final post in _friendPosts) {
+          if ('friend:${post.id}' == id) {
+            _showFriendPost(post);
+            return;
+          }
+        }
+        return;
+      }
       if (id == 'draft') setState(() => _selected = null);
       if (id == 'highlight') {
         setState(() {
@@ -662,6 +730,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
           : const <CommunityStop>[];
       final draft = _draftPin;
       final highlight = _activeHighlight;
+      final now = DateTime.now();
+      final friendPosts = [
+        for (final post in _friendPosts)
+          if (post.isActive(now)) post
+      ];
       final selectedId = _selectedSavedId;
       final zoom = _zoom;
       final clusters = clusterPlaces(savedPlaces, zoom, keep: selectedId);
@@ -741,6 +814,27 @@ class _ExploreScreenState extends State<ExploreScreen> {
               iconAnchor: 'bottom',
             ),
             {'id': 'anonymous:${place.id}'});
+        if (!mounted || _map != map) return;
+      }
+      for (final post in friendPosts) {
+        await map.addSymbol(
+            SymbolOptions(
+              geometry: LatLng(post.latitude, post.longitude),
+              iconImage: 'nudaeng',
+              iconSize: PinArt.size,
+              iconAnchor: 'bottom',
+              zIndex: 2,
+              // Whose post it is, under the pin.
+              textField: post.senderName,
+              fontNames: const ['Noto Sans Bold'],
+              textSize: 12,
+              textAnchor: 'top',
+              textOffset: const Offset(0, .3),
+              textColor: '#2E6E78',
+              textHaloColor: '#FFFFFF',
+              textHaloWidth: 1.6,
+            ),
+            {'id': 'friend:${post.id}'});
         if (!mounted || _map != map) return;
       }
       if (draft != null) {
@@ -1256,8 +1350,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   Widget build(BuildContext context) {
     final highlight = _activeHighlight;
+    final openPost = _openPost != null &&
+            _openPost!.isActive(DateTime.now()) &&
+            _selected == null &&
+            _draftPin == null
+        ? _openPost
+        : null;
     final showHighlight = _selected == null &&
         _draftPin == null &&
+        openPost == null &&
         _highlightCard &&
         highlight != null;
     final status = _status;
@@ -1363,6 +1464,15 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     Align(
                         alignment: Alignment.centerRight, child: _buildZoom()),
                     const SizedBox(height: 12),
+                    if (openPost != null) ...[
+                      FriendPostCard(
+                        key: ValueKey('friend-post-${openPost.id}'),
+                        post: openPost,
+                        photo: _postPhotos[openPost.id],
+                        onClose: () => setState(() => _openPost = null),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     if (showHighlight) ...[
                       MapInfoCard(
                         icon: Icons.share_location_outlined,
