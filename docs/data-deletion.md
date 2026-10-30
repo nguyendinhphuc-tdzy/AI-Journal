@@ -27,7 +27,7 @@ Nếu không còn truy cập email đăng ký, hãy nêu rõ điều đó và y�
 
 ## 2. Dữ liệu nào sẽ được xem xét xóa?
 
-Tùy phạm vi yêu cầu và những tính năng bạn đã dùng, yêu cầu xóa toàn bộ tài khoản sẽ bao gồm những dữ liệu gắn với tài khoản trên hệ thống AI-Journal: hồ sơ/tài khoản xác thực Supabase, bài nhật ký, kết quả phân tích AI và đánh giá, trích dẫn đã lưu, nhận xét tuần, album/kỷ niệm, ghi chú, địa điểm và các liên kết liên quan nếu có.
+Tùy phạm vi yêu cầu và những tính năng bạn đã dùng, yêu cầu xóa toàn bộ tài khoản sẽ bao gồm những dữ liệu gắn với tài khoản trên hệ thống AI-Journal: hồ sơ/tài khoản xác thực Supabase, bài nhật ký, kết quả phân tích AI và đánh giá, trích dẫn đã lưu, nhận xét tuần, album/kỷ niệm, ghi chú, địa điểm, lời mời kết bạn, các cuộc trò chuyện, tin nhắn và trạng thái đã đọc cùng các liên kết liên quan nếu có. Khi xóa tài khoản Supabase Auth, các bảng trò chuyện/tin nhắn dùng khóa ngoại cascade; nhóm vẫn phải kiểm tra kết quả xóa thực tế và lưu ý khả năng sao lưu còn tồn tại theo chu kỳ của nhà cung cấp.
 
 Nếu bạn **chỉ yêu cầu xóa dữ liệu từ Facebook Login**, hãy ghi rõ điều đó. Nhóm sẽ xử lý dữ liệu xác thực/liên kết tài khoản Facebook được lưu hoặc nhận bởi AI-Journal theo phạm vi có thể xác minh, đồng thời giải thích nếu thao tác đó ảnh hưởng đến việc tiếp tục đăng nhập vào tài khoản hiện có.
 
