@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.database import Base
 from app.models.memory_share_recipient import MemoryShareRecipient  # noqa: F401
 from app.models.message import Conversation, Message, ConversationRead, MessageHide  # noqa: F401
+from app.models.device_token import DeviceToken  # noqa: F401
 from app.models.journal_analysis import JournalAnalysis  # noqa: F401
 from app.models.saved_quote import SavedQuote  # noqa: F401
 from app.models.weekly_insight import WeeklyInsight  # noqa: F401

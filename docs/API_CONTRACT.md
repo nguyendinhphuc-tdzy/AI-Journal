@@ -130,6 +130,23 @@ A `Message` contains `id,conversation_id,sender_id,kind,client_id,created_at,rec
 
 **Data lifecycle:** conversations and messages use foreign keys that cascade when a user account is deleted in Supabase Auth. The backend cannot provide end-to-end encryption; message history is server-side and should be disclosed in privacy and deletion policies. Supabase Data API roles `anon` and `authenticated` have no direct table privileges, with RLS enabled, so messages are accessed through FastAPI only.
 
+## Device registration and privacy-safe push — migration 20261030_21
+
+Only the Android app registered by Vy's Firebase configuration can obtain genuine FCM registration tokens. The backend does **not** create Firebase projects and never issues client tokens.
+
+| Method and path | Request / response |
+| --- | --- |
+| `POST /devices` | `{token,installation_id,platform:"android"|"ios"}`; JWT required; 200 `{registered:true}`. Token 32–4096 chars, installation ID 8–128 chars; no whitespace. Same token/installation can refresh or rotate. Registration for a new account on the same device transfers ownership of the token to prevent cross-account push leaks. |
+| `DELETE /devices` | JSON body `{token}`; JWT required; 204, idempotent. Only removes caller-owned token. The client must unregister on sign-out and register on FCM token refresh / next login. |
+
+`device_tokens` is server-only: full token stored privately for delivery, 64-hex SHA-256 primary key to avoid indexing 4 KiB tokens; unique per user+installation; max 10 devices/user, 60-day last-seen dispatch filter, cascade delete on `auth.users`. Supabase `anon` and `authenticated` have no direct table privileges; RLS enabled. No endpoint lists or exposes tokens.
+
+FCM HTTP v1 is **disabled unless** backend `FCM_PROJECT_ID` and Google ADC (`GOOGLE_APPLICATION_CREDENTIALS` pointing to a private service-account JSON, or a workload identity) are configured. The server requests OAuth 2.0 token scoped to Firebase Messaging, and never uses legacy FCM server keys.
+
+Post-commit push event kinds: `friend_request` (data `sender_id`), `friend_accepted` (data `friend_id`), `message` (data `conversation_id` from text/place messages), `memory_share` (data `share_id`). Content on lock screen is **generic** (no text, photo, note, place, coordinates, username, sender display name); `android.notification.visibility=PRIVATE`. The client resolves the ID via authenticated API and rechecks active ACL, 24-hour expiry and blocks on open. No notification is sent on failed, unauthorized or repeated-idempotent sends.
+
+Current implementation uses FastAPI BackgroundTasks **after database commit** and is best-effort: no durable outbox, crash recovery or guaranteed FCM delivery. A future production phase needs transactional outbox/queue + worker, retry/backoff, metrics, and preference controls. Removing invalid `UNREGISTERED` tokens is supported. Local reminder notifications via `flutter_local_notifications` / `timezone` are a separate **on-device Flutter responsibility** and do not use these APIs.
+
 ## Deployment / API compatibility reminders
 
 1. Deploy Flutter and backend together when changing the JSON Memory field `photo_path` to `photo_available`. Older client builds must be handled by upgrade/versioning; no implicit backward compatibility.

@@ -25,6 +25,7 @@ TABLES = (
     "journal_action_days", "saved_places", "place_notes", "journal_places",
     "albums", "album_memories", "journal_analyses", "saved_quotes",
     "weekly_insights", "conversations", "messages", "conversation_reads",
+    "device_tokens",
 )
 USER_TABLES = TABLES[1:]
 
