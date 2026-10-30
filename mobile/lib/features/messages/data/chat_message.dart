@@ -98,6 +98,7 @@ class ChatMessage {
     this.memory,
     this.clientId,
     this.state = SendState.sent,
+    this.recalled = false,
   });
 
   /// The server's id; a local one (`local:…`) while sending.
@@ -114,6 +115,9 @@ class ChatMessage {
   final String? clientId;
   final SendState state;
 
+  /// Taken back by its sender: no content, for both.
+  final bool recalled;
+
   ChatMessage copyWith({SendState? state}) => ChatMessage(
         id: id,
         senderId: senderId,
@@ -124,6 +128,7 @@ class ChatMessage {
         memory: memory,
         clientId: clientId,
         state: state ?? this.state,
+        recalled: recalled,
       );
 
   /// One message from the API; null when it cannot be shown.
@@ -149,7 +154,9 @@ class ChatMessage {
       place: SharedPlace.fromJson(json['place']),
       memory: SharedMemoryCard.fromJson(json['memory_share']),
       clientId: json['client_id'] as String?,
+      recalled: json['recalled'] == true,
     );
+    if (message.recalled) return message;
     return switch (kind) {
       MessageKind.text when (message.text ?? '').trim().isEmpty => null,
       MessageKind.place when message.place == null => null,
