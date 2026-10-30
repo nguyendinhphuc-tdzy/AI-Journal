@@ -109,7 +109,7 @@ def create_share(payload: ShareCreate, user: AuthenticatedUser = Depends(get_cur
     db.add_all(MemoryShareRecipient(share_id=share.id, owner_id=user.user_id,
                recipient_id=r) for r in payload.recipient_ids)
     # Messages and share are committed as one transaction or not at all.
-    deliver_share(db, share, recipients, now)
+    deliver_share(db, share, payload.recipient_ids, now)
     db.commit()
     return ShareInfo(id=share.id, memory_id=share.memory_id,
                      expires_at=share.expires_at, revoked=False)
