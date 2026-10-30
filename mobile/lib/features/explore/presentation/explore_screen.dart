@@ -126,6 +126,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   int _poiRequestVersion = 0;
   DateTime? _lastPoiRefresh;
   LatLng? _lastPoiCentre;
+  String? _lastPoiCategory;
   ExplorePlace? _selected;
   LatLng? _draftPin;
   ExploreHighlight? _highlight;
@@ -447,10 +448,32 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.dispose();
   }
 
+  static String _poiLabel(String? category) {
+    if (category == null) return 'Địa điểm';
+    if (category.startsWith('catering.cafe')) return 'Quán cà phê';
+    if (category.startsWith('catering')) return 'Ăn uống';
+    if (category.startsWith('commercial')) return 'Cửa hàng';
+    if (category.startsWith('education')) return 'Trường học';
+    if (category.startsWith('healthcare')) return 'Y tế';
+    if (category.startsWith('public_transport')) return 'Giao thông';
+    if (category.startsWith('accommodation')) return 'Lưu trú';
+    if (category.startsWith('tourism') || category.startsWith('entertainment')) {
+      return 'Tham quan';
+    }
+    return 'Địa điểm';
+  }
+
+  String get _poiCategory => switch (_category) {
+    'Food' => 'food',
+    'Study' => 'school',
+    'Chill' => 'cafe',
+    _ => 'all',
+  };
+
   ExplorePlace _asPoi(PlaceCandidate p) => ExplorePlace(
     'poi:${p.id ?? '${p.latitude},${p.longitude}'}',
     p.name ?? p.coordinates,
-    p.category ?? 'Địa điểm thật',
+    _poiLabel(p.category),
     p.latitude, p.longitude,
     sample: false, poi: true, address: p.address,
   );
@@ -464,18 +487,21 @@ class _ExploreScreenState extends State<ExploreScreen> {
     final center = _currentCameraPosition;
     final now = DateTime.now();
     final last = _lastPoiCentre;
+    final category = _poiCategory;
     if (last != null && _lastPoiRefresh != null &&
         now.difference(_lastPoiRefresh!) < const Duration(seconds: 20) &&
+        _lastPoiCategory == category &&
         (last.latitude - center.latitude).abs() < .004 &&
         (last.longitude - center.longitude).abs() < .004) return;
     _lastPoiCentre = center;
+    _lastPoiCategory = category;
     _lastPoiRefresh = now;
     final version = ++_poiRequestVersion;
     final radius = _zoom >= 17 ? 400 : _zoom >= 16 ? 750 :
         _zoom >= 15 ? 1200 : 2200;
     try {
       final pois = await lookup.nearby(center.latitude, center.longitude,
-          radius: radius);
+          radius: radius, category: category);
       if (!mounted || version != _poiRequestVersion ||
           _query.trim().isNotEmpty) return;
       setState(() => _nearbyPois = [for (final p in pois) _asPoi(p)]);
