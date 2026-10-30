@@ -23,8 +23,8 @@ Supabase Auth handles email/password, Google/Facebook OAuth and SMS OTP (when co
 
 | Method and path | Request / response |
 | --- | --- |
-| `GET /me` | My `user_id`, `email`, `display_name`, `timezone`, `discoverable`, `created_at`; profile can be created on first access |
-| `PATCH /me` | Partial `{"display_name":"...", "timezone":"Asia/Ho_Chi_Minh", "discoverable":false}`; **explicit** `discoverable:null` gives 422, omission leaves value unchanged |
+| `GET /me` | My `user_id`, `email`, `display_name`, `username`, `timezone`, `discoverable`, `created_at`; profile can be created on first access |
+| `PATCH /me` | Partial `{"display_name":"...", "username":"vytuong", "timezone":"Asia/Ho_Chi_Minh", "discoverable":false}`; **explicit** `discoverable:null` gives 422, omission leaves value unchanged |
 
 ## Journal and streak
 
@@ -86,8 +86,8 @@ Geoapify configuration/availability determines live lookup. Cloud Saved Places a
 
 | Method and path | Contract |
 | --- | --- |
-| `GET /friends`, `POST /friends/requests`, `POST /friends/{other_id}/accept`, `DELETE /friends/{other_id}` | Authenticated friendship listing/request/accept/remove |
-| `GET /friends/discover?q=...` | Opt-in discovery of discoverable profiles, search length 3–60 |
+| `GET /friends`, `POST /friends/requests`, `POST /friends/{other_id}/accept`, `DELETE /friends/{other_id}` | Authenticated friendship listing/request/accept/remove; list also returns peer display_name and username |
+| `GET /friends/discover?q=...` | Opt-in search by @username prefix or display name (length 3–60), returns user_id/display_name/username without email; username unique and lowercase |
 | `GET /friends/blocks`, `POST /friends/blocks`, `DELETE /friends/blocks/{other_id}` | Block list/add/remove |
 | `POST /memory-shares` | `{"memory_id":"UUID","recipient_ids":["UUID"]}`; 1–20 friends; time-limited share |
 | `GET /memory-shares/{share_id}`, `DELETE /memory-shares/{share_id}` | Read authorized share / revoke owner share |
