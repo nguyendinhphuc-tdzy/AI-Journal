@@ -80,6 +80,8 @@ Both endpoints require a **verified Supabase JWT even in mock mode**. `content` 
 | `GET /geo/search?q=...&limit=5&lat=...&lon=...` | Authenticated search; `q` length 2–120, `limit` 1–10, optional bias coordinates |
 | `GET /geo/reverse?lat=...&lon=...` | Authenticated reverse geocoding, place or null |
 
+Geoapify Places: `GET /geo/places?lat=10.7769&lon=106.7009&radius=1500&category=all&q=...&limit=25` — JWT required. Server-only key; returns `{items:[{provider,external_place_id,label,formatted_address,latitude,longitude,categories}]}` from real OSM-based Geoapify POIs. Category allowlist: `all|cafe|food|shop|hotel|school|health|attraction|transport`. Search name `q` is optional (2–120 chars), radius 100–5000 meters, limit 1–40, `lang=vi`. Missing key 503; provider errors 502/503; per-user 30/min in-memory rate limit, 60s cache. Results are nearby snapshots, not guaranteed exhaustive or permanent, and are never silently persisted to a personal SavedPlace.
+
 Geoapify configuration/availability determines live lookup. Cloud Saved Places are opt-in through `PLACES_CLOUD_ENABLED`; local pins must be scoped per signed-in account when cloud is disabled.
 
 ## Friends, sharing and community (backend routes; UI may still be mocked)

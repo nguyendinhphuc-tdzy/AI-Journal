@@ -16,6 +16,7 @@ class PlaceCandidate {
     required this.longitude,
     required this.source,
     this.sample = false,
+    this.category,
   });
 
   /// The search provider's id, when there is one.
@@ -28,6 +29,7 @@ class PlaceCandidate {
 
   /// A demo place from the mock search, not a real address.
   final bool sample;
+  final String? category;
 
   bool get named => (name ?? '').trim().isNotEmpty;
 
@@ -42,6 +44,7 @@ class PlaceCandidate {
         longitude: longitude,
         source: source,
         sample: sample,
+        category: category,
       );
 }
 
@@ -133,6 +136,49 @@ class RemotePlaceLookup implements PlaceLookup {
     } catch (_) {
       throw const PlaceLookupUnavailable();
     }
+  }
+
+  /// Real OSM-backed POIs near the visible map center. Never call Geoapify
+  /// from the mobile client; the FastAPI adapter owns the provider key.
+  Future<List<PlaceCandidate>> nearby(double latitude, double longitude,
+      {int radius = 1500, String category = 'all', String? name}) async {
+    if (!latitude.isFinite || !longitude.isFinite ||
+        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw const PlaceLookupUnavailable();
+    }
+    final encoded = name == null || name.trim().length < 2
+        ? ''
+        : '&q=${Uri.encodeQueryComponent(name.trim())}';
+    try {
+      final payload = await client.getJson(
+        '/geo/places?lat=$latitude&lon=$longitude&radius=$radius&category=$category&limit=25$encoded',
+        requireAuth: true,
+      );
+      final items = payload['items'];
+      if (items is! List) throw const FormatException('Invalid POIs');
+      return [
+        for (final value in items)
+          if (value is Map<String, dynamic>)
+            _poiCandidate(value)
+          else
+            throw const FormatException('Invalid POI')
+      ];
+    } catch (_) {
+      throw const PlaceLookupUnavailable();
+    }
+  }
+
+  PlaceCandidate _poiCandidate(Map<String, dynamic> raw) {
+    final value = _candidate(raw, PlaceSource.search);
+    final categories = raw['categories'];
+    final category = categories is List && categories.isNotEmpty &&
+            categories.first is String ? categories.first as String : null;
+    return PlaceCandidate(
+      id: value.id,
+      name: value.name, address: value.address,
+      latitude: value.latitude, longitude: value.longitude,
+      source: PlaceSource.search, category: category,
+    );
   }
 
   @override
