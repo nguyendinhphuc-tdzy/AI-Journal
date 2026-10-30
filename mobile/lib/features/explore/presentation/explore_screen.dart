@@ -483,7 +483,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
   Future<void> _loadNearbyPois() async {
     final lookup = _placeLookup;
     if (!_styleReady || lookup is! RemotePlaceLookup || _zoom < 14 ||
-        _query.trim().isNotEmpty || _picking) return;
+        _query.trim().isNotEmpty || _picking) {
+      return;
+    }
     final center = _currentCameraPosition;
     final now = DateTime.now();
     final last = _lastPoiCentre;
@@ -492,7 +494,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
         now.difference(_lastPoiRefresh!) < const Duration(seconds: 20) &&
         _lastPoiCategory == category &&
         (last.latitude - center.latitude).abs() < .004 &&
-        (last.longitude - center.longitude).abs() < .004) return;
+        (last.longitude - center.longitude).abs() < .004) {
+      return;
+    }
     _lastPoiCentre = center;
     _lastPoiCategory = category;
     _lastPoiRefresh = now;
@@ -503,7 +507,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final pois = await lookup.nearby(center.latitude, center.longitude,
           radius: radius, category: category);
       if (!mounted || version != _poiRequestVersion ||
-          _query.trim().isNotEmpty) return;
+          _query.trim().isNotEmpty) {
+        return;
+      }
       setState(() => _nearbyPois = [for (final p in pois) _asPoi(p)]);
       _syncMarkers();
     } catch (_) {
