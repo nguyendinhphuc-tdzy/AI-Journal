@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261030_18"
+    assert revision == "20261030_19"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -57,6 +57,7 @@ def test_migration_applied():
     assert "journal_analyses" in tables
     assert "saved_quotes" in tables
     assert "weekly_insights" in tables
+    assert {"conversations", "messages", "conversation_reads"}.issubset(tables)
 
 
 def test_ai_requires_authentication_in_all_provider_modes(monkeypatch):
