@@ -23,7 +23,13 @@ enum SoundCue {
   penClick(['pen_click.wav']),
 
   /// Letters taken out while writing.
-  erase(['erase_1.wav', 'erase_2.wav']);
+  erase(['erase_1.wav', 'erase_2.wav']),
+
+  /// A friend's message arrived (synthesised, `tool/build_message_sounds.py`).
+  messageIn(['message_in.wav']),
+
+  /// The user's message went.
+  messageOut(['message_out.wav']);
 
   const SoundCue(this.assets);
   final List<String> assets;

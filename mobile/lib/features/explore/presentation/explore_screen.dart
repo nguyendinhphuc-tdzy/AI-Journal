@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../auth/data/guest_mode_store.dart';
@@ -18,6 +20,8 @@ import '../../messages/messages_scope.dart';
 import '../../messages/presentation/send_place_sheet.dart';
 import '../../album/album_scope.dart';
 import '../../social/data/friends_sharing.dart';
+import '../../social/data/my_shares.dart';
+import '../../album/presentation/share_memory_sheet.dart';
 import 'widgets/friend_post_card.dart';
 import '../data/device_location.dart';
 import '../data/explore_places_repository.dart';
@@ -97,6 +101,33 @@ class ExploreScreen extends StatefulWidget {
       'Không tải được địa điểm đã lưu từ tài khoản. Thử mở lại bản đồ.';
   static const cloudShareUnsupported =
       'Chia sẻ địa điểm chưa được hỗ trợ trên cloud.';
+  static const sharedFilter = 'Đã chia sẻ';
+  static String sharedStatus(int n) => 'Đang xem: $n bài bạn đã chia sẻ';
+
+  /// "Đang chia sẻ với Tường Vy", "Đã hết hạn", "Đã gỡ".
+  static String mineByline(MyShare share, DateTime now) {
+    if (share.revokedAt != null) return 'Bài của bạn · đã gỡ';
+    if (!share.isActive(now)) return 'Bài của bạn · đã hết hạn';
+    final to = share.recipientNames;
+    return to.isEmpty
+        ? 'Bài của bạn · đang chia sẻ'
+        : 'Đang chia sẻ với ${to.join(', ')}';
+  }
+
+  /// "Chia sẻ lúc 15:49, 30/10/2026".
+  static String sharedOn(DateTime at) {
+    final t = at.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return 'Chia sẻ lúc ${two(t.hour)}:${two(t.minute)}, '
+        '${two(t.day)}/${two(t.month)}/${t.year}';
+  }
+
+  static const momentsShow = 'Hiện khoảnh khắc của bạn bè';
+  static const momentsHide = 'Ẩn khoảnh khắc của bạn bè';
+  static String momentsNew(int n) => '$n khoảnh khắc mới';
+  static String momentsShown(int n) => 'Đang hiện $n khoảnh khắc của bạn bè';
+  static const momentsNone =
+      'Chưa có khoảnh khắc nào của bạn bè trong 24 giờ qua.';
   static const cloudInboxUnsupported =
       'Hòm thư mẫu chưa kết nối với tài khoản.';
 
@@ -205,6 +236,25 @@ class _ExploreScreenState extends State<ExploreScreen> {
   RemoteFriendsSharing? _friendsSharing;
   List<FriendPost> _friendPosts = const [];
   Timer? _friendPostsTimer;
+
+  /// Moments the user has seen (shown on the map since they came), kept on
+  /// this device per account; the rest are counted on the button.
+  Set<String> _seenMoments = {};
+
+  /// Friends' moments are on the map only while this is on.
+  var _showMoments = false;
+
+  /// "Đã chia sẻ": the map and the sheet show the user's own posts (ended
+  /// ones too) instead of saved places.
+  var _sharedView = false;
+
+  /// The user's own post whose card is open, and its photos (the album's
+  /// files on this device), by post id.
+  MyShare? _openMine;
+  final _minePhotos = <String, Future<Uint8List>>{};
+
+  MySharesArchive? get _archive => _friendsSharing?.archive;
+  List<MyShare> get _myShares => _archive?.shares.value ?? const [];
 
   /// The friend's post whose card is open, and photos already asked for.
   FriendPost? _openPost;
@@ -315,7 +365,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
     if (searchChanged) _search();
     final sharing = AlbumScope.memorySharingOf(context);
     if (sharing is RemoteFriendsSharing && !identical(sharing, _friendsSharing)) {
+      _friendsSharing?.archive?.shares.removeListener(_archiveChanged);
       _friendsSharing = sharing;
+      sharing.archive?.shares.addListener(_archiveChanged);
+      _loadSeenMoments();
       _friendPostsTimer?.cancel();
       _friendPostsTimer = Timer.periodic(
           const Duration(minutes: 1), (_) => _loadFriendPosts());
@@ -383,13 +436,67 @@ class _ExploreScreenState extends State<ExploreScreen> {
         : null;
   }
 
+  void _archiveChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _syncMarkers();
+  }
+
+  /// "Đã chia sẻ" on or off: own posts (ended ones too) instead of saved
+  /// places, on the map and in the sheet.
+  void _toggleSharedView([bool? on]) {
+    final next = on ?? !_sharedView;
+    if (next == _sharedView) return;
+    setState(() {
+      _sharedView = next;
+      _category = null;
+      _mood = null;
+      _selectedSavedId = null;
+      _openMine = null;
+    });
+    _syncMarkers(fade: true);
+    if (next) {
+      _frame([
+        for (final s in _myShares) LatLng(s.latitude, s.longitude)
+      ]);
+    }
+  }
+
+  /// The user's own post: its card, the pin brought into view.
+  void _showMine(MyShare share) {
+    final path = share.photoPath;
+    setState(() {
+      _openMine = share;
+      _openPost = null;
+      _highlightCard = false;
+      _selected = null;
+      _selectedSavedId = null;
+      _draftPin = null;
+      if (path != null) {
+        _minePhotos.putIfAbsent(
+            share.id, () => File(path).readAsBytes());
+      }
+    });
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    final camera = CameraUpdate.newLatLngZoom(
+        LatLng(share.latitude, share.longitude), 15);
+    (MediaQuery.disableAnimationsOf(context)
+            ? map.moveCamera(camera)
+            : map.animateCamera(camera))
+        .catchError((Object _) => false);
+  }
+
   Future<void> _loadFriendPosts() async {
     final sharing = _friendsSharing;
     if (sharing == null) return;
     try {
       final posts = await sharing.received();
       if (!mounted) return;
-      _friendPosts = posts;
+      // The button's count of new moments changes too.
+      setState(() => _friendPosts = posts);
+      // On the map already: new ones are seen as they come.
+      if (_showMoments) _markMomentsSeen(posts);
       _syncMarkers();
     } catch (_) {
       // Offline: the pins already shown stay until the next try.
@@ -400,6 +507,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// A friend's post: its card with the photo, the pin brought into view.
   void _showFriendPost(FriendPost post) {
     setState(() {
+      _openMine = null;
       _openPost = post;
       if (post.hasPhoto) {
         _postPhotos.putIfAbsent(post.id, () => _friendsSharing!.photo(post.id));
@@ -437,6 +545,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   void dispose() {
+    _friendsSharing?.archive?.shares.removeListener(_archiveChanged);
     ++_poiRequestVersion;
     _friendPostsTimer?.cancel();
     _debounce?.cancel();
@@ -695,7 +804,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
       );
 
   List<SavedPlace> get _visibleSavedPlaces => [
-        for (final place in _savedPlaces)
+        if (!_sharedView)
+          for (final place in _savedPlaces)
           if ((_category == null || place.category == _category) &&
               (_mood == null || place.mood == _mood))
             place,
@@ -754,8 +864,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
           return;
         }
       }
+      if (id is String && id.startsWith('mine:')) {
+        final share = _archive?.byId(id.substring('mine:'.length));
+        if (share != null) _showMine(share);
+        return;
+      }
       if (id is String && id.startsWith('friend:')) {
-        for (final post in _friendPosts) {
+        for (final post in [..._friendPosts, if (_openPost != null) _openPost!]) {
           if ('friend:${post.id}' == id) {
             _showFriendPost(post);
             return;
@@ -792,6 +907,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
           'wave-${i + 1}': await createPinMarker(frame, crop: PinArt.waveCrop),
       };
       markers['drop'] = await createDropMarker();
+      markers['mine'] = await createShareMarker(active: true);
+      markers['mine-past'] = await createShareMarker(active: false);
       markers['ring'] = await createRingMarker();
       markers['poi'] = await createPoiMarker();
       markers['anonymous'] = await createNudaengMarker(
@@ -844,9 +961,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
       final draft = _draftPin;
       final highlight = _activeHighlight;
       final now = DateTime.now();
+      final open = _openPost;
       final friendPosts = [
-        for (final post in _friendPosts)
-          if (post.isActive(now)) post
+        if (_showMoments)
+          for (final post in _friendPosts)
+            if (post.isActive(now)) post,
+        // An open post not in the list (e.g. just expired off it) keeps its pin.
+        if (open != null &&
+            open.isActive(now) &&
+            !_friendPosts.any((post) => post.id == open.id))
+          open,
       ];
       final selectedId = _selectedSavedId;
       final zoom = _zoom;
@@ -938,6 +1062,23 @@ class _ExploreScreenState extends State<ExploreScreen> {
             {'id': 'anonymous:${place.id}'});
         if (!mounted || _map != map) return;
       }
+      // The user's own posts: those still on, always (unless a category or
+      // mood filter is on); ended ones too under "Đã chia sẻ".
+      final filtered = _category != null || _mood != null;
+      for (final share in _myShares) {
+        final active = share.isActive(now);
+        if (!_sharedView && (filtered || !active)) continue;
+        await map.addSymbol(
+            SymbolOptions(
+              geometry: LatLng(share.latitude, share.longitude),
+              iconImage: active ? 'mine' : 'mine-past',
+              iconSize: _openMine?.id == share.id ? .85 : .7,
+              iconAnchor: 'bottom',
+              zIndex: active ? 3 : 1,
+            ),
+            {'id': 'mine:${share.id}'});
+        if (!mounted || _map != map) return;
+      }
       for (final post in friendPosts) {
         await map.addSymbol(
             SymbolOptions(
@@ -968,7 +1109,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 iconAnchor: 'bottom'),
             {'id': 'draft'});
       }
-      if (highlight != null) {
+      // A post just shared that the archive knows has its own gold pin.
+      if (highlight != null && _archive?.byId(highlight.id) == null) {
         await map.addSymbol(
             SymbolOptions(
                 geometry: LatLng(highlight.latitude, highlight.longitude),
@@ -1487,6 +1629,12 @@ class _ExploreScreenState extends State<ExploreScreen> {
       return 'Đang xem: ${filters.join(' · ')} · '
           '${_visibleSavedPlaces.length} địa điểm';
     }
+    if (_sharedView) return ExploreScreen.sharedStatus(_myShares.length);
+    if (_showMoments) {
+      final now = DateTime.now();
+      return ExploreScreen.momentsShown(
+          _friendPosts.where((p) => p.isActive(now)).length);
+    }
     return _pinnedOnce ? null : ExploreScreen.pinHint;
   }
 
@@ -1499,9 +1647,13 @@ class _ExploreScreenState extends State<ExploreScreen> {
             _draftPin == null
         ? _openPost
         : null;
+    final now = DateTime.now();
+    final openMine =
+        _selected == null && _draftPin == null ? _openMine : null;
     final showHighlight = _selected == null &&
         _draftPin == null &&
         openPost == null &&
+        openMine == null &&
         _highlightCard &&
         highlight != null;
     final status = _status;
@@ -1554,6 +1706,10 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     Expanded(child: _buildSearch()),
                     const SizedBox(width: 12),
                     _buildFriends(),
+                    if (_friendsSharing != null) ...[
+                      const SizedBox(width: 8),
+                      _buildMoments(),
+                    ],
                     // Signed in, messages live in the "Tin nhắn" tab.
                     if (MessagesScope.maybeOf(context) == null) ...[
                       const SizedBox(width: 8),
@@ -1610,6 +1766,24 @@ class _ExploreScreenState extends State<ExploreScreen> {
                     Align(
                         alignment: Alignment.centerRight, child: _buildZoom()),
                     const SizedBox(height: 12),
+                    if (openMine != null) ...[
+                      PostCard(
+                        key: ValueKey('mine-${openMine.id}'),
+                        title: openMine.title ?? openMine.placeLabel,
+                        byline: ExploreScreen.mineByline(openMine, now),
+                        text: openMine.text,
+                        meta: [
+                          if (openMine.category != null) openMine.category!,
+                          openMine.placeLabel,
+                        ].join(' · '),
+                        footnote: openMine.isActive(now)
+                            ? ShareMemorySheet.expiresLabel(openMine.expiresAt)
+                            : ExploreScreen.sharedOn(openMine.sharedAt),
+                        photo: _minePhotos[openMine.id],
+                        onClose: () => setState(() => _openMine = null),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     if (openPost != null) ...[
                       FriendPostCard(
                         key: ValueKey('friend-post-${openPost.id}'),
@@ -1620,13 +1794,34 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       const SizedBox(height: 12),
                     ],
                     if (showHighlight) ...[
-                      MapInfoCard(
-                        icon: Icons.share_location_outlined,
-                        title: highlight.title,
-                        subtitle: highlight.subtitle,
-                        closeTooltip: ExploreScreen.closePostTooltip,
-                        onClose: () => setState(() => _highlightCard = false),
-                      ),
+                      // Signed in, the user's own post is on the server:
+                      // its card shows the photo too.
+                      if (_friendsSharing case final sharing?)
+                        PostCard(
+                          key: ValueKey('own-post-${highlight.id}'),
+                          title: highlight.title,
+                          byline: FriendPostText.mine,
+                          text: highlight.subtitle.split('\n').first,
+                          meta: highlight.subtitle.contains('\n')
+                              ? highlight.subtitle
+                                  .substring(
+                                      highlight.subtitle.indexOf('\n') + 1)
+                                  .replaceAll('\n', ' · ')
+                              : null,
+                          photo: _postPhotos.putIfAbsent(
+                              highlight.id, () => sharing.photo(highlight.id)),
+                          onClose: () =>
+                              setState(() => _highlightCard = false),
+                        )
+                      else
+                        MapInfoCard(
+                          icon: Icons.share_location_outlined,
+                          title: highlight.title,
+                          subtitle: highlight.subtitle,
+                          closeTooltip: ExploreScreen.closePostTooltip,
+                          onClose: () =>
+                              setState(() => _highlightCard = false),
+                        ),
                       const SizedBox(height: 12),
                     ],
                     if (_selected != null || _draftPin != null) ...[
@@ -1662,6 +1857,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 onShare: _showShareBottomSheet,
                 onAdd: _startPick,
                 onClearFilters: () => _filter(),
+                shares: _archive == null ? null : _myShares,
+                sharedView: _sharedView,
+                onView: _toggleSharedView,
+                onSelectShare: _showMine,
+                selectedShareId: _openMine?.id,
               ),
             ),
           ],
@@ -1814,6 +2014,109 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
       );
 
+  /// Friends' moments on the map: off, the map has only the user's own
+  /// places; on, their 24-hour moments are pinned too. The count is the
+  /// moments not seen yet.
+  Widget _buildMoments() {
+    final now = DateTime.now();
+    final unseen = _friendPosts
+        .where((p) => p.isActive(now) && !_seenMoments.contains(p.id))
+        .length;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    final on = _showMoments;
+    return MapFloatingSurface(
+      child: SizedBox.square(
+        dimension: 52,
+        child: AnimatedContainer(
+          duration: reduced ? Duration.zero : const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: on ? AppColors.primaryAction : Colors.transparent,
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            tooltip: [
+              on ? ExploreScreen.momentsHide : ExploreScreen.momentsShow,
+              if (unseen > 0) ExploreScreen.momentsNew(unseen),
+            ].join(', '),
+            isSelected: on,
+            onPressed: _toggleMoments,
+            icon: Badge(
+              isLabelVisible: unseen > 0 && !on,
+              backgroundColor: AppColors.primaryAction,
+              textColor: AppColors.surface,
+              label: reduced
+                  ? Text('$unseen')
+                  : AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 280),
+                      switchInCurve: Curves.easeOutBack,
+                      transitionBuilder: (child, animation) =>
+                          ScaleTransition(scale: animation, child: child),
+                      child: Text('$unseen', key: ValueKey(unseen)),
+                    ),
+              child: Icon(
+                  on ? Icons.auto_awesome_rounded : Icons.auto_awesome_outlined,
+                  color: on ? AppColors.surface : AppColors.textPrimary),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Shows friends' moments on the map (and brings them into view), or
+  /// hides them again.
+  Future<void> _toggleMoments() async {
+    if (_showMoments) {
+      setState(() {
+        _showMoments = false;
+        _openPost = null;
+      });
+      _syncMarkers();
+      return;
+    }
+    setState(() => _showMoments = true);
+    await _loadFriendPosts();
+    if (!mounted || !_showMoments) return;
+    final now = DateTime.now();
+    final active = [
+      for (final p in _friendPosts)
+        if (p.isActive(now)) p
+    ];
+    _markMomentsSeen(active);
+    if (active.isEmpty) {
+      _toast(ExploreScreen.momentsNone);
+      return;
+    }
+    _frame([for (final p in active) LatLng(p.latitude, p.longitude)]);
+  }
+
+  String get _seenKey =>
+      'moments.seen.${AuthScope.maybeOf(context)?.currentUserId ?? 'local'}';
+
+  Future<void> _loadSeenMoments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final ids = prefs.getStringList(_seenKey) ?? const [];
+      if (mounted) setState(() => _seenMoments = {...ids, ..._seenMoments});
+    } catch (_) {
+      // Unreadable: everything counts as new once.
+    }
+  }
+
+  void _markMomentsSeen(List<FriendPost> posts) {
+    final now = DateTime.now();
+    final active = {
+      for (final p in posts)
+        if (p.isActive(now)) p.id
+    };
+    // Kept: what is still active (old ids expire with their posts).
+    setState(() => _seenMoments = {..._seenMoments.where(active.contains), ...active});
+    final key = _seenKey;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setStringList(key, _seenMoments.toList()))
+        .ignore();
+  }
+
   Widget _buildInbox() => MapFloatingSurface(
         child: SizedBox.square(
           dimension: 52,
@@ -1855,8 +2158,11 @@ class _ExploreScreenState extends State<ExploreScreen> {
       child: Row(children: [
         MapMoodChip(
           label: ExploreScreen.allFilter,
-          selected: _category == null && mood == null,
-          onTap: () => _filter(),
+          selected: _category == null && mood == null && !_sharedView,
+          onTap: () {
+            _toggleSharedView(false);
+            _filter();
+          },
         ),
         const SizedBox(width: AppSpacing.sm),
         MapMoodChip(
@@ -1871,13 +2177,29 @@ class _ExploreScreenState extends State<ExploreScreen> {
               size: 18, color: AppColors.textSecondary),
           onTap: _pickMood,
         ),
+        if (_archive != null) ...[
+          const SizedBox(width: AppSpacing.sm),
+          MapMoodChip(
+            key: const ValueKey('shared-filter'),
+            label: ExploreScreen.sharedFilter,
+            selected: _sharedView,
+            leading: Icon(Icons.photo_rounded,
+                size: 18,
+                color: _sharedView
+                    ? AppColors.primaryAction
+                    : const Color(0xFFD99A2B)),
+            onTap: () => _toggleSharedView(),
+          ),
+        ],
         for (final (value, label) in placeCategories) ...[
           const SizedBox(width: AppSpacing.sm),
           MapMoodChip(
             label: label,
             selected: _category == value,
-            onTap: () => _filter(
-                category: _category == value ? null : value, mood: mood),
+            onTap: () {
+              _toggleSharedView(false);
+              _filter(category: _category == value ? null : value, mood: mood);
+            },
           ),
         ],
       ]),

@@ -23,6 +23,7 @@ evened out; the music looped). Using CC0 does not imply the authors endorse this
 | music_rain.m4a | [Rain light 2 (rural)](https://freesound.org/people/jmbphilmes/sounds/200273/) | jmbphilmes | CC0 1.0 |
 | music_cafe.m4a | [Cafe' Atmosphere.wav](https://freesound.org/people/Nautzera/sounds/478115/) | Nautzera | CC0 1.0 |
 | music_piano.m4a | [Afternoon (Ambient Piano Solo)](https://freesound.org/people/Hakren/sounds/418442/) | Hakren | CC0 1.0 |
+| message_in.wav, message_out.wav | Synthesised for this app by `tool/build_message_sounds.py` (sine tones, no recording) | AI-Journal | No third-party rights |
 
 To replace a sound: put the new CC0 recording under the slot's name in a folder, run
 `python tool/build_sounds.py <folder> assets/sounds`, and update this table.

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
@@ -5,6 +7,7 @@ import '../../../../core/theme/app_radius.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_text.dart';
 import '../../../../core/widgets/app_ui.dart';
+import '../../../social/data/my_shares.dart';
 import 'map_marker_art.dart';
 import 'place_sheets.dart';
 
@@ -19,6 +22,35 @@ abstract final class PlacesSheetText {
   static const detailsLabel = 'Xem chi tiết';
   static const community = 'Cộng đồng';
   static const communityHint = 'Hiện trạm cộng đồng ẩn danh';
+  static String savedTab(int n) => 'Đã lưu · $n';
+  static String sharedTab(int n) => 'Đã chia sẻ · $n';
+  static const sharingNow = 'Đang chia sẻ';
+  static const sharedEmpty =
+      'Bạn chưa chia sẻ kỷ niệm nào. Vào Kỷ niệm, mở một kỷ niệm rồi chọn '
+      '"Chia sẻ trong 24 giờ"; bài sẽ được giữ ở đây sau khi hết hạn.';
+  static const ended = 'Đã hết hạn';
+  static const revoked = 'Đã gỡ';
+
+  /// "Còn 5 giờ", "Còn 20 phút".
+  static String left(DateTime expiresAt, DateTime now) {
+    final rest = expiresAt.difference(now);
+    if (rest.inHours >= 1) return 'Còn ${rest.inHours} giờ';
+    return 'Còn ${rest.inMinutes.clamp(1, 59)} phút';
+  }
+
+  /// "Hôm nay", "Hôm qua" or the date.
+  static String day(DateTime at, DateTime now) {
+    final t = at.toLocal();
+    final days = DateTime(now.year, now.month, now.day)
+        .difference(DateTime(t.year, t.month, t.day))
+        .inDays;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return days == 0
+        ? 'Hôm nay'
+        : days == 1
+            ? 'Hôm qua'
+            : '${two(t.day)}/${two(t.month)}/${t.year}';
+  }
 }
 
 /// "Những nơi của bạn": a sheet pulled up from the bottom of the map, at
@@ -43,7 +75,22 @@ class PlacesSheet extends StatelessWidget {
     required this.onShare,
     required this.onAdd,
     required this.onClearFilters,
+    this.shares,
+    this.sharedView = false,
+    this.onView,
+    this.onSelectShare,
+    this.selectedShareId,
   });
+
+  /// The user's shared posts (newest first); null without an account, and
+  /// then there are no tabs.
+  final List<MyShare>? shares;
+
+  /// "Đã chia sẻ" chosen: the shared posts instead of saved places.
+  final bool sharedView;
+  final ValueChanged<bool>? onView;
+  final ValueChanged<MyShare>? onSelectShare;
+  final String? selectedShareId;
 
   final DraggableScrollableController controller;
 
@@ -103,7 +150,18 @@ class PlacesSheet extends StatelessWidget {
                 // The title stays; the cards scroll under it, never past it.
                 SliverPersistentHeader(
                     pinned: true, delegate: _HeaderDelegate(this)),
-                if (savedCount == 0)
+                if (shares != null)
+                  SliverToBoxAdapter(
+                    child: _Tabs(
+                      saved: savedCount,
+                      shared: shares!.length,
+                      sharedView: sharedView,
+                      onView: onView,
+                    ),
+                  ),
+                if (sharedView && shares != null)
+                  ..._sharedSlivers(context)
+                else if (savedCount == 0)
                   SliverToBoxAdapter(child: _Empty(onAdd: onAdd))
                 else if (places.isEmpty)
                   SliverToBoxAdapter(
@@ -138,6 +196,207 @@ class PlacesSheet extends StatelessWidget {
       );
 
   static const _radius = BorderRadius.vertical(top: Radius.circular(24));
+
+  /// The shared posts: those still on first, then the rest by day.
+  List<Widget> _sharedSlivers(BuildContext context) {
+    final now = DateTime.now();
+    final all = shares!;
+    if (all.isEmpty) {
+      return [
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+                AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.xl),
+            child: Text(PlacesSheetText.sharedEmpty,
+                textAlign: TextAlign.center, style: AppText.bodySecondary),
+          ),
+        ),
+      ];
+    }
+    final rows = <Object>[];
+    final active = [for (final s in all) if (s.isActive(now)) s];
+    if (active.isNotEmpty) rows..add(PlacesSheetText.sharingNow)..addAll(active);
+    String? day;
+    for (final s in all) {
+      if (s.isActive(now)) continue;
+      final d = PlacesSheetText.day(s.sharedAt, now);
+      if (d != day) rows.add(d);
+      day = d;
+      rows.add(s);
+    }
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md, 0, AppSpacing.md, AppSpacing.lg),
+        sliver: SliverList.builder(
+          itemCount: rows.length,
+          itemBuilder: (context, i) {
+            final row = rows[i];
+            if (row is String) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xs, AppSpacing.sm, 0, AppSpacing.xs),
+                child: Text(row,
+                    style: AppText.meta.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: row == PlacesSheetText.sharingNow
+                            ? const Color(0xFFB07A1E)
+                            : AppColors.textSecondary)),
+              );
+            }
+            final share = row as MyShare;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: _ShareRow(
+                key: ValueKey('my-share-${share.id}'),
+                share: share,
+                now: now,
+                selected: share.id == selectedShareId,
+                onTap: () => onSelectShare?.call(share),
+              ),
+            );
+          },
+        ),
+      ),
+    ];
+  }
+}
+
+/// "Đã lưu · n" | "Đã chia sẻ · m".
+class _Tabs extends StatelessWidget {
+  const _Tabs({
+    required this.saved,
+    required this.shared,
+    required this.sharedView,
+    required this.onView,
+  });
+
+  final int saved;
+  final int shared;
+  final bool sharedView;
+  final ValueChanged<bool>? onView;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md, 0, AppSpacing.md, AppSpacing.sm),
+        child: SegmentedButton<bool>(
+          showSelectedIcon: false,
+          style: SegmentedButton.styleFrom(
+            selectedBackgroundColor: AppColors.primaryLight,
+            selectedForegroundColor: AppColors.primaryAction,
+            foregroundColor: AppColors.textSecondary,
+            side: const BorderSide(color: AppColors.border),
+          ),
+          segments: [
+            ButtonSegment(
+                value: false,
+                icon: const Icon(Icons.bookmark_outline_rounded, size: 18),
+                label: Text(PlacesSheetText.savedTab(saved))),
+            ButtonSegment(
+                value: true,
+                icon: const Icon(Icons.photo_outlined, size: 18),
+                label: Text(PlacesSheetText.sharedTab(shared))),
+          ],
+          selected: {sharedView},
+          onSelectionChanged: onView == null ? null : (v) => onView!(v.single),
+        ),
+      );
+}
+
+/// One shared post: its photo small, what and where, and whether it is
+/// still on.
+class _ShareRow extends StatelessWidget {
+  const _ShareRow({
+    super.key,
+    required this.share,
+    required this.now,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final MyShare share;
+  final DateTime now;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = share.isActive(now);
+    final path = share.photoPath;
+    final state = active
+        ? PlacesSheetText.left(share.expiresAt, now)
+        : share.revokedAt != null
+            ? PlacesSheetText.revoked
+            : PlacesSheetText.ended;
+    return Material(
+      color: selected ? AppColors.primaryLight : AppColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        side: BorderSide(
+            color: active
+                ? const Color(0xFFD99A2B).withValues(alpha: .55)
+                : AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox.square(
+                dimension: 56,
+                child: path == null
+                    ? const ColoredBox(
+                        color: AppColors.background,
+                        child: Icon(Icons.photo_outlined,
+                            color: AppColors.textSecondary))
+                    : Opacity(
+                        opacity: active ? 1 : .6,
+                        child: Image.file(File(path),
+                            fit: BoxFit.cover,
+                            cacheWidth: 168,
+                            errorBuilder: (_, __, ___) => const ColoredBox(
+                                color: AppColors.background,
+                                child: Icon(Icons.photo_outlined,
+                                    color: AppColors.textSecondary))),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(share.title ?? share.placeLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.label.copyWith(
+                          color: active
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary)),
+                  Text(share.text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.meta),
+                  Text('$state · ${share.placeLabel}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.meta.copyWith(
+                          fontSize: 12.5,
+                          color: active
+                              ? const Color(0xFFB07A1E)
+                              : AppColors.textSecondary)),
+                ],
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
 }
 
 class _HeaderDelegate extends SliverPersistentHeaderDelegate {

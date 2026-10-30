@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import '../../../core/network/api_client.dart';
 import '../../album/data/album_sharing.dart';
 import '../../album/data/memory_share.dart';
+import '../../album/data/memory.dart';
 import 'app_friend.dart';
+import 'my_shares.dart';
 
 /// A share service whose audience is the user's friends on the app: A10
 /// lets the user pick who, among them, sees the post.
@@ -71,6 +73,21 @@ class FriendPost {
 
   bool isActive(DateTime now) => now.isBefore(expiresAt);
 
+  /// The same post, said to be from [name] (e.g. "Bạn" for the user's own).
+  FriendPost from(String name) => FriendPost(
+        id: id,
+        senderName: name,
+        username: null,
+        title: title,
+        text: text,
+        placeLabel: placeLabel,
+        latitude: latitude,
+        longitude: longitude,
+        category: category,
+        expiresAt: expiresAt,
+        hasPhoto: hasPhoto,
+      );
+
   static FriendPost? fromJson(Object? json) {
     if (json is! Map) return null;
     final id = json['share_id'];
@@ -132,11 +149,17 @@ String? photoType(List<int> bytes) {
 /// the run (memories are device-only, so no `memory_id` is sent).
 class RemoteFriendsSharing implements AlbumSharing, FriendsSharing {
   RemoteFriendsSharing(this.api,
-      {DateTime Function()? clock, Future<List<int>> Function(String)? readPhoto})
+      {DateTime Function()? clock,
+      Future<List<int>> Function(String)? readPhoto,
+      this.archive})
       : _clock = clock ?? DateTime.now,
         _readPhoto = readPhoto ?? ((path) => File(path).readAsBytes());
 
   final ApiClient api;
+
+  /// The user's posts kept on this device (the archive, the map's own
+  /// pins); also how a post is still known after the app restarts.
+  final MySharesArchive? archive;
 
   /// The memory's photo on this device, by path.
   final Future<List<int>> Function(String path) _readPhoto;
@@ -167,6 +190,19 @@ class RemoteFriendsSharing implements AlbumSharing, FriendsSharing {
     return _friends.isEmpty ? const [] : [friendsAudience(_friends)];
   }
 
+  /// One post the user may see (their own, or shared with them); null when
+  /// it is gone (expired, revoked) or not theirs to see.
+  Future<FriendPost?> shared(String postId) async {
+    try {
+      return FriendPost.fromJson(await api.getJson(
+          '/memory-shares/${Uri.encodeComponent(postId)}',
+          requireAuth: true));
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
   /// A friend's post's photo ([FriendPost.hasPhoto]).
   Future<Uint8List> photo(String postId) async => Uint8List.fromList(
       await api.getBytes('/memory-shares/${Uri.encodeComponent(postId)}/photo',
@@ -189,8 +225,36 @@ class RemoteFriendsSharing implements AlbumSharing, FriendsSharing {
     for (final post in _posts.values) {
       if (post.memoryId == memoryId && post.isActive(now)) return post;
     }
-    return null;
+    final kept = archive?.activeFor(memoryId, now);
+    return kept == null ? null : _posts[kept.id] = _fromArchive(kept);
   }
+
+  /// A post from the archive, as A10 and A12 know posts.
+  static SharedMemoryPost _fromArchive(MyShare s) => SharedMemoryPost(
+        id: s.id,
+        payload: SharePayload(
+          albumId: s.albumId,
+          memoryId: s.memoryId,
+          audience: friendsAudience([
+            for (final (i, id) in s.recipientIds.indexed)
+              AppFriend(id,
+                  i < s.recipientNames.length ? s.recipientNames[i] : id),
+          ]),
+          place: MemoryPlace(
+              label: s.placeLabel,
+              latitude: s.latitude,
+              longitude: s.longitude),
+          category: ShareCategory.values
+              .where((c) => c.label == s.category)
+              .firstOrNull,
+          title: s.title,
+          photoPath: s.photoPath,
+          text: s.text,
+        ),
+        publishedAt: s.sharedAt,
+        expiresAt: s.expiresAt,
+        revokedAt: s.revokedAt,
+      );
 
   @override
   Future<SharedMemoryPost> publish(SharePayload payload,
@@ -255,13 +319,32 @@ class RemoteFriendsSharing implements AlbumSharing, FriendsSharing {
     }
     final now = _clock();
     if (replacing != null) _revoked(replacing, now);
+    final names = {for (final f in _friends) f.id: f.name};
+    await archive?.add(MyShare(
+      id: id,
+      memoryId: payload.memoryId,
+      albumId: payload.albumId,
+      title: payload.title,
+      text: text,
+      placeLabel: payload.place.label,
+      latitude: payload.place.latitude,
+      longitude: payload.place.longitude,
+      category: payload.category?.label,
+      photoPath: photo,
+      recipientIds: recipients,
+      recipientNames: [for (final r in recipients) names[r] ?? r],
+      sharedAt: now,
+      expiresAt: expires,
+    ));
     return _posts[id] = SharedMemoryPost(
         id: id, payload: payload, publishedAt: now, expiresAt: expires);
   }
 
   @override
   Future<SharedMemoryPost?> post(String postId) async {
-    final kept = _posts[postId];
+    final archived = archive?.byId(postId);
+    final kept = _posts[postId] ??
+        (archived == null ? null : _posts[postId] = _fromArchive(archived));
     if (kept == null) return null;
     try {
       await api.getJson('/memory-shares/${Uri.encodeComponent(postId)}',
@@ -288,7 +371,10 @@ class RemoteFriendsSharing implements AlbumSharing, FriendsSharing {
   }
 
   SharedMemoryPost? _revoked(String postId, DateTime at) {
-    final post = _posts[postId];
+    archive?.revoke(postId, at);
+    final archived = archive?.byId(postId);
+    final post = _posts[postId] ??
+        (archived == null ? null : _fromArchive(archived));
     if (post == null) return null;
     return _posts[postId] = SharedMemoryPost(
       id: post.id,
@@ -299,17 +385,23 @@ class RemoteFriendsSharing implements AlbumSharing, FriendsSharing {
     );
   }
 
+  /// Posts this run made, and those the archive remembers.
+  Iterable<SharedMemoryPost> get _known => {
+        for (final s in archive?.shares.value ?? const <MyShare>[])
+          s.id: _posts[s.id] ?? _fromArchive(s),
+        ..._posts,
+      }.values;
+
   @override
   Future<bool> hasActiveShares(String albumId) async {
     final now = _clock();
-    return _posts.values
-        .any((p) => p.payload.albumId == albumId && p.isActive(now));
+    return _known.any((p) => p.payload.albumId == albumId && p.isActive(now));
   }
 
   @override
   Future<void> revokeAll(String albumId) async {
     final now = _clock();
-    for (final post in List.of(_posts.values)) {
+    for (final post in List.of(_known)) {
       if (post.payload.albumId == albumId && post.isActive(now)) {
         await revoke(post.id);
       }
