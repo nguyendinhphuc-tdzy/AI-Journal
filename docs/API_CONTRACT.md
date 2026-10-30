@@ -117,7 +117,7 @@ Social APIs existing in FastAPI do **not** imply the Flutter screens are all con
 | `POST /conversations/{id}/read` | `{message_id:UUID}`; monotonic read cursor, returns `{unread_count}` |
 | `GET /messages/unread-count` | `{count}` for the current user |
 | `POST /place-shares` | `{recipient_ids:[UUID],place:{name,latitude,longitude,category?,note?}}`; 1–20 distinct accepted, unblocked friends; only an explicitly submitted place snapshot is sent; `{conversation_ids:[UUID]}` |
-| `POST /memory-shares` | In revision 19+, creates one `memory_share` message per recipient **in the same database transaction** as the share; existing share request/response remains unchanged |
+| `POST /memory-shares` | Does **not** create chat messages (changed 30/10/2026): a 24-hour moment is seen on the recipients' map and in their moments list (`GET /memory-shares/received`). `memory_share` messages created before this change stay readable as history, under the expiry rules below |
 
 A `Message` contains `id,conversation_id,sender_id,kind,client_id,created_at,text?,place?,memory_share?`. `kind` is `text|place|memory_share`. A place message's name and coordinates are explicitly supplied by sender; server never copies a private SavedPlace note. Optional `place.note` is an explicitly authored message caption, not a private journal note.
 

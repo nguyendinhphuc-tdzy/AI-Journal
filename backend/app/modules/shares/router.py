@@ -14,7 +14,6 @@ from app.models.memory_share_recipient import MemoryShareRecipient
 from app.models.user_profile import UserProfile
 from app.modules.albums.photos_router import validate_image
 from app.modules.friends.router import blocked, pair
-from app.modules.messages.service import deliver_share
 from app.modules.devices.push import send_push_to_user
 
 router = APIRouter(prefix="/memory-shares", tags=["memory-shares"])
@@ -133,8 +132,8 @@ def create_share(payload: ShareCreate, background_tasks: BackgroundTasks,
     db.flush()
     db.add_all(MemoryShareRecipient(share_id=share.id, owner_id=user.user_id,
                recipient_id=r) for r in payload.recipient_ids)
-    # Messages and share are committed as one transaction or not at all.
-    deliver_share(db, share, payload.recipient_ids, now)
+    # A 24-hour moment is seen on the recipients' map and in their friends'
+    # moments list, not as a chat message (product decision 30/10/2026).
     db.commit()
     for recipient in payload.recipient_ids:
         background_tasks.add_task(send_push_to_user, recipient, "memory_share",
