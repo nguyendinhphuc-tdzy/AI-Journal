@@ -222,11 +222,15 @@ class _AlbumScreenState extends State<AlbumScreen> {
     try {
       count = await importer.validate(selected);
     } on StateError catch (error) {
-      if (mounted) _showImportMessage(error.message.toString());
+      if (mounted) {
+        _showImportMessage(error.message.toString());
+      }
       return;
     } catch (_) {
-      if (mounted) _showImportMessage('Album có ảnh không hợp lệ hoặc đã mất. '
-          'Không có dữ liệu nào được tải lên.');
+      if (mounted) {
+        _showImportMessage('Album có ảnh không hợp lệ hoặc đã mất. '
+            'Không có dữ liệu nào được tải lên.');
+      }
       return;
     }
     if (!mounted) return;
@@ -257,8 +261,10 @@ class _AlbumScreenState extends State<AlbumScreen> {
     } on StateError catch (error) {
       if (mounted) _showImportMessage(error.message.toString());
     } catch (_) {
-      if (mounted) _showImportMessage('Chưa nhập xong. Bản local vẫn còn. '
-          'Kiểm tra album cloud trước khi thử lại để tránh trùng.');
+      if (mounted) {
+        _showImportMessage('Chưa nhập xong. Bản local vẫn còn. '
+            'Kiểm tra album cloud trước khi thử lại để tránh trùng.');
+      }
     } finally {
       if (mounted) setState(() => _importing = false);
     }
