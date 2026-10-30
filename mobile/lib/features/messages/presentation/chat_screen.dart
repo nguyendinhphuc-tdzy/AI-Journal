@@ -2,10 +2,13 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_delete_dialog.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../../social/presentation/friend_avatar.dart';
 import '../../sound/app_sound.dart';
 import '../data/chat_message.dart';
@@ -36,6 +39,20 @@ abstract final class ChatText {
   }
 
   static const maxLength = 2000;
+  static const recalled = 'Tin nhắn đã được thu hồi';
+  static const copy = 'Sao chép';
+  static const copied = 'Đã sao chép';
+  static const recall = 'Thu hồi';
+  static const recallHelp = 'Xoá ở cả hai phía';
+  static const recallTitle = 'Thu hồi tin nhắn?';
+  static const recallBody =
+      'Tin nhắn sẽ bị xoá ở cả hai phía. Hai bạn sẽ thấy "Tin nhắn đã được '
+      'thu hồi".';
+  static const hide = 'Xoá ở phía bạn';
+  static const hideHelp = 'Người kia vẫn thấy tin này';
+  static const discard = 'Xoá tin chưa gửi';
+  static const hidden = 'Đã xoá tin nhắn';
+  static const actionFailed = 'Chưa làm được. Bạn thử lại nhé.';
 }
 
 /// One conversation: messages oldest at the top, the newest by the input.
@@ -137,7 +154,6 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
     }
   }
 
-
   Future<void> _poll() async {
     final current = _messages;
     if (current == null) return;
@@ -187,9 +203,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         .catchError((Object _) {});
   }
 
-  String _clientId() =>
-      List.generate(16, (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'))
-          .join();
+  String _clientId() => List.generate(
+      16, (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
 
   Future<void> _send() async {
     final text = _input.text.trim();
@@ -226,6 +241,88 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         }
       });
     }
+  }
+
+  /// What can be done with a message: copy its words, recall it (the
+  /// user's own, for both), or delete it for the user only.
+  Future<void> _actions(ChatMessage m) async {
+    final mine = m.senderId == _repo.myId;
+    final sent = m.state == SendState.sent;
+    final action = await showAppSheet<String>(context,
+        builder: (sheet) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (m.kind == MessageKind.text && !m.recalled && m.text != null)
+                  ListTile(
+                    leading: const Icon(Icons.copy_rounded),
+                    title: const Text(ChatText.copy),
+                    onTap: () => Navigator.pop(sheet, 'copy'),
+                  ),
+                if (mine && sent && !m.recalled)
+                  ListTile(
+                    leading: const Icon(Icons.undo_rounded),
+                    title: const Text(ChatText.recall),
+                    subtitle: const Text(ChatText.recallHelp),
+                    onTap: () => Navigator.pop(sheet, 'recall'),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded,
+                      color: AppDeleteDialog.destructive),
+                  title: Text(sent ? ChatText.hide : ChatText.discard,
+                      style:
+                          const TextStyle(color: AppDeleteDialog.destructive)),
+                  subtitle: sent ? const Text(ChatText.hideHelp) : null,
+                  onTap: () => Navigator.pop(sheet, 'hide'),
+                ),
+              ],
+            ));
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: m.text!));
+        _say(ChatText.copied);
+      case 'recall':
+        final done = await AppDeleteDialog.present(context,
+            builder: (_) => AppDeleteDialog(
+                  title: ChatText.recallTitle,
+                  body: ChatText.recallBody,
+                  confirmLabel: ChatText.recall,
+                  failed: ChatText.actionFailed,
+                  onConfirm: () async {
+                    final recalled = await _repo.recall(_conversation.id, m.id);
+                    if (!mounted) return;
+                    setState(() {
+                      final list = _messages!;
+                      final at = list.indexWhere((x) => x.id == m.id);
+                      if (at >= 0) list[at] = recalled;
+                    });
+                  },
+                ));
+        if (done) widget.onSeen?.call();
+      case 'hide':
+        if (sent) {
+          try {
+            await _repo.hide(_conversation.id, m.id);
+          } catch (_) {
+            _say(ChatText.actionFailed);
+            return;
+          }
+        }
+        if (!mounted) return;
+        setState(() => _messages!.removeWhere((x) =>
+            x.id == m.id || (x.clientId != null && x.clientId == m.clientId)));
+        widget.onSeen?.call();
+        _say(ChatText.hidden);
+    }
+  }
+
+  void _say(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+          SnackBar(behavior: SnackBarBehavior.floating, content: Text(text)));
   }
 
   void _retry(ChatMessage failed) {
@@ -369,6 +466,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
           first: above == null || !_together(above, m),
           last: below == null || !_together(m, below),
           onRetry: m.state == SendState.failed ? () => _retry(m) : null,
+          onLongPress: () => _actions(m),
         );
         // Only messages that arrive or are sent while open come in moving.
         return reduced || _initial.contains(key)
@@ -401,8 +499,7 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
         color: AppColors.surface,
         border: Border(top: BorderSide(color: AppColors.border)),
       ),
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.md, 10, AppSpacing.sm, 10),
+      padding: const EdgeInsets.fromLTRB(AppSpacing.md, 10, AppSpacing.sm, 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
         Expanded(
           child: TextField(
@@ -418,8 +515,8 @@ class _ChatScreenState extends State<ChatScreen> with WidgetsBindingObserver {
               counterText: '',
               filled: true,
               fillColor: AppColors.background,
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 18, vertical: 12),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
               enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide: const BorderSide(color: AppColors.border)),
@@ -533,6 +630,7 @@ class _Bubble extends StatelessWidget {
     required this.first,
     required this.last,
     this.onRetry,
+    this.onLongPress,
   });
 
   final ChatMessage message;
@@ -544,21 +642,38 @@ class _Bubble extends StatelessWidget {
   final bool last;
   final VoidCallback? onRetry;
 
+  /// Copy, recall or delete it.
+  final VoidCallback? onLongPress;
+
   static const _avatar = 28.0;
 
   @override
   Widget build(BuildContext context) {
-    final text = message.kind == MessageKind.text;
-    final body = switch (message.kind) {
-      MessageKind.text => Text(message.text ?? '',
-          style: AppText.body.copyWith(
-              height: 1.35,
-              color: mine ? AppColors.surface : AppColors.textPrimary)),
-      MessageKind.place => _PlaceCard(message.place!),
-      MessageKind.memory => _MemoryCard(message.memory!),
-    };
+    final recalled = message.recalled;
+    final text = message.kind == MessageKind.text || recalled;
+    final body = recalled
+        ? Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.undo_rounded,
+                size: 16, color: AppColors.textSecondary),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(ChatText.recalled,
+                  style: AppText.body.copyWith(
+                      fontStyle: FontStyle.italic,
+                      color: AppColors.textSecondary)),
+            ),
+          ])
+        : switch (message.kind) {
+            MessageKind.text => Text(message.text ?? '',
+                style: AppText.body.copyWith(
+                    height: 1.35,
+                    color: mine ? AppColors.surface : AppColors.textPrimary)),
+            MessageKind.place => _PlaceCard(message.place!),
+            MessageKind.memory => _MemoryCard(message.memory!),
+          };
     final status = switch (message.state) {
-      SendState.sent => last ? MessagesText.when(message.sentAt, DateTime.now()) : null,
+      SendState.sent =>
+        last ? MessagesText.when(message.sentAt, DateTime.now()) : null,
       SendState.sending => ChatText.sending,
       SendState.failed => ChatText.failed,
     };
@@ -575,7 +690,7 @@ class _Bubble extends StatelessWidget {
             bottomRight: big,
             topLeft: first ? big : joined,
             bottomLeft: last ? const Radius.circular(4) : joined);
-    final mineText = mine && text;
+    final mineText = mine && text && !recalled;
     final bubble = ConstrainedBox(
       constraints:
           BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * .74),
@@ -595,6 +710,7 @@ class _Bubble extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onRetry,
+          onLongPress: onLongPress,
           child: Padding(
             padding: text
                 ? const EdgeInsets.symmetric(horizontal: 14, vertical: 10)

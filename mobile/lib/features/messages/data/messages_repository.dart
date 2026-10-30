@@ -39,6 +39,15 @@ abstract interface class MessagesRepository {
 
   /// One place message to each of [friendIds].
   Future<void> sharePlace(List<String> friendIds, SharedPlace place);
+
+  /// Deletes the conversation for the user only; the friend keeps it.
+  Future<void> deleteConversation(String conversationId);
+
+  /// Takes back one of the user's messages, for both.
+  Future<ChatMessage> recall(String conversationId, String messageId);
+
+  /// Deletes one message for the user only.
+  Future<void> hide(String conversationId, String messageId);
 }
 
 /// The API proposed in `features/messages/README.md`, under `/api/v1`.
@@ -124,6 +133,29 @@ class RemoteMessagesRepository implements MessagesRepository {
       _call(() => api.postJson(
           '/place-shares', {'recipient_ids': friendIds, 'place': place.toJson()},
           requireAuth: true));
+
+  String _chat(String id) => '/conversations/${Uri.encodeComponent(id)}';
+
+  @override
+  Future<void> deleteConversation(String conversationId) =>
+      _call(() => api.deleteNoContent(_chat(conversationId), requireAuth: true));
+
+  @override
+  Future<ChatMessage> recall(String conversationId, String messageId) =>
+      _call(() async {
+        final message = ChatMessage.fromJson(await api.postJson(
+            '${_chat(conversationId)}/messages/${Uri.encodeComponent(messageId)}/recall',
+            const {},
+            requireAuth: true));
+        if (message == null) throw const FormatException('message');
+        return message;
+      });
+
+  @override
+  Future<void> hide(String conversationId, String messageId) => _call(() =>
+      api.deleteNoContent(
+          '${_chat(conversationId)}/messages/${Uri.encodeComponent(messageId)}',
+          requireAuth: true));
 }
 
 /// Conversations kept in memory for the run (tests): [friends] write back
@@ -145,6 +177,10 @@ class MockMessagesRepository implements MessagesRepository {
   final ended = <String>{};
 
   final _byFriend = <String, String>{};
+
+  /// Conversations the user deleted, and from which message on they show.
+  final _clearedAt = <String, int>{};
+  final _hidden = <String>{};
   final _messages = <String, List<ChatMessage>>{};
   final _read = <String, int>{};
   var _next = 0;
@@ -155,18 +191,32 @@ class MockMessagesRepository implements MessagesRepository {
     return id;
   }
 
+  /// What the user sees of a conversation (as the server would serve it).
+  List<ChatMessage> _visible(String id) => [
+        for (final (i, m) in (_messages[id] ?? const <ChatMessage>[]).indexed)
+          if (i >= (_clearedAt[id] ?? 0) && !_hidden.contains(m.id)) m
+      ];
+
   Conversation _conversation(String id) {
     final friendId =
         _byFriend.entries.firstWhere((entry) => entry.value == id).key;
     final friend = _friends.firstWhere((f) => f.id == friendId,
         orElse: () => AppFriend(friendId, 'Người dùng AI-Journal'));
-    final list = _messages[id] ?? const <ChatMessage>[];
+    final list = _visible(id);
     final seen = _read[id] ?? 0;
     return Conversation(
       id: id,
       friend: friend,
       lastMessage: list.isEmpty ? null : list.last,
-      unread: list.skip(seen).where((m) => m.senderId != myId).length,
+      unread: [
+        for (final (i, m) in (_messages[id] ?? const <ChatMessage>[]).indexed)
+          if (i >= seen &&
+              i >= (_clearedAt[id] ?? 0) &&
+              !_hidden.contains(m.id) &&
+              !m.recalled &&
+              m.senderId != myId)
+            m
+      ].length,
       canSend: !ended.contains(friendId) &&
           _friends.any((f) => f.id == friendId),
     );
@@ -191,7 +241,7 @@ class MockMessagesRepository implements MessagesRepository {
   Future<List<Conversation>> conversations() async {
     final list = [
       for (final id in _byFriend.values)
-        if (_messages[id]!.isNotEmpty) _conversation(id)
+        if (_visible(id).isNotEmpty) _conversation(id)
     ]..sort((a, b) => b.lastMessage!.sentAt.compareTo(a.lastMessage!.sentAt));
     return list;
   }
@@ -203,7 +253,7 @@ class MockMessagesRepository implements MessagesRepository {
   @override
   Future<List<ChatMessage>> messages(String conversationId,
       {String? after}) async {
-    final list = _messages[conversationId] ?? const <ChatMessage>[];
+    final list = _visible(conversationId);
     if (after == null) return List.unmodifiable(list);
     final at = list.indexWhere((m) => m.id == after);
     return List.unmodifiable(at < 0 ? list : list.skip(at + 1));
@@ -241,6 +291,31 @@ class MockMessagesRepository implements MessagesRepository {
   @override
   Future<int> unreadCount() async =>
       (await conversations()).fold<int>(0, (sum, c) => sum + c.unread);
+
+  @override
+  Future<void> deleteConversation(String conversationId) async {
+    _clearedAt[conversationId] = (_messages[conversationId] ?? const []).length;
+    _read[conversationId] = _clearedAt[conversationId]!;
+  }
+
+  @override
+  Future<ChatMessage> recall(String conversationId, String messageId) async {
+    final list = _messages[conversationId]!;
+    final at = list.indexWhere((m) => m.id == messageId);
+    if (at < 0 || list[at].senderId != myId) throw const ApiException(403);
+    final m = list[at];
+    return list[at] = ChatMessage(
+        id: m.id,
+        senderId: m.senderId,
+        sentAt: m.sentAt,
+        kind: m.kind,
+        clientId: m.clientId,
+        recalled: true);
+  }
+
+  @override
+  Future<void> hide(String conversationId, String messageId) async =>
+      _hidden.add(messageId);
 
   @override
   Future<void> sharePlace(List<String> friendIds, SharedPlace place) async {

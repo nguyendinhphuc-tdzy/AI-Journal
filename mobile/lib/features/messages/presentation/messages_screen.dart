@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_delete_dialog.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../../social/data/app_friend.dart';
 import '../../social/presentation/friend_avatar.dart';
@@ -38,15 +39,26 @@ abstract final class MessagesText {
   static const placePreview = 'Đã gửi một địa điểm';
   static const memoryPreview = 'Đã chia sẻ một kỷ niệm 24 giờ';
   static const mascot = 'Nudaeng ngồi bàn viết thư';
+  static const recalledPreview = 'Tin nhắn đã được thu hồi';
+  static String deleteTitle(String name) => 'Xoá cuộc trò chuyện với $name?';
+  static String deleteBody(String name) =>
+      'Tin nhắn sẽ bị xoá ở phía bạn. $name vẫn giữ cuộc trò chuyện của họ. '
+      'Khi có tin mới, cuộc trò chuyện hiện lại từ tin đó.';
+  static const deleteLabel = 'Xoá';
+  static const deleteFailed = 'Chưa xoá được. Bạn thử lại nhé.';
+  static const deleted = 'Đã xoá cuộc trò chuyện';
+  static String deleteTooltip(String name) => 'Xoá cuộc trò chuyện với $name';
   static String unread(int count) => '$count tin chưa đọc';
 
   /// "Bạn: …" for the user's own last message.
   static String preview(ChatMessage message, String myId) {
-    final what = switch (message.kind) {
-      MessageKind.text => message.text ?? '',
-      MessageKind.place => '$placePreview: ${message.place?.name ?? ''}',
-      MessageKind.memory => memoryPreview,
-    };
+    final what = message.recalled
+        ? recalledPreview
+        : switch (message.kind) {
+            MessageKind.text => message.text ?? '',
+            MessageKind.place => '$placePreview: ${message.place?.name ?? ''}',
+            MessageKind.memory => memoryPreview,
+          };
     return message.senderId == myId ? 'Bạn: $what' : what;
   }
 
@@ -154,6 +166,30 @@ class _MessagesScreenState extends State<MessagesScreen> {
     }
   }
 
+  /// Asks first, then deletes the conversation for the user only. True
+  /// once deleted.
+  Future<bool> _delete(Conversation conversation) {
+    final name = conversation.friend.name;
+    return AppDeleteDialog.present(context,
+        builder: (_) => AppDeleteDialog(
+              title: MessagesText.deleteTitle(name),
+              body: MessagesText.deleteBody(name),
+              confirmLabel: MessagesText.deleteLabel,
+              failed: MessagesText.deleteFailed,
+              onConfirm: () =>
+                  _controller!.repository.deleteConversation(conversation.id),
+            ));
+  }
+
+  void _removed(Conversation conversation) {
+    setState(() => _list = [
+          for (final c in _list ?? const <Conversation>[])
+            if (c.id != conversation.id) c
+        ]);
+    _controller?.seen();
+    _toast(MessagesText.deleted);
+  }
+
   void _toast(String text) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(text)));
@@ -237,10 +273,20 @@ class _MessagesScreenState extends State<MessagesScreen> {
                 final conversation = list[i];
                 final tile = Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _ConversationCard(
-                    conversation: conversation,
-                    myId: controller.repository.myId,
-                    onTap: () => _open(conversation),
+                  child: Dismissible(
+                    key: ValueKey('swipe-${conversation.id}'),
+                    direction: DismissDirection.endToStart,
+                    confirmDismiss: (_) => _delete(conversation),
+                    onDismissed: (_) => _removed(conversation),
+                    background: const _DeleteBackground(),
+                    child: _ConversationCard(
+                      conversation: conversation,
+                      myId: controller.repository.myId,
+                      onTap: () => _open(conversation),
+                      onLongPress: () async {
+                        if (await _delete(conversation)) _removed(conversation);
+                      },
+                    ),
                   ),
                 );
                 final isNew = _shown.add(conversation.id);
@@ -300,12 +346,17 @@ class _EnterFromBelowState extends State<_EnterFromBelow>
 }
 
 class _ConversationCard extends StatelessWidget {
-  const _ConversationCard(
-      {required this.conversation, required this.myId, required this.onTap});
+  const _ConversationCard({
+    required this.conversation,
+    required this.myId,
+    required this.onTap,
+    required this.onLongPress,
+  });
 
   final Conversation conversation;
   final String myId;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -329,6 +380,7 @@ class _ConversationCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, AppSpacing.md, 12),
           child: Row(children: [
@@ -422,6 +474,28 @@ class _ConversationCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Behind a conversation being swiped away: what will happen.
+class _DeleteBackground extends StatelessWidget {
+  const _DeleteBackground();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: AppSpacing.xl),
+        decoration: BoxDecoration(
+          color: AppDeleteDialog.destructive,
+          borderRadius: BorderRadius.circular(AppRadius.card),
+        ),
+        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.delete_outline_rounded, color: Colors.white),
+          SizedBox(width: AppSpacing.xs),
+          Text(MessagesText.deleteLabel,
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+        ]),
+      );
 }
 
 /// No conversation yet: Nudaeng writing a letter, and the way to start one.

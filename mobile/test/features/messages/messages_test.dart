@@ -426,6 +426,87 @@ void main() {
     expect(error, isA<SendPlaceFailed>());
     expect((error! as SendPlaceFailed).message, SendPlaceText.unavailable);
   });
+  test('Recall, delete one, delete a chat: the API paths', () async {
+    final calls = <String>[];
+    final repository = RemoteMessagesRepository(
+        _api({
+          'POST /conversations/c1/messages/m1/recall': {
+            'id': 'm1',
+            'sender_id': 'me',
+            'kind': 'text',
+            'text': null,
+            'recalled': true,
+            'created_at': '2026-10-30T07:00:00Z',
+          },
+          'DELETE /conversations/c1/messages/m2': <String, Object>{},
+          'DELETE /conversations/c1': <String, Object>{},
+        }, calls),
+        myId: 'me');
+    final recalled = await repository.recall('c1', 'm1');
+    expect(recalled.recalled, isTrue);
+    expect(recalled.text, isNull);
+    await repository.hide('c1', 'm2');
+    await repository.deleteConversation('c1');
+    expect(calls, [
+      'POST /conversations/c1/messages/m1/recall {}',
+      'DELETE /conversations/c1/messages/m2',
+      'DELETE /conversations/c1',
+    ]);
+  });
+
+  testWidgets('Hold a message: recall mine for both; delete one for me',
+      (tester) async {
+    final repository = MockMessagesRepository([_minhAnh]);
+    final conversation = await repository.open('u1');
+    repository.reply('u1', 'Chào Li');
+    await repository.send(conversation.id, 'Nhắn nhầm', clientId: 'k1');
+    await _pump(tester,
+        ChatScreen(repository: repository, conversation: conversation));
+
+    await tester.longPress(find.text('Nhắn nhầm'));
+    await tester.pumpAndSettle();
+    expect(find.text(ChatText.copy), findsOneWidget);
+    await tester.tap(find.text(ChatText.recall));
+    await tester.pumpAndSettle();
+    expect(find.text(ChatText.recallTitle), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, ChatText.recall));
+    await tester.pumpAndSettle();
+    expect(find.text('Nhắn nhầm'), findsNothing);
+    expect(find.text(ChatText.recalled), findsOneWidget);
+
+    // Their message: no recall, only delete for me.
+    await tester.longPress(find.text('Chào Li'));
+    await tester.pumpAndSettle();
+    expect(find.text(ChatText.recall), findsNothing);
+    await tester.tap(find.text(ChatText.hide));
+    await tester.pumpAndSettle();
+    expect(find.text('Chào Li'), findsNothing);
+    expect(await repository.messages(conversation.id), hasLength(1),
+        reason: 'only the recalled one is left for me');
+  });
+
+  testWidgets('Swipe a conversation away: asked first, then gone for me',
+      (tester) async {
+    final repository = MockMessagesRepository([_minhAnh]);
+    repository.reply('u1', 'Alo');
+    final controller = _controller(repository);
+    await _pump(tester, const MessagesScreen(), controller: controller);
+    expect(find.text('Minh Anh'), findsOneWidget);
+    await tester.drag(find.text('Minh Anh'), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    expect(find.text(MessagesText.deleteTitle('Minh Anh')), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, MessagesText.deleteLabel));
+    await tester.pumpAndSettle();
+    expect(find.text('Minh Anh'), findsNothing);
+    expect(await repository.conversations(), isEmpty);
+    // A new message brings it back, from there on.
+    repository.reply('u1', 'Còn đó không?');
+    final list = await repository.conversations();
+    expect(list.single.lastMessage!.text, 'Còn đó không?');
+    expect(await repository.messages(list.single.id), hasLength(1));
+    await _end(tester, controller);
+  });
+
   group('Sounds', () {
     late _Sounds sounds;
     setUp(() async {
@@ -520,4 +601,13 @@ class _FixedMessages implements MessagesRepository {
   @override
   Future<void> sharePlace(List<String> friendIds, SharedPlace place) =>
       repository.sharePlace(friendIds, place);
+  @override
+  Future<void> deleteConversation(String conversationId) =>
+      repository.deleteConversation(conversationId);
+  @override
+  Future<ChatMessage> recall(String conversationId, String messageId) =>
+      repository.recall(conversationId, messageId);
+  @override
+  Future<void> hide(String conversationId, String messageId) =>
+      repository.hide(conversationId, messageId);
 }

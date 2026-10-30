@@ -248,3 +248,21 @@ Future<Uint8List> createPinMarker(String art,
         Paint()..filterQuality = FilterQuality.medium);
   });
 }
+
+/// Pins standing on (about) the same spot, set apart side by side so each
+/// is seen and tapped: for each pin id, how far left or right to draw it,
+/// in screen points. Pins within about 20 m share a spot; a lone pin is
+/// not moved.
+Map<String, double> spreadSameSpot(Map<String, ({double lat, double lon})> pins,
+    {double gap = 44}) {
+  final spots = <String, List<String>>{};
+  for (final MapEntry(:key, :value) in pins.entries) {
+    final spot = '${(value.lat * 5000).round()},${(value.lon * 5000).round()}';
+    (spots[spot] ??= []).add(key);
+  }
+  return {
+    for (final ids in spots.values)
+      for (final (i, id) in ids.indexed)
+        id: ids.length < 2 ? 0 : (i - (ids.length - 1) / 2) * gap,
+  };
+}

@@ -946,14 +946,28 @@ class _ExploreScreenState extends State<ExploreScreen> {
       // The user's own posts: those still on, always (unless a category or
       // mood filter is on); ended ones too under "Đã chia sẻ".
       final filtered = _category != null || _mood != null;
-      for (final share in _myShares) {
+      final mine = [
+        for (final share in _myShares)
+          if (_sharedView || (!filtered && share.isActive(now))) share
+      ];
+      // Moments on the same spot (the user's and friends') side by side.
+      final spread = spreadSameSpot({
+        for (final s in mine) 'mine:${s.id}': (lat: s.latitude, lon: s.longitude),
+        for (final p in friendPosts)
+          'friend:${p.id}': (lat: p.latitude, lon: p.longitude),
+      });
+      // Offsets are in screen points, scaled by the icon's size.
+      Offset shift(String id, double size) =>
+          Offset((spread[id] ?? 0) / size, 0);
+      for (final share in mine) {
         final active = share.isActive(now);
-        if (!_sharedView && (filtered || !active)) continue;
+        final size = _openMine?.id == share.id ? .85 : .7;
         await map.addSymbol(
             SymbolOptions(
               geometry: LatLng(share.latitude, share.longitude),
               iconImage: active ? 'mine' : 'mine-past',
-              iconSize: _openMine?.id == share.id ? .85 : .7,
+              iconSize: size,
+              iconOffset: shift('mine:${share.id}', size),
               iconAnchor: 'bottom',
               zIndex: active ? 3 : 1,
             ),
@@ -966,6 +980,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
               geometry: LatLng(post.latitude, post.longitude),
               iconImage: 'nudaeng',
               iconSize: PinArt.size,
+              iconOffset: shift('friend:${post.id}', PinArt.size),
               iconAnchor: 'bottom',
               zIndex: 2,
               // Whose post it is, under the pin.
@@ -973,7 +988,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
               fontNames: const ['Noto Sans Bold'],
               textSize: 12,
               textAnchor: 'top',
-              textOffset: const Offset(0, .3),
+              textOffset: Offset((spread['friend:${post.id}'] ?? 0) / 12, .3),
               textColor: '#2E6E78',
               textHaloColor: '#FFFFFF',
               textHaloWidth: 1.6,
