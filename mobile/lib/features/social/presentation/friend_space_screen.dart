@@ -69,7 +69,7 @@ abstract final class FriendSpaceText {
 /// Opens "Space của bạn" over Explore.
 Future<void> openFriendSpace(BuildContext context,
     {required FriendsAccount account, required FriendSpace space}) {
-  final auth = AuthScope.maybeOf(context)?.auth;
+  final auth = AuthScope.maybeOf(context);
   // Signed-in accounts must NEVER be shown simulated Facebook friends.
   return Navigator.of(context).push(MaterialPageRoute(
     builder: (_) => auth is SupabaseAuthService
