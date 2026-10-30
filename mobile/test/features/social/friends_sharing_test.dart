@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:ai_diary/core/network/api_client.dart';
 import 'package:ai_diary/core/theme/app_theme.dart';
@@ -21,6 +22,7 @@ import 'package:ai_diary/features/profile/profile_screen.dart';
 import 'package:ai_diary/features/social/data/app_friend.dart';
 import 'package:ai_diary/features/social/data/friends_sharing.dart';
 import 'package:ai_diary/features/social/presentation/friend_space_screen.dart';
+import 'package:ai_diary/features/explore/presentation/widgets/friend_post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -94,16 +96,44 @@ Future<void> _openShare(WidgetTester tester, MemorySharing sharing) async {
   await tester.pumpAndSettle();
 }
 
-/// `GET /friends` answering [items]; every request is counted in [paths].
-ApiClient _api(List<Map<String, Object?>> items, List<String> paths) =>
+/// `GET /friends` answering [items], `POST /memory-shares` answering a new
+/// share; every request is kept in [calls] ("METHOD path body").
+ApiClient _api(List<Map<String, Object?>> items, List<String> calls,
+        {int photoStatus = 204}) =>
     ApiClient(
       accessTokenProvider: () async => 'token',
       client: MockClient((request) async {
-        paths.add('${request.method} ${request.url.path}');
-        return http.Response(jsonEncode(items), 200,
-            headers: {'content-type': 'application/json; charset=utf-8'});
+        final path = request.url.path.replaceFirst(RegExp(r'^.*/api/v1'), '');
+        if (request.method == 'PUT' && path.endsWith('/photo')) {
+          // The bytes themselves: type and size only.
+          calls.add('PUT $path '
+              '${request.headers['content-type']} ${request.bodyBytes.length}');
+          return http.Response('', photoStatus);
+        }
+        calls.add('${request.method} $path ${request.body}'.trim());
+        if (request.method == 'DELETE') return http.Response('', 204);
+        final body = switch ('${request.method} $path') {
+          'GET /friends' => items,
+          'POST /memory-shares' => {
+              'id': 'share-1',
+              'memory_id': null,
+              'expires_at': '2026-10-31T07:00:00Z',
+              'revoked': false,
+            },
+          _ => null,
+        };
+        return body == null
+            ? http.Response('{}', 404)
+            : http.Response(jsonEncode(body), body is Map ? 201 : 200,
+                headers: {'content-type': 'application/json; charset=utf-8'});
       }),
     );
+
+const _jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4];
+
+/// A 1×1 transparent PNG.
+final _png = Uint8List.fromList(base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='));
 
 const _minhAnh = AppFriend('u1', 'Minh Anh');
 const _giaHuy = AppFriend('u2', 'Gia Huy');
@@ -240,9 +270,9 @@ void main() {
   });
 
   testWidgets(
-      'Signed in: the picker lists real friends; nothing is sent until the '
-      'server can deliver', (tester) async {
-    final paths = <String>[];
+      'Signed in: real friends; the post goes to the server as a snapshot '
+      '(description needed, photo sent after it, no private note)', (tester) async {
+    final calls = <String>[];
     final api = _api([
       {
         'user_id': 'u1',
@@ -257,35 +287,115 @@ void main() {
         'direction': 'incoming',
         'display_name': 'Chưa đồng ý',
       },
-    ], paths);
+    ], calls);
     addTearDown(api.close);
-    final sharing = RemoteFriendsSharing(api);
+    final sharing = RemoteFriendsSharing(api, readPhoto: (_) async => _jpeg);
     await _openShare(tester, sharing);
-    expect(paths.single, allOf(startsWith('GET '), endsWith('/friends')));
+    expect(calls.single, 'GET /friends');
     expect(find.byKey(const ValueKey('share-to-u1')), findsOneWidget);
     expect(find.byKey(const ValueKey('share-to-u3')), findsNothing,
         reason: 'a pending request is not a friend');
     expect(find.text(ShareMemorySheet.picked(1, 1)), findsOneWidget);
     await _tapIn(
         tester, find.text(ShareMemorySheet.useMemoryPlace('Hồ Xuân Hương')));
-    // Everything chosen; the dock says why it cannot be sent, and the
-    // button stays off.
-    expect(find.text(ShareMemorySheet.notDelivered), findsOneWidget);
-    final button = find.text(ShareMemorySheet.publishLabel).last;
-    await tester.ensureVisible(button);
-    await tester.tap(button);
+    // The server needs a description, photo or not; said.
+    expect(find.text(ShareMemorySheet.needs([ShareMemorySheet.needText])),
+        findsOneWidget);
+    await tester.enterText(
+        find.widgetWithText(TextField, ShareMemorySheet.textHintNote),
+        'Chiều nay đẹp quá');
+    await _tapIn(tester, find.text('Ăn uống'));
+    await _tapIn(tester, find.text(ShareMemorySheet.publishLabel).last);
+    await tester.pump(ShareMemorySheet.successHold);
     await tester.pumpAndSettle();
+    final post = AlbumRoutes.published.value;
+    expect(post?.id, 'share-1');
+    expect(post!.expiresAt, DateTime.utc(2026, 10, 31, 7));
+    expect(calls.last, 'PUT /memory-shares/share-1/photo image/jpeg 8',
+        reason: 'the photo goes with it');
+    final sent = calls[calls.length - 2];
+    expect(sent, startsWith('POST /memory-shares '));
+    final body = jsonDecode(sent.substring('POST /memory-shares '.length))
+        as Map<String, dynamic>;
+    expect(body, {
+      'recipient_ids': ['u1'],
+      'title': 'Chiều ở Đà Lạt',
+      'text': 'Chiều nay đẹp quá',
+      'place': {'label': 'Hồ Xuân Hương', 'latitude': 11.94, 'longitude': 108.44},
+      'category': 'Ăn uống',
+    });
+    expect(sent, isNot(contains('Ly ca cao')), reason: 'private note');
+    expect(await sharing.activePost(post.memoryId), isNotNull);
+  });
+
+  testWidgets('The photo could not go: the post is taken down, nothing shared',
+      (tester) async {
+    final calls = <String>[];
+    final api = _api([
+      {'user_id': 'u1', 'status': 'accepted', 'display_name': 'Minh Anh'},
+    ], calls, photoStatus: 413);
+    addTearDown(api.close);
+    await _openShare(
+        tester, RemoteFriendsSharing(api, readPhoto: (_) async => _jpeg));
+    await _tapIn(
+        tester, find.text(ShareMemorySheet.useMemoryPlace('Hồ Xuân Hương')));
+    await tester.enterText(
+        find.widgetWithText(TextField, ShareMemorySheet.textHintNote), 'Chào');
+    await _tapIn(tester, find.text(ShareMemorySheet.publishLabel).last);
     expect(AlbumRoutes.published.value, isNull);
-    expect(paths, hasLength(1), reason: 'no POST of any kind');
-    await expectLater(
-        sharing.publish(SharePayload(
-          albumId: 'a',
-          memoryId: 'm',
-          audience: friendsAudience([_minhAnh]),
-          place: const MemoryPlace(label: 'X', latitude: 1, longitude: 2),
-          text: 'Xin chào',
-        )),
-        throwsA(isA<ShareUnavailable>()));
+    expect(find.text(ShareMemorySheet.unavailable), findsOneWidget);
+    expect(calls.last, 'DELETE /memory-shares/share-1');
+  });
+
+  test('Photo types the server takes, by their first bytes', () {
+    expect(photoType(_jpeg), 'image/jpeg');
+    expect(photoType(const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0]),
+        'image/png');
+    expect(photoType('RIFF0000WEBPVP8 '.codeUnits), 'image/webp');
+    expect(photoType('GIF89a'.codeUnits), isNull);
+    expect(photoType(const []), isNull);
+  });
+
+  testWidgets("A friend's post: the photo large; a tap opens it full screen",
+      (tester) async {
+    _phone(tester);
+    final post = FriendPost.fromJson({
+      'share_id': 's1',
+      'title': 'Buồn ngủ',
+      'text': 'Học bài ở UEH',
+      'place': {'label': 'UEH', 'latitude': 10.78, 'longitude': 106.69},
+      'category': 'Cà phê học bài',
+      'expires_at': '2030-10-31T07:00:00Z',
+      'display_name': 'Tường Vy',
+      'username': 'tdzy',
+      'has_photo': true,
+    })!;
+    expect(post.hasPhoto, isTrue);
+    var closed = false;
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light,
+      home: Scaffold(
+        body: Center(
+          child: FriendPostCard(
+              post: post,
+              photo: Future.value(_png),
+              onClose: () => closed = true),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Buồn ngủ'), findsOneWidget);
+    expect(find.text('Tường Vy (@tdzy) chia sẻ'), findsOneWidget);
+    expect(find.text('Học bài ở UEH'), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel(FriendPostText.openPhoto));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    await tester.tap(find.byTooltip(FriendPostText.closePhoto));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsNothing);
+    await tester.tap(find.byTooltip(FriendPostText.closeTooltip));
+    expect(closed, isTrue);
   });
 
   testWidgets('Friends without an account: no sample friends, how to get them',
@@ -314,6 +424,38 @@ void main() {
     expect(find.byKey(const ValueKey('setting-item-facebook')), findsNothing);
     expect(find.textContaining('Facebook'), findsNothing);
     expect(find.byIcon(Icons.facebook_rounded), findsNothing);
+  });
+
+  test("Friends' posts from GET /memory-shares/received: named, active only",
+      () {
+    final post = FriendPost.fromJson({
+      'share_id': 's1',
+      'memory_id': null,
+      'title': 'Buồn ngủ',
+      'text': 'Tôi muốn ngủ thật nhiều',
+      'place': {'label': 'UEH', 'latitude': 10.78, 'longitude': 106.69},
+      'category': 'Cà phê học bài',
+      'expires_at': '2026-10-31T07:00:00Z',
+      'sender_id': 'u1',
+      'display_name': 'Tường Vy',
+      'username': 'tdzy',
+    })!;
+    expect(post.senderName, 'Tường Vy');
+    expect(post.username, 'tdzy');
+    expect(post.placeLabel, 'UEH');
+    expect(post.isActive(DateTime.utc(2026, 10, 31, 6)), isTrue);
+    expect(post.isActive(DateTime.utc(2026, 10, 31, 8)), isFalse);
+    expect(
+        FriendPost.fromJson({
+          'share_id': 's2',
+          'text': 'x',
+          'place': {'label': 'X', 'latitude': 1, 'longitude': 2},
+          'expires_at': '2026-10-31T07:00:00Z',
+          'username': 'giahuy',
+        })!.senderName,
+        '@giahuy');
+    expect(FriendPost.fromJson({'share_id': 's3', 'text': 'x'}), isNull,
+        reason: 'no place');
   });
 
   test('Posts reach only people who are still friends', () async {

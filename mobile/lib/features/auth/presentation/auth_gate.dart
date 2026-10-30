@@ -251,16 +251,16 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
       : null;
   late final ApiAIService? _ai = _api == null ? null : ApiAIService(_api);
 
-  /// A10's audience: the account's friends on the app. Guests have none.
   /// Messages between friends; guests have none.
   late final MessagesController? _messages = _api == null
       ? null
       : MessagesController(
           RemoteMessagesRepository(_api, myId: widget.userId));
 
-  late final MemorySharing _memorySharing = _api == null
-      ? const NoAlbumPublishing() as MemorySharing
-      : RemoteFriendsSharing(_api);
+  /// A10's audience and posts: the account's friends on the app. Guests
+  /// have none.
+  late final RemoteFriendsSharing? _friendsSharing =
+      _api == null ? null : RemoteFriendsSharing(_api);
 
   late final Future<({
     JournalRepository journals,
@@ -378,7 +378,11 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
                 repository: data.albums,
                 auth: PinAlbumAuth(LocalAlbumPins(userId: widget.userId)),
                 photos: DeviceMemoryPhotos.forUser(widget.userId),
-                memorySharing: _memorySharing,
+                // Deleting a memory or album also revokes its posts.
+                sharing:
+                    _friendsSharing ?? const NoAlbumPublishing() as AlbumSharing,
+                memorySharing: _friendsSharing ??
+                    const NoAlbumPublishing() as MemorySharing,
                 child: app,
               ),
             ),
