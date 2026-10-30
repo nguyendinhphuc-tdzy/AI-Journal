@@ -20,7 +20,7 @@ class ProfileUpdate(BaseModel):
         if value is None:
             raise ValueError("discoverable must not be null")
         return value
-    username: str | None = Field(default=None, min_length=3, max_length=24)
+    username: str | None = None
 
     @field_validator("username")
     @classmethod
