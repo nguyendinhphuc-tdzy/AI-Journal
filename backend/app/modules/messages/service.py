@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from fastapi import HTTPException
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.models.friendship import Friendship
@@ -58,6 +58,11 @@ def peer_id(item: Conversation, user_id: UUID) -> UUID:
 
 def enforce_rate(db: Session, sender_id: UUID, count: int = 1, now: datetime | None = None):
     at = now or now_utc()
+    if db.bind.dialect.name == "postgresql":
+        # Serialize concurrent sends for the same sender across API workers.
+        # The transaction-scoped advisory lock is released on commit/rollback.
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:uid, 0))"),
+                   {"uid": str(sender_id)})
     recent = db.scalar(select(func.count()).select_from(Message).where(
         Message.sender_id == sender_id,
         Message.created_at > at - timedelta(minutes=1))) or 0
