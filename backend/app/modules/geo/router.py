@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.config import Settings, get_settings
 from app.modules.geo.service import geoapify_search, geoapify_reverse
+from app.modules.geo.places_service import geoapify_places, CATEGORIES
 from app.schemas.place import Latitude, Longitude
 
 
@@ -159,3 +160,49 @@ async def reverse_location(
     result = await geoapify_reverse(client, api_key, lat=lat, lon=lon)
     _store_geo_result(cache_key, [result] if result is not None else [])
     return GeoReverseResult(**result) if result is not None else None
+
+
+class MapPoiResult(GeoResult):
+    categories: list[str] = []
+
+class MapPoiResults(BaseModel):
+    items: list[MapPoiResult]
+
+@router.get("/places", response_model=MapPoiResults)
+async def places_nearby(
+    lat: Latitude,
+    lon: Longitude,
+    radius: int = Query(default=1500, ge=100, le=5000),
+    category: str = Query(default="all", max_length=40),
+    q: str | None = Query(default=None, min_length=2, max_length=120),
+    limit: int = Query(default=25, ge=1, le=40),
+    user: AuthenticatedUser = Depends(get_current_user),
+    _limited: None = Depends(enforce_geo_rate_limit),
+    settings: Settings = Depends(get_settings),
+    client: httpx.AsyncClient = Depends(get_geo_client),
+):
+    """Nearby real POIs, biased to Vietnam by client map center, never demo data.
+
+    Query is deliberately bounded to a 5km radius and 40 results for provider
+    costs and MapLibre annotation density. A map cannot enumerate *all* POIs.
+    """
+    del _limited
+    if category not in CATEGORIES:
+        raise HTTPException(422, detail="Unsupported place category")
+    query = " ".join(q.strip().split()) if q is not None else None
+    if query is not None and len(query) < 2:
+        raise HTTPException(422, detail="Place name must contain at least 2 characters")
+    api_key = settings.geoapify_api_key
+    if not api_key:
+        raise HTTPException(503, detail="Place search is not configured")
+    cache_key = (user.user_id, api_key, "places", round(lat, 4),
+                 round(lon, 4), radius, category, query.casefold() if query else None, limit)
+    cached = _cached_geo_result(cache_key)
+    if cached is not None:
+        return MapPoiResults(items=cached)
+    items = await geoapify_places(
+        client, api_key, lat=lat, lon=lon, radius=radius,
+        category=category, name=query, limit=limit
+    )
+    _store_geo_result(cache_key, items)
+    return MapPoiResults(items=items)

@@ -1,7 +1,7 @@
 """JWT-authenticated private friendship requests; no public user directory."""
 from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.models.friendship import Friendship
 from app.models.user_block import UserBlock
 from app.models.user_profile import UserProfile, auth_users
+from app.modules.devices.push import send_push_to_user
 
 router = APIRouter(prefix="/friends", tags=["friends"])
 
@@ -70,7 +71,7 @@ def list_friends(user: AuthenticatedUser = Depends(get_current_user),
 
 @router.post("/requests", response_model=FriendRead, status_code=201,
              response_model_exclude_none=True)
-def request_friend(payload: FriendTarget,
+def request_friend(payload: FriendTarget, background_tasks: BackgroundTasks,
                    user: AuthenticatedUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     low, high = pair(user.user_id, payload.user_id)
@@ -93,12 +94,14 @@ def request_friend(payload: FriendTarget,
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Friend request could not be created") from exc
+    background_tasks.add_task(send_push_to_user, payload.user_id, "friend_request",
+                              {"sender_id": str(user.user_id)})
     return _read(item, user.user_id, db)
 
 
 @router.post("/{other_id}/accept", response_model=FriendRead,
              response_model_exclude_none=True)
-def accept_friend(other_id: UUID,
+def accept_friend(other_id: UUID, background_tasks: BackgroundTasks,
                   user: AuthenticatedUser = Depends(get_current_user),
                   db: Session = Depends(get_db)):
     if blocked(db, user.user_id, other_id):
@@ -108,6 +111,8 @@ def accept_friend(other_id: UUID,
         raise HTTPException(status_code=409, detail="No incoming pending request")
     item.status = "accepted"
     db.commit()
+    background_tasks.add_task(send_push_to_user, item.requester_id, "friend_accepted",
+                              {"friend_id": str(user.user_id)})
     return _read(item, user.user_id, db)
 
 
