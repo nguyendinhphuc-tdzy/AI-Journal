@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     supabase_publishable_key: str | None = None
     # Server-side Geoapify key. Leave unset to disable external search.
     geoapify_api_key: str | None = None
+    # FCM remains disabled until Vy has configured Firebase on Android.
+    # OAuth credentials are read server-side via GOOGLE_APPLICATION_CREDENTIALS.
+    fcm_project_id: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
