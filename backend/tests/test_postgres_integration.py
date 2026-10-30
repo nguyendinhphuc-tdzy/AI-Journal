@@ -24,7 +24,7 @@ TABLES = (
     "alembic_version", "journal_entries", "user_profiles",
     "journal_action_days", "saved_places", "place_notes", "journal_places",
     "albums", "album_memories", "journal_analyses", "saved_quotes",
-    "weekly_insights",
+    "weekly_insights", "conversations", "messages", "conversation_reads",
 )
 USER_TABLES = TABLES[1:]
 
@@ -158,7 +158,7 @@ def postgres_engine():
 def test_postgres_upgrade_schema_and_rls(postgres_engine):
     inspector = sa.inspect(postgres_engine)
     with postgres_engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261030_18"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20261030_19"
         for table in TABLES:
             assert inspector.has_table(table, schema="public"), table
             rls = conn.execute(text("""

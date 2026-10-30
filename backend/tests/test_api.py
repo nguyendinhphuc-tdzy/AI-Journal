@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261030_18"
+    assert revision == "20261030_19"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -57,6 +57,7 @@ def test_migration_applied():
     assert "journal_analyses" in tables
     assert "saved_quotes" in tables
     assert "weekly_insights" in tables
+    assert {"conversations", "messages", "conversation_reads"}.issubset(tables)
 
 
 def test_ai_requires_authentication_in_all_provider_modes(monkeypatch):
@@ -1861,3 +1862,131 @@ def test_memory_sharing_local_snapshot_and_private_data_never_exposed():
     finally:
         app.dependency_overrides.clear()
 
+
+def test_message_conversations_acl_unread_idempotency_place_and_share():
+    """CI-only SQLite users: no live auth or shared project data."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.core.database import SessionLocal
+    from app.models.message import Message
+    from app.models.memory_share import MemoryShare
+
+    a = AuthenticatedUser(user_id=uuid4(), email="chat-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="chat-b@example.com")
+    intruder = AuthenticatedUser(user_id=uuid4(), email="chat-c@example.com")
+    try:
+        app.dependency_overrides.clear()
+        assert client.get("/api/v1/conversations").status_code == 401
+        assert client.get("/api/v1/messages/unread-count").status_code == 401
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)}).status_code == 403
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        opened = client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)})
+        assert opened.status_code == 200, opened.text
+        cid = opened.json()["id"]
+        assert opened.json()["can_send"]
+        assert client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)}).json()["id"] == cid
+        text_body = {"client_id": "test-client-abc-123", "text": "Xin chào"}
+        sent = client.post(f"/api/v1/conversations/{cid}/messages", json=text_body)
+        assert sent.status_code == 200, sent.text
+        msg_id = sent.json()["id"]
+        assert sent.json()["kind"] == "text"
+        assert client.post(f"/api/v1/conversations/{cid}/messages", json=text_body).json()["id"] == msg_id
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+                           json={**text_body, "text": "Changed"}).status_code == 409
+        app.dependency_overrides[get_current_user] = lambda: intruder
+        assert client.get(f"/api/v1/conversations/{cid}/messages").status_code == 404
+        assert client.post(f"/api/v1/conversations/{cid}/messages", json=text_body).status_code == 404
+        assert client.post(f"/api/v1/conversations/{cid}/read",
+                           json={"message_id": msg_id}).status_code == 404
+        assert client.get("/api/v1/conversations").json() == []
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/messages/unread-count").json() == {"count": 1}
+        page = client.get(f"/api/v1/conversations/{cid}/messages")
+        assert page.status_code == 200 and len(page.json()["items"]) == 1
+        assert client.get(f"/api/v1/conversations/{cid}/messages",
+                          params={"after": msg_id}).json()["items"] == []
+        seen = client.post(f"/api/v1/conversations/{cid}/read", json={"message_id": msg_id})
+        assert seen.status_code == 200 and seen.json()["unread_count"] == 0
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 0
+        # An old mark-read never regresses the cursor.
+        app.dependency_overrides[get_current_user] = lambda: a
+        second = client.post(f"/api/v1/conversations/{cid}/messages",
+                             json={"client_id": "test-client-def-456", "text": "Again"})
+        assert second.status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 1
+        client.post(f"/api/v1/conversations/{cid}/read", json={"message_id": msg_id})
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 1
+        app.dependency_overrides[get_current_user] = lambda: a
+        place = {"name": "Park", "latitude": 10.8, "longitude": 106.7}
+        shared_place = client.post("/api/v1/place-shares",
+                   json={"recipient_ids": [str(b.user_id)], "place": place})
+        assert shared_place.status_code == 201, shared_place.text
+        assert shared_place.json()["conversation_ids"] == [cid]
+        assert client.post("/api/v1/place-shares",
+                   json={"recipient_ids": [str(b.user_id), str(b.user_id)],
+                         "place": place}).status_code == 422
+        assert client.post("/api/v1/place-shares",
+                   json={"recipient_ids": [str(intruder.user_id)],
+                         "place": place}).status_code == 422
+        memory = client.post("/api/v1/memory-shares", json={
+            "recipient_ids": [str(b.user_id)], "text": "Public caption",
+            "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}})
+        assert memory.status_code == 201, memory.text
+        share_id = memory.json()["id"]
+        app.dependency_overrides[get_current_user] = lambda: b
+        messages = client.get(f"/api/v1/conversations/{cid}/messages").json()["items"]
+        assert len(messages) == 4
+        assert messages[-1]["kind"] == "memory_share"
+        assert messages[-1]["memory_share"]["text"] == "Public caption"
+        assert "note" not in str(messages[-1])
+        assert client.get("/api/v1/conversations").json()[0]["last_message"]["memory_share"]["text"] == "Public caption"
+        # Deleting/revoking a share must remove sensitive previews from both APIs.
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/memory-shares/{share_id}").status_code == 204
+        app.dependency_overrides[get_current_user] = lambda: b
+        after = client.get(f"/api/v1/conversations/{cid}/messages").json()["items"][-1]["memory_share"]
+        assert set(after) == {"share_id", "expires_at"}
+        assert set(client.get("/api/v1/conversations").json()[0]["last_message"]["memory_share"]) == {"share_id", "expires_at"}
+        # Unfriending preserves history but blocks sends and opening new chats.
+        assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
+        listing = client.get("/api/v1/conversations").json()
+        assert len(listing) == 1 and listing[0]["can_send"] is False
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+                           json={"client_id": "new-after-unfriend", "text": "Denied"}).status_code == 403
+        assert client.post("/api/v1/conversations", json={"friend_id": str(a.user_id)}).status_code == 403
+        assert client.get(f"/api/v1/conversations/{cid}/messages").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_messages_rate_limit_per_sender():
+    a = AuthenticatedUser(user_id=uuid4(), email="rate-chat-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="rate-chat-b@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests",
+                           json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        cid = client.post("/api/v1/conversations",
+                          json={"friend_id": str(b.user_id)}).json()["id"]
+        for idx in range(30):
+            sent = client.post(f"/api/v1/conversations/{cid}/messages",
+                json={"client_id": f"rate-{idx}", "text": "Hello"})
+            assert sent.status_code == 200, sent.text
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+            json={"client_id": "rate-31", "text": "Excess"}).status_code == 429
+        # Retries remain idempotent even when the sender is at the limit.
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+            json={"client_id": "rate-0", "text": "Hello"}).status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+            json={"client_id": "b-message", "text": "Separate quota"}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
