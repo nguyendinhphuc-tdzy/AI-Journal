@@ -98,7 +98,30 @@ Geoapify configuration/availability determines live lookup. Cloud Saved Places a
 | `DELETE /community/posts/{post_id}`, `POST /community/posts/{post_id}/reports` | Delete own post / report |
 | `GET /community/moderation/pending`, `POST /community/moderation/{post_id}/{decision}`, `GET /community/moderation/reports` | Moderator-only routes, feature-gated |
 
-Social APIs existing in FastAPI do **not** imply the Flutter screens are all connected. Flutter friend selection uses accepted app friendships from GET /friends; Facebook friends are not used.nd must not be mistaken for real account connection.
+Social APIs existing in FastAPI do **not** imply the Flutter screens are all connected. Flutter friend selection uses accepted app friendships from GET /friends. Facebook friends are not used.
+
+## Private one-to-one messaging — migration 20261030_19
+
+**Server-owned data.** Conversation history, explicit place message snapshots, and message read cursors are stored in PostgreSQL. All routes below are authenticated under `/api/v1`; guests cannot access them. Flutter polls in the foreground; there are no push notifications in this phase.
+
+| Method and path | Request / response |
+| --- | --- |
+| `GET /conversations` | Bare list newest first: `id`, `friend:{user_id,display_name,username}`, `last_message`, `unread_count`, `can_send` |
+| `POST /conversations` | `{friend_id:UUID}`; get/create single conversation for an accepted, unblocked friend |
+| `GET /conversations/{id}/messages?after=&before=&limit=50` | `{items:[Message]}`, oldest first; after/before are UUID message cursors, mutually exclusive, limit 1–100; defaults to newest 50 |
+| `POST /conversations/{id}/messages` | `{client_id:string,text:string}`; nonblank <=2,000 chars; idempotent per conversation+sender+client_id; reused key with changed content => 409 |
+| `POST /conversations/{id}/read` | `{message_id:UUID}`; monotonic read cursor, returns `{unread_count}` |
+| `GET /messages/unread-count` | `{count}` for the current user |
+| `POST /place-shares` | `{recipient_ids:[UUID],place:{name,latitude,longitude,category?,note?}}`; 1–20 distinct accepted, unblocked friends; only an explicitly submitted place snapshot is sent; `{conversation_ids:[UUID]}` |
+| `POST /memory-shares` | In revision 19+, creates one `memory_share` message per recipient **in the same database transaction** as the share; existing share request/response remains unchanged |
+
+A `Message` contains `id,conversation_id,sender_id,kind,client_id,created_at,text?,place?,memory_share?`. `kind` is `text|place|memory_share`. A place message's name and coordinates are explicitly supplied by sender; server never copies a private SavedPlace note. Optional `place.note` is an explicitly authored message caption, not a private journal note.
+
+**Access control:** only participants may list/read/mark-read messages; opening and sending requires a currently accepted unblocked friendship. After unfriend or block, conversation history is read-only. Attempting to read other people's conversations/messages returns 404. Sends are capped at 30 persisted messages per user per rolling minute (app instance/database); batch shares count once per recipient. Idempotency is enforced by a database unique constraint; a retry of an existing message does not send twice. Large-scale global quota enforcement may need a dedicated distributed limiter.
+
+**Expiring content:** every message referencing `memory_share` rechecks the active share and its ACL at read time. After expiry, revoke or loss of friendship, `memory_share` contains only `share_id` and `expires_at` (no title, caption, coordinates or private note), including in `last_message`. New messages cannot access album-private `memory.note` or photo storage keys.
+
+**Data lifecycle:** conversations and messages use foreign keys that cascade when a user account is deleted in Supabase Auth. The backend cannot provide end-to-end encryption; message history is server-side and should be disclosed in privacy and deletion policies. Supabase Data API roles `anon` and `authenticated` have no direct table privileges, with RLS enabled, so messages are accessed through FastAPI only.
 
 ## Deployment / API compatibility reminders
 
