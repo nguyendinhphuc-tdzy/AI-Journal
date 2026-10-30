@@ -33,7 +33,7 @@ def test_places_vietnamese_name_address_category_and_location():
             {"properties": {"place_id": "vn-cafe-1", "name": "Duplicate"},
              "geometry": {"type": "Point", "coordinates": [106.7009, 10.7769]}},
             {"properties": {"place_id": "bad-coords", "name": "Invalid"},
-             "geometry": {"type": "Point", "coordinates": [float("nan"), 10.0]}},
+             "geometry": {"type": "Point", "coordinates": ["not-a-number", 10.0]}},
             {"properties": {"place_id": "unnamed"},
              "geometry": {"type": "Point", "coordinates": [106, 10]}},
         ]})
