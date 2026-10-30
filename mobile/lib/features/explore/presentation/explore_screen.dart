@@ -12,8 +12,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
 import '../data/explore_highlight.dart';
-import '../../social/data/friend_space.dart';
-import '../../social/data/friends_account.dart';
 import '../../social/presentation/friend_space_screen.dart';
 import '../data/device_location.dart';
 import '../data/explore_places_repository.dart';
@@ -39,11 +37,8 @@ class ExploreScreen extends StatefulWidget {
     this.placesRepository = const MockExplorePlacesRepository(),
     this.savedPlacesStore = const LocalSavedPlacesStore(),
     this.location = const GeolocatorDeviceLocation(),
-    FriendsAccount? friends,
-    FriendSpace? space,
     this.highlight,
-  })  : _friends = friends,
-        _space = space;
+  });
 
   final ExplorePlacesRepository placesRepository;
 
@@ -53,19 +48,12 @@ class ExploreScreen extends StatefulWidget {
   /// "Vị trí của tôi": permission is asked only when it is tapped.
   final DeviceLocation location;
 
-  final FriendsAccount? _friends;
-  final FriendSpace? _space;
-
-  /// Friends on the app and the user's space ("Bạn bè").
-  FriendsAccount get friends => _friends ?? MockFriendsAccount.instance;
-  FriendSpace get space => _space ?? FriendSpace.instance;
-
   /// Shared memory pin passed from Album A10; cleared after A11/A12 revoke.
   final ExploreHighlight? highlight;
 
   static const searchHint = 'Tìm địa điểm';
   static const inboxTooltip = 'Mở hộp thư';
-  static const friendsTooltip = 'Bạn bè và Space của bạn';
+  static const friendsTooltip = 'Bạn bè trên app';
   static const allFilter = 'Tất cả';
   static const moodFilter = 'Cảm xúc';
   static const communityLabel = 'Cộng đồng';
@@ -1556,59 +1544,16 @@ class _ExploreScreenState extends State<ExploreScreen> {
         ),
       );
 
-  /// "Space của bạn": the friends the user shares with; on the button, how
-  /// many invitations wait for the user's answer.
-  Widget _buildFriends() => ListenableBuilder(
-        listenable: Listenable.merge([
-          widget.space.members,
-          widget.space.incoming,
-          widget.friends.session,
-        ]),
-        builder: (context, _) {
-          final session = widget.friends.session.value;
-          final waiting = session == null
-              ? 0
-              : widget.space.invitesFrom(session.friends).length;
-          return MapFloatingSurface(
-            child: SizedBox.square(
-              dimension: 52,
-              child: Stack(alignment: Alignment.center, children: [
-                IconButton(
-                  tooltip: ExploreScreen.friendsTooltip,
-                  onPressed: () => openFriendSpace(context,
-                      account: widget.friends, space: widget.space),
-                  icon: const Icon(Icons.group_outlined,
-                      color: AppColors.textPrimary),
-                ),
-                if (waiting > 0)
-                  Positioned(
-                    top: 6,
-                    right: 6,
-                    child: IgnorePointer(
-                      child: Container(
-                        constraints:
-                            const BoxConstraints(minWidth: 18, minHeight: 18),
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryAction,
-                          borderRadius: BorderRadius.circular(9),
-                          border:
-                              Border.all(color: AppColors.surface, width: 2),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text('$waiting',
-                            style: AppText.meta.copyWith(
-                                fontSize: 10,
-                                height: 1.2,
-                                color: AppColors.surface,
-                                fontWeight: FontWeight.w700)),
-                      ),
-                    ),
-                  ),
-              ]),
-            ),
-          );
-        },
+  /// Friends on the app ("Bạn bè"): requests are answered on that screen.
+  Widget _buildFriends() => MapFloatingSurface(
+        child: SizedBox.square(
+          dimension: 52,
+          child: IconButton(
+            tooltip: ExploreScreen.friendsTooltip,
+            onPressed: () => openFriendSpace(context),
+            icon: const Icon(Icons.group_outlined, color: AppColors.textPrimary),
+          ),
+        ),
       );
 
   Widget _buildInbox() => MapFloatingSurface(

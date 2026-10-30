@@ -10,9 +10,9 @@ import '../data/album_repository.dart';
 import '../data/album_unlocks.dart';
 import '../data/memory.dart';
 import '../data/memory_share.dart';
-import '../../social/data/friends_account.dart';
+import '../../social/data/app_friend.dart';
 import '../../social/data/friends_sharing.dart';
-import '../../social/presentation/facebook_login_screen.dart';
+import '../../social/presentation/friend_avatar.dart';
 import 'album_form_parts.dart';
 
 /// A10: preview a memory and share it on the map for 24 hours.
@@ -62,13 +62,13 @@ class ShareMemorySheet extends StatefulWidget {
       'Chưa có nội dung để chia sẻ. Viết mô tả hoặc chọn một đoạn từ ghi chú.';
   static const audienceLabel = 'Ai sẽ thấy bài này';
   static const audienceNone =
-      'Bài chia sẻ chỉ bạn bè trên app thấy, trong 24 giờ. Bạn bè trên app '
-      'là bạn bè Facebook của bạn cũng dùng app này. Tính năng sẽ mở khi bạn '
-      'đăng nhập bằng Facebook.';
+      'Bài chia sẻ chỉ bạn bè trên app thấy, trong 24 giờ. Bạn bè trên app là '
+      'những người bạn đã kết bạn bằng username. Tính năng sẽ mở khi bạn đăng '
+      'nhập tài khoản.';
 
   /// The audience sharing will have (planned, not selectable yet).
   static const friendsLabel = 'Bạn bè trên app';
-  static const friendsDetail = 'Bạn bè Facebook cũng dùng app';
+  static const friendsDetail = 'Những người bạn đã kết bạn trên app';
   static const soonLabel = 'Sắp có';
   static const audienceFailed = 'Chưa tải được danh sách người xem.';
   static const retryLabel = 'Thử lại';
@@ -104,14 +104,14 @@ class ShareMemorySheet extends StatefulWidget {
       'chia sẻ lại.';
   static const publishLabel = 'Chia sẻ trong 24 giờ';
   static const noService =
-      'Chưa chia sẻ được: cần đăng nhập Facebook để có bạn bè trên app.';
-  static const signedOut =
-      'Bạn chưa đăng nhập Facebook nên chưa có bạn bè trên app để chia sẻ. '
-      'Đăng nhập trong Hồ sơ hoặc ở Khám phá, mục Bạn bè.';
-  static const spaceEmpty =
-      'Space của bạn chưa có ai. Thêm bạn bè trong Khám phá, mục Bạn bè, rồi '
-      'quay lại chia sẻ nhé.';
-  static const spaceBlocker = 'Thêm bạn bè vào Space để chia sẻ.';
+      'Chưa chia sẻ được: cần đăng nhập tài khoản để có bạn bè trên app.';
+  static const friendsEmpty =
+      'Bạn chưa có bạn bè trên app. Kết bạn bằng username ở Khám phá, mục '
+      'Bạn bè, rồi quay lại chia sẻ nhé.';
+  static const friendsBlocker = 'Kết bạn trên app để chia sẻ.';
+  static const notDelivered =
+      'Chưa gửi được cho bạn bè: máy chủ chưa hỗ trợ chia sẻ bài. Người bạn '
+      'chọn và nội dung vẫn được giữ.';
   static const pickHelp = 'Chỉ những người bạn chọn mới thấy bài này.';
   static const pickAll = 'Chọn tất cả';
   static const pickNone = 'Bỏ chọn';
@@ -220,10 +220,10 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
 
   ShareAudience? get _audience {
     final sharing = widget.sharing;
-    if (sharing is MockFriendsSharing) {
-      // The people picked among the space's: an audience made for them.
+    if (sharing is FriendsSharing) {
+      // The people picked among the friends: an audience made for them.
       final picked = _picked(sharing);
-      return picked.isEmpty ? null : spaceAudience(picked);
+      return picked.isEmpty ? null : friendsAudience(picked);
     }
     for (final audience in _audiences ?? const <ShareAudience>[]) {
       if (audience.id == _draft.audienceId) return audience;
@@ -231,13 +231,13 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
     return null;
   }
 
-  /// Who in the space is picked (the draft keeps their ids); everyone the
+  /// Which friends are picked (the draft keeps their ids); everyone the
   /// first time.
-  List<AppFriend> _picked(MockFriendsSharing sharing) {
+  List<AppFriend> _picked(FriendsSharing sharing) {
     final pickable = sharing.pickable;
     final kept = _draft.audienceId;
     if (kept == null) return pickable;
-    final ids = spaceAudienceIds(kept).toSet();
+    final ids = friendsAudienceIds(kept).toSet();
     return [
       for (final friend in pickable)
         if (ids.contains(friend.id)) friend
@@ -246,7 +246,7 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
 
   /// Keeps [friends] as the people picked (none is allowed: nothing posts).
   void _pick(List<AppFriend> friends) =>
-      _changed(() => _draft.audienceId = spaceAudience(friends).id);
+      _changed(() => _draft.audienceId = friendsAudience(friends).id);
 
   String? get _sharedText {
     final text = _text.text.trim();
@@ -255,11 +255,14 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
 
   bool get _hasContent => _content.photoPath != null || _sharedText != null;
 
-  /// What would be posted, or null while something is missing.
+  /// What would be posted, or null while something is missing or the
+  /// service cannot send it yet.
   SharePayload? get _payload {
     final audience = _audience;
     final place = _draft.place;
     if (audience == null || place == null || !_hasContent) return null;
+    final sharing = widget.sharing;
+    if (sharing is FriendsSharing && !sharing.canPublish) return null;
     return SharePayload(
       albumId: widget.album.id,
       memoryId: widget.memory.id,
@@ -342,21 +345,23 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
     if (audiences == null || _serviceFailed) return null;
     final sharing = widget.sharing;
     if (audiences.isEmpty) {
-      return sharing is! MockFriendsSharing
-          ? ShareMemorySheet.noService
-          : sharing.account.session.value == null
-              ? ShareMemorySheet.signedOut
-              : ShareMemorySheet.spaceBlocker;
+      return sharing is FriendsSharing
+          ? ShareMemorySheet.friendsBlocker
+          : ShareMemorySheet.noService;
     }
     final steps = [
       if (_audience == null)
-        sharing is MockFriendsSharing
+        sharing is FriendsSharing
             ? ShareMemorySheet.needPeople
             : ShareMemorySheet.needAudience,
       if (_draft.place == null) ShareMemorySheet.needPlace,
       if (!_hasContent) ShareMemorySheet.needText,
     ];
-    return steps.isEmpty ? null : ShareMemorySheet.needs(steps);
+    if (steps.isNotEmpty) return ShareMemorySheet.needs(steps);
+    // Everything chosen, but the server cannot send it to friends yet.
+    return sharing is FriendsSharing && !sharing.canPublish
+        ? ShareMemorySheet.notDelivered
+        : null;
   }
 
   Future<void> _publish() async {
@@ -681,13 +686,10 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
       );
     }
     final sharing = widget.sharing;
-    if (sharing is MockFriendsSharing) {
+    if (sharing is FriendsSharing) {
       if (audiences.isEmpty) {
-        // Signed out, or nobody in the space yet: where to go for it.
-        return AlbumFormMessage(
-            sharing.account.session.value == null
-                ? ShareMemorySheet.signedOut
-                : ShareMemorySheet.spaceEmpty,
+        // No friends on the app yet: where to go for them.
+        return const AlbumFormMessage(ShareMemorySheet.friendsEmpty,
             icon: Icons.people_outline_rounded);
       }
       return _peoplePicker(sharing);
@@ -738,9 +740,9 @@ class _ShareMemorySheetState extends State<ShareMemorySheet> {
     ]);
   }
 
-  /// Everyone in the space who can see posts, each with a tick; all are
-  /// ticked to start with.
-  Widget _peoplePicker(MockFriendsSharing sharing) {
+  /// Every friend on the app, each with a tick; all are ticked to start
+  /// with.
+  Widget _peoplePicker(FriendsSharing sharing) {
     final pickable = sharing.pickable;
     final picked = {for (final f in _picked(sharing)) f.id};
     final all = picked.length == pickable.length;

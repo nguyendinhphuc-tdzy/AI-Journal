@@ -14,9 +14,6 @@ import '../onboarding/data/nickname.dart';
 import '../onboarding/data/journal_goal.dart';
 import '../journal/data/api_ai_service.dart';
 import '../home/data/home_scene_settings.dart';
-import '../social/data/friends_account.dart';
-import '../social/data/friend_space.dart';
-import '../social/presentation/facebook_login_screen.dart';
 import '../sound/app_sound.dart';
 import '../auth/presentation/auth_gate.dart';
 import '../sound/data/sound_settings.dart';
@@ -26,29 +23,13 @@ import 'widgets/setting_editor.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     super.key,
-    FriendsAccount? friends,
     this.appIcons = const PlatformAppIconSwitcher(),
-  }) : _friends = friends;
-
-  final FriendsAccount? _friends;
+  });
 
   /// The home-screen icon (Android launcher aliases).
   final AppIconSwitcher appIcons;
 
-  /// Facebook login for friends on the app (simulated for now).
-  FriendsAccount get friends => _friends ?? MockFriendsAccount.instance;
-
   static const accountTitle = 'Tài khoản';
-  static const facebookLabel = 'Facebook';
-  static const facebookOff = 'Chưa kết nối · để chia sẻ với bạn bè trên app';
-  static String facebookOn(int count) =>
-      'Đã kết nối · $count bạn bè trên app (bản thử)';
-  static const disconnectTitle = 'Ngắt kết nối Facebook?';
-  static const disconnectBody =
-      'Space của bạn sẽ được làm trống và bạn không chia sẻ được bài 24 giờ '
-      'cho đến khi đăng nhập lại. Kỷ niệm của bạn vẫn ở nguyên.';
-  static const disconnectLabel = 'Ngắt kết nối';
-  static const keepLabel = 'Giữ kết nối';
   static const signOutLabel = 'Đăng xuất';
   static const aiRepliesNote = 'Khi bật, nội dung bạn lưu hoặc dùng Nhìn lại '
       'cùng bạn được gửi tới AI của nhóm để phân tích và đặt câu hỏi. Khi tắt, '
@@ -412,135 +393,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  /// Facebook: connected or not; a tap connects, or asks before
-  /// disconnecting.
-  Widget _buildAccount() => ValueListenableBuilder<FriendsSession?>(
-        valueListenable: widget.friends.session,
-        builder: (context, session, _) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildGroupTitle(ProfileScreen.accountTitle),
-            AppCard(
-              padding: EdgeInsets.zero,
-              child: InkWell(
-                key: const ValueKey('setting-item-facebook'),
-                onTap: () => session == null
-                    ? openFacebookLogin(context, widget.friends)
-                    : _disconnect(),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 64),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.md, 12, AppSpacing.sm, 12),
-                    child: Row(children: [
-                      Container(
-                        width: _iconTile,
-                        height: _iconTile,
-                        decoration: BoxDecoration(
-                          color: facebookBlue.withValues(alpha: .1),
-                          borderRadius: const BorderRadius.all(
-                              Radius.circular(AppRadius.small)),
-                        ),
-                        child: const Icon(Icons.facebook_rounded,
-                            size: 22, color: facebookBlue),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(ProfileScreen.facebookLabel,
-                                style: AppText.body),
-                            const SizedBox(height: 2),
-                            Text(
-                                session == null
-                                    ? ProfileScreen.facebookOff
-                                    : ProfileScreen.facebookOn(
-                                        session.friends.length),
-                                style: AppText.meta),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.chevron_right_rounded,
-                          color: AppColors.textSecondary),
-                    ]),
-                  ),
-                ),
-              ),
-            ),
-            if (AuthScope.maybeOf(context) != null || GuestScope.maybeOf(context) != null)
-              Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.sm),
-                child: OutlinedButton.icon(
-                  icon: const Icon(Icons.logout),
-                  label: const Text(ProfileScreen.signOutLabel),
-                  onPressed: () async {
-                    final auth = AuthScope.maybeOf(context);
-                    final guest = GuestScope.maybeOf(context);
-                    try {
-                      if (auth != null) {
-                        await auth.signOut();
-                      } else if (guest != null) {
-                        // A guest's data goes for good: say so first. The
-                        // dialog shows its own failure and "Thử lại".
-                        final left = await AppDeleteDialog.present(context,
-                            builder: (_) => AppDeleteDialog(
-                                  title: ProfileScreen.guestSignOutTitle,
-                                  body: ProfileScreen.guestSignOutBody,
-                                  confirmLabel:
-                                      ProfileScreen.guestSignOutConfirm,
-                                  failed: ProfileScreen.guestSignOutFailed,
-                                  onConfirm: guest.onLeaveGuest,
-                                ));
-                        if (!left) return;
-                      }
-                      if (context.mounted) {
-                        Navigator.of(context).popUntil((route) => route.isFirst);
-                      }
-                    } catch (_) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Không thể đăng xuất. Thử lại.')),
-                        );
-                      }
-                    }
-                  },
-                ),
-              ),
-          ],
-        ),
-      );
-
-  Future<void> _disconnect() async {
-    final confirmed = await showAppSheet<bool>(
-      context,
-      builder: (sheet) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(ProfileScreen.disconnectTitle,
-              style: AppText.sectionTitle),
-          const SizedBox(height: AppSpacing.sm),
-          const Text(ProfileScreen.disconnectBody,
-              style: AppText.bodySecondary),
-          const SizedBox(height: AppSpacing.lg),
-          AppPrimaryButton(
-              label: ProfileScreen.keepLabel,
-              compact: true,
-              onPressed: () => Navigator.pop(sheet, false)),
-          const SizedBox(height: AppSpacing.sm),
-          AppSecondaryButton(
-              label: ProfileScreen.disconnectLabel,
-              compact: true,
-              onPressed: () => Navigator.pop(sheet, true)),
-        ],
-      ),
-    );
-    if (confirmed == true) {
-      await widget.friends.disconnect();
-      // Signed out: the space goes too (it was made of Facebook friends).
-      await FriendSpace.instance.clear();
+  /// The account: signing out, or leaving guest mode. Friends on the app
+  /// are found by @username in Khám phá, not through another account.
+  Widget _buildAccount() {
+    if (AuthScope.maybeOf(context) == null &&
+        GuestScope.maybeOf(context) == null) {
+      return const SizedBox.shrink();
     }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildGroupTitle(ProfileScreen.accountTitle),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.logout),
+          label: const Text(ProfileScreen.signOutLabel),
+          onPressed: () async {
+            final auth = AuthScope.maybeOf(context);
+            final guest = GuestScope.maybeOf(context);
+            try {
+              if (auth != null) {
+                await auth.signOut();
+              } else if (guest != null) {
+                // A guest's data goes for good: say so first. The
+                // dialog shows its own failure and "Thử lại".
+                final left = await AppDeleteDialog.present(context,
+                    builder: (_) => AppDeleteDialog(
+                          title: ProfileScreen.guestSignOutTitle,
+                          body: ProfileScreen.guestSignOutBody,
+                          confirmLabel:
+                              ProfileScreen.guestSignOutConfirm,
+                          failed: ProfileScreen.guestSignOutFailed,
+                          onConfirm: guest.onLeaveGuest,
+                        ));
+                if (!left) return;
+              }
+              if (mounted) {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              }
+            } catch (_) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Không thể đăng xuất. Thử lại.')),
+                );
+              }
+            }
+          },
+        ),
+      ],
+    );
   }
 
   Widget _buildGroupTitle(String title) {

@@ -8,7 +8,7 @@ import 'journaling_experience.dart';
 /// Onboarding routes OB01–OB11. Names are persisted; do not rename.
 enum OnboardingStep {
   welcome, // OB01
-  signIn, // OB01b: account (email, Google, Facebook), or later
+  signIn, // OB01b: account (email, Google), or later
   nickname, // OB02
   purpose, // OB03
   experience, // OB04

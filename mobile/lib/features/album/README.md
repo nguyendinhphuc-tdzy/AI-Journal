@@ -45,31 +45,43 @@ Personal scrapbook: albums, memories (photo, note or both), lock, and a
   giving up leaves it off. A03 returns to where it was opened from after a
   successful save, with "Đã lưu thay đổi.".
 
-## Sharing with friends (planned, 28/10/2026)
+## Sharing with friends (30/10/2026: friends on the app, no Facebook)
 
-Product decision: a 24-hour post is seen by the user's friends on the app,
-and friends on the app are their Facebook friends who also use it. Until
-sign-in and a sharing service exist, A10 shows that audience ahead
-("Bạn bè trên app", "Sắp có", not selectable) and the CTA stays off with
-"cần đăng nhập Facebook".
+Product decision (30/10/2026): Facebook is gone from the app (sign-in,
+"bạn bè Facebook", the sample Space). Friends on the app are accepted
+friendships between accounts, found by @username (`GET /friends`,
+`GET /friends/discover`; Khám phá → Bạn bè). A 24-hour post is seen only by
+the friends the user ticks in A10.
 
-Not built; a proposal for the backend owner, to be agreed and written into
-`docs/API_CONTRACT.md` first (it is not there today):
-- Sign-in: `docs/API_CONTRACT.md` plans Supabase email/password. Facebook
-  sign-in would be Supabase's Facebook provider; the contract's auth
-  section changes with it.
-- Friends: with the `user_friends` permission, Facebook's `/me/friends`
-  lists only friends who also use the same Facebook app (Facebook's
-  documented behaviour; check it, and its App Review, when building). The
-  backend keeps that list as the app's friendships and refreshes it at
-  sign-in.
-- Posts: create a post for one memory (`audience: friends`, expiry set by
-  the server, +24 h), revoke it, and a map feed of friends' active posts
-  (bounding box), each only for friends of the author; a locked album's
-  memory is refused (as `MemorySharing.publish` already requires).
-- The app side is ready for it: `MemorySharing` (`audiences()`,
-  `publish`, `revoke`, `post`) gets a real adapter; nothing in A10 or
-  Explore changes.
+What the app does now:
+- Signed in, A10 lists the account's accepted friends
+  (`RemoteFriendsSharing`, `social/data/friends_sharing.dart`); all start
+  ticked, as before. Pending requests are not friends and are not listed.
+- With everything chosen the CTA stays off and says the server cannot
+  send posts yet (`ShareMemorySheet.notDelivered`); nothing is posted and
+  the choices stay. No friends: where to find them. Guests: none.
+- `MockFriendsSharing` (in memory, this device only) keeps the picker and
+  posting flow testable.
+
+Not built on the server; a proposal for the backend owner, to be agreed and
+written into `docs/API_CONTRACT.md` first. Today's `POST /memory-shares`
+takes only cloud memories, returns the memory's private `note` to the
+recipient, and recipients have no way to list what was shared with them.
+- `POST /memory-shares`: the post's snapshot from A10, not the memory:
+  `recipient_ids` (accepted, unblocked friends, 1–20), `title`, `text`
+  (≤ 300), `place` (`label`, `latitude`, `longitude`), `category`, optional
+  `replacing` (revoked in the same transaction); `memory_id` optional, so a
+  memory kept only on the device can be shared. Expiry set by the server
+  (+24 h). Photos later, with private photo storage.
+- `GET /memory-shares/received` (optional bounding box): active posts shared
+  with me by friends, with the author's display name and @username.
+- `GET /memory-shares/mine?memory_id=…`: my active post for a memory (A10
+  "replace", A12).
+- `GET /memory-shares/{id}` must stop returning the memory's private `note`.
+- A locked album is refused on the device (`withPublicationBlocked`); the
+  server does not know album PINs.
+- Then `RemoteFriendsSharing` sends instead of saying it cannot; nothing in
+  A10's picker changes.
 
 ## Album PIN lock (27/10/2026, replaces the device lock)
 

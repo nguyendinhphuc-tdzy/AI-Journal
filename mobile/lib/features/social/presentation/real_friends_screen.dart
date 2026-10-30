@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
 import '../../auth/data/auth_service.dart';
 
-/// Real Supabase-account friendship, never mock Facebook friends.
+/// Real Supabase-account friendship, found by @username; never sample friends.
 class RealFriendsScreen extends StatefulWidget {
   const RealFriendsScreen({super.key, required this.auth});
   final SupabaseAuthService auth;

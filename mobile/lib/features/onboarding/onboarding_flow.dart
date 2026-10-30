@@ -4,7 +4,6 @@ import '../journal/data/journal_entry.dart';
 import '../journal/data/reflection_service.dart';
 import '../journal/journal_scope.dart';
 import '../reminders/data/reminder_service.dart';
-import '../social/data/friends_account.dart';
 import 'data/data_policy.dart';
 import 'data/journal_goal.dart';
 import 'data/journaling_experience.dart';
@@ -41,7 +40,6 @@ class OnboardingFlow extends StatefulWidget {
     this.reminders,
     this.onComplete,
     this.signIn,
-    this.friends,
     this.skipAccountStep = false,
     this.onNicknameSaved,
   });
@@ -49,8 +47,6 @@ class OnboardingFlow extends StatefulWidget {
   /// The account (OB01b); a simulated one when not given.
   final SignInService? signIn;
 
-  /// Facebook friends on the app, connected when signing in with Facebook.
-  final FriendsAccount? friends;
   /// AuthGate already authenticated the user (or selected guest mode).
   final bool skipAccountStep;
 
@@ -297,7 +293,6 @@ class _OnboardingFlowState extends State<OnboardingFlow>
               ),
             OnboardingStep.signIn => OnboardingSignInScreen(
                 service: widget.signIn ?? MockSignInService.instance,
-                friends: widget.friends,
                 onBack: _back,
                 onDone: () => _goTo(OnboardingStep.nickname),
               ),

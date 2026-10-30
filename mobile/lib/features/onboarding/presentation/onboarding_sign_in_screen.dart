@@ -7,10 +7,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/app_ui.dart';
-import '../../social/data/friends_account.dart';
 import '../../auth/presentation/auth_screen.dart';
 import '../../../core/config/app_config.dart';
-import '../../social/presentation/facebook_login_screen.dart';
 import '../data/sign_in_service.dart';
 import 'onboarding_widgets.dart';
 import 'login_fishing_scene.dart';
@@ -22,8 +20,8 @@ import 'login_fishing_scene.dart';
 /// - "Đăng nhập" / "Đăng ký" tabs; email and password (shown or hidden);
 ///   signing up asks for the password twice. "Ghi nhớ đăng nhập" and
 ///   "Quên mật khẩu?" when signing in. Mistakes are said under the field.
-/// - Or "Tiếp tục với Google" / "Tiếp tục với Facebook". Facebook also
-///   brings friends on the app (who can see 24-hour shares).
+/// - Or "Tiếp tục với Google". Friends on the app are added later, by
+///   @username, in Khám phá.
 /// - "Để sau" goes on without an account. Back returns to OB01.
 /// - Simulated until the backend's sign-in is merged: nothing is sent, no
 ///   password is kept; the screen says so.
@@ -33,10 +31,8 @@ class OnboardingSignInScreen extends StatefulWidget {
     required this.service,
     required this.onBack,
     required this.onDone,
-    this.friends,
     this.realAuth = false,
     this.googleOAuthEnabled = AppConfig.googleOAuthEnabled,
-    this.facebookOAuthEnabled = AppConfig.facebookOAuthEnabled,
     this.phoneOtpEnabled = AppConfig.phoneOtpEnabled,
     this.initialError,
     this.onGuest,
@@ -45,13 +41,9 @@ class OnboardingSignInScreen extends StatefulWidget {
   final SignInService service;
   final bool realAuth;
   final bool googleOAuthEnabled;
-  final bool facebookOAuthEnabled;
   final bool phoneOtpEnabled;
   final String? initialError;
   final Future<void> Function()? onGuest;
-
-  /// Facebook friends on the app; Facebook also connects these.
-  final FriendsAccount? friends;
   final VoidCallback onBack;
 
   /// Signed in, or "Để sau": on to OB02.
@@ -76,7 +68,6 @@ class OnboardingSignInScreen extends StatefulWidget {
   static const working = 'Đang đăng nhập…';
   static const or = 'hoặc';
   static const google = 'Tiếp tục với Google';
-  static const facebook = 'Tiếp tục với Facebook';
   static const phone = 'Đăng nhập bằng số điện thoại (OTP)';
   static const later = 'Để sau';
   static const backTooltip = 'Quay lại';
@@ -239,17 +230,6 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
         phoneOtpEnabled: widget.phoneOtpEnabled,
       ),
     ));
-  }
-
-  Future<void> _facebook() async {
-    if (_busy) return;
-    final friends = widget.friends;
-    if (!widget.realAuth && friends != null) {
-      // Facebook's login and consent, which also brings friends on the app.
-      final connected = await openFacebookLogin(context, friends);
-      if (!connected || !mounted) return;
-    }
-    await _run(widget.service.signInFacebook, oauth: widget.realAuth);
   }
 
   /// Runs a sign-in with the button busy; on to OB02 once it worked.
@@ -569,15 +549,6 @@ class _OnboardingSignInScreenState extends State<OnboardingSignInScreen> {
                           : () => _run(widget.service.signInGoogle,
                               oauth: widget.realAuth),
                     ),
-                  if (!widget.realAuth || widget.facebookOAuthEnabled) ...[
-                    const SizedBox(height: 12),
-                    _ProviderButton(
-                      label: OnboardingSignInScreen.facebook,
-                      icon: const Icon(Icons.facebook_rounded,
-                          size: 22, color: facebookBlue),
-                      onPressed: _busy ? null : _facebook,
-                    ),
-                  ],
                   if (widget.realAuth && widget.phoneOtpEnabled &&
                       widget.service is SupabaseSignInAdapter) ...[
                     const SizedBox(height: 12),

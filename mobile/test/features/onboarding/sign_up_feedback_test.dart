@@ -37,8 +37,6 @@ class _Auth implements AuthService {
   @override
   Future<void> signInGoogle() async {}
   @override
-  Future<void> signInFacebook() async {}
-  @override
   Future<void> signOut() async {}
 }
 
