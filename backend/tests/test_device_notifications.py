@@ -7,7 +7,7 @@ from app.core.auth import AuthenticatedUser, get_current_user
 from app.main import app
 from app.core.database import SessionLocal
 from app.models.device_token import DeviceToken
-from tests.test_api import client
+from test_api import client
 
 
 def test_device_registration_is_owner_scoped_and_rotatable():
@@ -43,7 +43,7 @@ def test_device_registration_is_owner_scoped_and_rotatable():
         with SessionLocal() as db:
             assert db.get(DeviceToken, sha256(token_b.encode()).hexdigest()).user_id == other.user_id
         app.dependency_overrides[get_current_user] = lambda: owner
-        assert client.delete(route, json={"token": token_b}).status_code == 204
+        assert client.request("DELETE", route, json={"token": token_b}).status_code == 204
         with SessionLocal() as db:
             assert db.get(DeviceToken, sha256(token_b.encode()).hexdigest()) is not None
         app.dependency_overrides[get_current_user] = lambda: other
