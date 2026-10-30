@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// The four tabs, the same in the app shell and on screens pushed above it
+import '../features/messages/presentation/messages_tab_icon.dart';
+
+/// The five tabs, the same in the app shell and on screens pushed above it
 /// (J01, the streak), so the bottom bar never changes look between them.
 const appDestinations = [
   NavigationDestination(
@@ -9,4 +11,8 @@ const appDestinations = [
   NavigationDestination(
       icon: Icon(Icons.photo_album_outlined), label: 'Kỷ niệm'),
   NavigationDestination(icon: Icon(Icons.map_outlined), label: 'Khám phá'),
+  NavigationDestination(
+      icon: MessagesTabIcon(),
+      selectedIcon: MessagesTabIcon(selected: true),
+      label: 'Tin nhắn'),
 ];
