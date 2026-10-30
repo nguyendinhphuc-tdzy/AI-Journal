@@ -88,10 +88,20 @@ async def upload_memory_photo(
         db.commit()
     except Exception:
         db.rollback()
-        _storage_request("DELETE", path, authorization)
+        # Avoid masking the DB failure if orphan cleanup also fails.
+        try:
+            _storage_request("DELETE", path, authorization)
+        except HTTPException:
+            pass  # Reconciliation handles rare orphaned objects.
         raise
     if old_path:
-        _storage_request("DELETE", old_path, authorization)
+        # The new object and DB pointer are committed. Failure to remove the
+        # previous object MUST NOT falsely tell clients the upload failed,
+        # which could trigger a duplicate retry.
+        try:
+            _storage_request("DELETE", old_path, authorization)
+        except HTTPException:
+            pass  # Track for a separate private-storage reconciliation job.
     return {"photo_available": True}
 
 
