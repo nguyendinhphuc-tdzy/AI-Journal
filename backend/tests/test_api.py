@@ -2042,3 +2042,49 @@ def test_share_photo_owner_uploads_recipients_see_revoke_clears():
             assert item.photo is None and item.photo_type is None
     finally:
         app.dependency_overrides.clear()
+
+
+def test_geo_places_requires_auth_and_validates_bounds_and_key():
+    from app.core.config import Settings, get_settings
+    from app.modules.geo.router import get_geo_client
+    import httpx
+
+    app.dependency_overrides.clear()
+    # Missing bearer token must never create a provider request.
+    response = client.get("/api/v1/geo/places?lat=10.77&lon=106.7")
+    assert response.status_code in (401, 503)
+
+    a = AuthenticatedUser(user_id=uuid4(), email="places-poi@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        database_url="sqlite://", geoapify_api_key="server-test-key")
+
+    called = []
+    def upstream(request):
+        called.append(request.url.path)
+        return httpx.Response(200, json={"features": [{
+            "properties": {"name": "Phở Việt", "place_id": "vn-restaurant-1",
+                           "formatted": "Quận 1, TP.HCM",
+                           "categories": ["catering.restaurant"]},
+            "geometry": {"coordinates": [106.7, 10.77], "type": "Point"}
+        }]})
+    async def provider():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+            yield http
+    app.dependency_overrides[get_geo_client] = provider
+    try:
+        base = "/api/v1/geo/places?lat=10.77&lon=106.7"
+        assert client.get(base + "&radius=5001").status_code == 422
+        assert client.get(base + "&category=raw-invalid").status_code == 422
+        assert client.get(base + "&limit=41").status_code == 422
+        assert client.get(base + "&q=x").status_code == 422
+        data = client.get(base + "&category=food&q=Ph%E1%BB%9F")
+        assert data.status_code == 200, data.text
+        assert data.json()["items"][0]["label"] == "Phở Việt"
+        assert data.json()["items"][0]["latitude"] == 10.77
+        assert called == ["/v2/places"]
+        # Cache hit must not trigger an additional costly upstream request.
+        assert client.get(base + "&category=food&q=Ph%E1%BB%9F").status_code == 200
+        assert len(called) == 1
+    finally:
+        app.dependency_overrides.clear()
