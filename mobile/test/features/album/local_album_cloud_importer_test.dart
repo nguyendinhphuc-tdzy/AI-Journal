@@ -16,7 +16,8 @@ const cloudAlbum = 'abcdef12-1234-1234-1234-1234567890ab';
 const cloudMemory = 'abcdef12-aaaa-bbbb-cccc-1234567890ab';
 
 http.Response reply(Object body, [int status = 200]) =>
-    http.Response(jsonEncode(body), status);
+    http.Response.bytes(utf8.encode(jsonEncode(body)), status,
+        headers: const {'content-type': 'application/json; charset=utf-8'});
 Map<String, Object?> albumResponse() => {
   'id': cloudAlbum, 'name': 'Ảnh của mình', 'theme_id': 'classic',
   'locked': false, 'hide_name_when_locked': false, 'memory_count': 1,
