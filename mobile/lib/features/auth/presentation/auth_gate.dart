@@ -19,6 +19,7 @@ import '../../album/data/album_unlocks.dart';
 import '../../album/data/memory_share.dart';
 import '../../album/data/album_sharing.dart';
 import '../../social/data/friends_sharing.dart';
+import '../../social/data/my_shares.dart';
 import '../../messages/data/messages_repository.dart';
 import '../../messages/messages_scope.dart';
 import '../../journal/data/api_ai_service.dart';
@@ -259,8 +260,10 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
 
   /// A10's audience and posts: the account's friends on the app. Guests
   /// have none.
-  late final RemoteFriendsSharing? _friendsSharing =
-      _api == null ? null : RemoteFriendsSharing(_api);
+  late final RemoteFriendsSharing? _friendsSharing = _api == null
+      ? null
+      : RemoteFriendsSharing(_api,
+          archive: MySharesArchive(userId: widget.userId)..load());
 
   late final Future<({
     JournalRepository journals,

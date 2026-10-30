@@ -111,6 +111,39 @@ Future<Uint8List> createDropMarker() => _draw(const Size(120, 160), (canvas) {
           const Offset(w / 2, r), r * .38, Paint()..color = Colors.white);
     });
 
+/// The user's own 24-hour post: a warm gold drop with a photo sign, its
+/// tip at the bottom centre; faded once the post has ended.
+Future<Uint8List> createShareMarker({required bool active}) =>
+    _draw(const Size(120, 160), (canvas) {
+      const w = 120.0, h = 156.0, r = w / 2;
+      final drop = Path()
+        ..moveTo(w / 2, h)
+        ..cubicTo(w * .28, h * .74, 0, h * .6, 0, r)
+        ..arcToPoint(const Offset(w, r), radius: const Radius.circular(r))
+        ..cubicTo(w, h * .6, w * .72, h * .74, w / 2, h)
+        ..close();
+      const gold = Color(0xFFD99A2B);
+      const ended = Color(0xFFB9B2A4);
+      canvas.drawPath(drop.shift(const Offset(0, 3)),
+          Paint()..color = const Color(0x22201F1C));
+      canvas.drawPath(drop, Paint()..color = active ? gold : ended);
+      canvas.drawCircle(const Offset(w / 2, r), r * .66,
+          Paint()..color = active ? Colors.white : const Color(0xFFF2F0EB));
+      final icon = TextPainter(
+        text: TextSpan(
+          text: String.fromCharCode(Icons.photo_rounded.codePoint),
+          style: TextStyle(
+              fontFamily: Icons.photo_rounded.fontFamily,
+              package: Icons.photo_rounded.fontPackage,
+              fontSize: 52,
+              color: active ? gold : ended),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      icon.paint(canvas,
+          Offset(w / 2 - icon.width / 2, r - icon.height / 2));
+    });
+
 /// A soft teal ring that spreads once around a new pin.
 Future<Uint8List> createRingMarker() => _draw(const Size(200, 200), (canvas) {
       const centre = Offset(100, 100);
