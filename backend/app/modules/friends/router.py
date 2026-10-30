@@ -23,6 +23,8 @@ class FriendRead(BaseModel):
     user_id: UUID
     status: str
     direction: str
+    display_name: str | None = None
+    username: str | None = None
 
 
 def pair(a: UUID, b: UUID) -> tuple[UUID, UUID]:
@@ -31,10 +33,13 @@ def pair(a: UUID, b: UUID) -> tuple[UUID, UUID]:
     return tuple(sorted((a, b), key=lambda value: value.int))
 
 
-def _read(item: Friendship, own: UUID) -> FriendRead:
+def _read(item: Friendship, own: UUID, db: Session) -> FriendRead:
     other = item.user_high_id if item.user_low_id == own else item.user_low_id
     direction = "outgoing" if item.requester_id == own else "incoming"
-    return FriendRead(user_id=other, status=item.status, direction=direction)
+    profile = db.get(UserProfile, other)
+    return FriendRead(user_id=other, status=item.status, direction=direction,
+                      display_name=profile.display_name if profile else None,
+                      username=profile.username if profile else None)
 
 
 def blocked(db: Session, a: UUID, b: UUID) -> bool:
@@ -58,7 +63,7 @@ def list_friends(user: AuthenticatedUser = Depends(get_current_user),
         or_(Friendship.user_low_id == user.user_id,
             Friendship.user_high_id == user.user_id)
     ).order_by(Friendship.created_at.desc()).limit(200)).all()
-    return [_read(item, user.user_id) for item in items
+    return [_read(item, user.user_id, db) for item in items
             if not blocked(db, user.user_id,
                 item.user_high_id if item.user_low_id == user.user_id else item.user_low_id)]
 
@@ -87,7 +92,7 @@ def request_friend(payload: FriendTarget,
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Friend request could not be created") from exc
-    return _read(item, user.user_id)
+    return _read(item, user.user_id, db)
 
 
 @router.post("/{other_id}/accept", response_model=FriendRead)
@@ -101,7 +106,7 @@ def accept_friend(other_id: UUID,
         raise HTTPException(status_code=409, detail="No incoming pending request")
     item.status = "accepted"
     db.commit()
-    return _read(item, user.user_id)
+    return _read(item, user.user_id, db)
 
 
 @router.delete("/{other_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -116,6 +121,7 @@ def remove_friend(other_id: UUID,
 class DiscoveryRead(BaseModel):
     user_id: UUID
     display_name: str
+    username: str | None = None
 
 
 @router.get("/discover", response_model=list[DiscoveryRead])
@@ -124,16 +130,24 @@ def discover_friends(
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    clean = q.strip()
-    if len(clean) < 3 or not clean.replace(" ", "").isalnum():
+    clean = q.strip().removeprefix("@")
+    if len(clean) < 3 or len(clean) > 60 or not all(
+        char.isalnum() or char in " _" for char in clean
+    ):
         raise HTTPException(status_code=422, detail="Invalid search")
+    # Only opted-in profiles. No emails, phone numbers or auth metadata.
+    escaped = clean.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     profiles = db.scalars(select(UserProfile).where(
         UserProfile.discoverable.is_(True),
         UserProfile.user_id != user.user_id,
-        UserProfile.display_name.ilike("%" + clean + "%"),
-    ).order_by(UserProfile.display_name.asc()).limit(20)).all()
-    return [DiscoveryRead(user_id=p.user_id, display_name=p.display_name)
-            for p in profiles if p.display_name and
+        or_(
+            UserProfile.username.ilike(escaped + "%", escape="\\"),
+            UserProfile.display_name.ilike("%" + escaped + "%", escape="\\"),
+        ),
+    ).order_by(UserProfile.username.asc(), UserProfile.display_name.asc()).limit(20)).all()
+    return [DiscoveryRead(user_id=p.user_id, display_name=p.display_name or p.username,
+                          username=p.username)
+            for p in profiles if (p.display_name or p.username) and
             not blocked(db, user.user_id, p.user_id)]
 
 
