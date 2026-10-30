@@ -2,7 +2,7 @@
 class ExplorePlace {
   const ExplorePlace(
       this.id, this.label, this.category, this.latitude, this.longitude,
-      {this.sample = true});
+      {this.sample = true, this.poi = false, this.address});
 
   final String id;
   final String label;
@@ -10,6 +10,8 @@ class ExplorePlace {
   final double latitude;
   final double longitude;
   final bool sample;
+  final bool poi;
+  final String? address;
 }
 
 /// Replace with a JWT-authenticated FastAPI adapter only after deployment/Auth.
