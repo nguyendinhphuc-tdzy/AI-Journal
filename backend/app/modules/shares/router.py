@@ -14,6 +14,7 @@ from app.models.memory_share_recipient import MemoryShareRecipient
 from app.models.user_profile import UserProfile
 from app.modules.albums.photos_router import validate_image
 from app.modules.friends.router import blocked, pair
+from app.modules.messages.service import deliver_share
 
 router = APIRouter(prefix="/memory-shares", tags=["memory-shares"])
 PHOTO_MAX_BYTES = 3 * 1024 * 1024
@@ -130,6 +131,8 @@ def create_share(payload: ShareCreate, user: AuthenticatedUser = Depends(get_cur
     db.flush()
     db.add_all(MemoryShareRecipient(share_id=share.id, owner_id=user.user_id,
                recipient_id=r) for r in payload.recipient_ids)
+    # Messages and share are committed as one transaction or not at all.
+    deliver_share(db, share, payload.recipient_ids, now)
     db.commit()
     return ShareInfo(id=share.id, memory_id=share.memory_id,
                      expires_at=share.expires_at, revoked=False)

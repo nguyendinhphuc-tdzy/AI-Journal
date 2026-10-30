@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.modules.community.router import router as community_router
 from app.modules.shares.router import router as shares_router
+from app.modules.messages.router import conversations_router, messages_router, place_shares_router
 from app.modules.friends.router import router as friends_router
 from app.modules.ai.router import router as ai_router
 from app.modules.albums.photos_router import router as memory_photos_router
@@ -53,4 +54,7 @@ app.include_router(albums_router, prefix="/api/v1")
 app.include_router(memory_photos_router, prefix="/api/v1")
 app.include_router(friends_router, prefix="/api/v1")
 app.include_router(shares_router, prefix="/api/v1")
+app.include_router(conversations_router, prefix="/api/v1")
+app.include_router(messages_router, prefix="/api/v1")
+app.include_router(place_shares_router, prefix="/api/v1")
 app.include_router(community_router, prefix="/api/v1")

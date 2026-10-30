@@ -3,7 +3,6 @@
   "JOURNAL_CLOUD_ENABLED": "true",
   "ALBUM_CLOUD_ENABLED": "true",
   "PLACES_CLOUD_ENABLED": "false",
-  "FACEBOOK_OAUTH_ENABLED": "true",
   "GOOGLE_OAUTH_ENABLED": "false",
   "PHONE_OTP_ENABLED": "false",
   "SUPABASE_URL": "https://rjwentsuqmwncpseakkt.supabase.co",

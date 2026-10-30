@@ -20,8 +20,6 @@ class AppConfig {
       bool.fromEnvironment('PHONE_OTP_ENABLED');
   static const bool googleOAuthEnabled =
       bool.fromEnvironment('GOOGLE_OAUTH_ENABLED');
-  static const bool facebookOAuthEnabled =
-      bool.fromEnvironment('FACEBOOK_OAUTH_ENABLED');
   // Cloud journal requires backend migration 20261026_08 and an authenticated
   // Supabase session. Never enabled by default for existing device journals.
   static const bool journalCloudEnabled =

@@ -15,7 +15,7 @@ class AuthScreen extends StatefulWidget {
     required this.auth,
     this.onContinueAsGuest,
     this.initialError,
-    this.facebookOAuthEnabled = AppConfig.facebookOAuthEnabled,
+    this.googleOAuthEnabled = AppConfig.googleOAuthEnabled,
     this.phoneOtpEnabled = AppConfig.phoneOtpEnabled,
     this.startWithPhone = false,
   });
@@ -24,8 +24,8 @@ class AuthScreen extends StatefulWidget {
   final Future<void> Function()? onContinueAsGuest;
   final String? initialError;
 
-  /// Only show this login method if the app explicitly enables OAuth.
-  final bool facebookOAuthEnabled;
+  /// Only show Google sign-in if the app explicitly enables OAuth.
+  final bool googleOAuthEnabled;
   final bool phoneOtpEnabled;
   /// Open the existing SMS OTP form directly from Vy's sign-in screen.
   final bool startWithPhone;
@@ -409,7 +409,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ? 'Đã có tài khoản? Đăng nhập'
                           : 'Chưa có tài khoản? Đăng ký'),
                     ),
-                    if (AppConfig.googleOAuthEnabled) ...[
+                    if (widget.googleOAuthEnabled) ...[
                       const Divider(height: 28),
                       OutlinedButton.icon(
                         onPressed: _busy ? null : () => _perform(() async {
@@ -420,17 +420,6 @@ class _AuthScreenState extends State<AuthScreen> {
                         label: const Text('Tiếp tục bằng Google'),
                       ),
                     ],
-                  ],
-                  if (emailSelected && widget.facebookOAuthEnabled) ...[
-                    const Divider(height: 28),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : () => _perform(() async {
-                        await _oauth.signInFacebook();
-                        return null;
-                      }, oauth: true),
-                      icon: const Icon(Icons.facebook),
-                      label: const Text('Tiếp tục bằng Facebook'),
-                    ),
                   ],
                   if (_waitingForOAuth)
                     TextButton(

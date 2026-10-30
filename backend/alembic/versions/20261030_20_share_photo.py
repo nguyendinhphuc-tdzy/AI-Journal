@@ -1,13 +1,13 @@
 """A 24-hour share's own photo, kept with the share and cleared on revoke.
 
-Revision ID: 20261030_19
-Revises: 20261030_18
+Revision ID: 20261030_20
+Revises: 20261030_19
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "20261030_19"
-down_revision = "20261030_18"
+revision = "20261030_20"
+down_revision = "20261030_19"
 branch_labels = None
 depends_on = None
 
