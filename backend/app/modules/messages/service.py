@@ -6,7 +6,7 @@ from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.models.friendship import Friendship
-from app.models.message import Conversation, ConversationRead, Message
+from app.models.message import Conversation, ConversationRead, Message, MessageHide
 from app.models.memory_share import MemoryShare
 from app.models.memory_share_recipient import MemoryShareRecipient
 from app.models.user_profile import UserProfile
@@ -92,10 +92,26 @@ def _read_condition(cursor: ConversationRead | None):
              Message.id > cursor.last_read_message_id),
     )
 
+def visible_to(db: Session, conversation: Conversation, viewer: UUID):
+    """What [viewer] sees of a chat: no 24-hour moments (they live on the
+    map), nothing they deleted (one by one, or the whole chat up to then)."""
+    marker = db.get(ConversationRead, (conversation.id, viewer))
+    rules = [
+        Message.conversation_id == conversation.id,
+        Message.kind != "memory_share",
+        ~select(MessageHide.message_id).where(
+            MessageHide.message_id == Message.id,
+            MessageHide.user_id == viewer).exists(),
+    ]
+    if marker is not None and marker.cleared_at is not None:
+        rules.append(Message.created_at > marker.cleared_at)
+    return and_(*rules)
+
 def unread(db: Session, conversation: Conversation, viewer: UUID) -> int:
     marker = db.get(ConversationRead, (conversation.id, viewer))
     query = select(func.count()).select_from(Message).where(
-        Message.conversation_id == conversation.id, Message.sender_id != viewer)
+        visible_to(db, conversation, viewer), Message.sender_id != viewer,
+        Message.recalled_at.is_(None))
     condition = _read_condition(marker)
     if condition is not None:
         query = query.where(condition)
@@ -122,20 +138,23 @@ def _share_content(db: Session, share_id: UUID | None, viewer: UUID, sender: UUI
     return safe
 
 def present_message(db: Session, m: Message, viewer: UUID, at: datetime | None = None):
-    content = _share_content(db, m.memory_share_id, viewer, m.sender_id, at or now_utc()) if m.kind == "memory_share" else None
+    recalled = m.recalled_at is not None
+    content = (_share_content(db, m.memory_share_id, viewer, m.sender_id, at or now_utc())
+               if m.kind == "memory_share" and not recalled else None)
     return {
         "id": m.id, "conversation_id": m.conversation_id, "sender_id": m.sender_id,
         "kind": m.kind, "client_id": m.client_id, "created_at": m.created_at,
-        "text": m.text if m.kind == "text" else None,
-        "place": m.place if m.kind == "place" else None,
+        "text": m.text if m.kind == "text" and not recalled else None,
+        "place": m.place if m.kind == "place" and not recalled else None,
         "memory_share": content,
+        "recalled": recalled,
     }
 
 def present_conversation(db: Session, c: Conversation, viewer: UUID):
     peer = peer_id(c, viewer)
     profile = db.get(UserProfile, peer)
     latest = db.scalar(select(Message).where(
-        Message.conversation_id == c.id).order_by(
+        visible_to(db, c, viewer)).order_by(
         Message.created_at.desc(), Message.id.desc()).limit(1))
     return {
         "id": c.id,

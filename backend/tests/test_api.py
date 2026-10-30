@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261030_20"
+    assert revision == "20261030_22"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -2082,5 +2082,75 @@ def test_geo_places_requires_auth_and_validates_bounds_and_key():
         # Cache hit must not trigger an additional costly upstream request.
         assert client.get(base + "&category=food&q=Ph%E1%BB%9F").status_code == 200
         assert len(called) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_messages_recall_for_both_hide_or_clear_for_one():
+    from app.core.database import SessionLocal
+    from app.models.message import Message
+    a = AuthenticatedUser(user_id=uuid4(), email="del-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="del-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="del-c@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        cid = client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)}).json()["id"]
+        # Opened but never written in: not listed.
+        assert client.get("/api/v1/conversations").json() == []
+        sent = [client.post(f"/api/v1/conversations/{cid}/messages",
+                            json={"client_id": f"k{i}", "text": f"Tin {i}"}).json()
+                for i in range(3)]
+        # A 24-hour moment is not in the chat (on the map instead).
+        assert client.post("/api/v1/memory-shares", json={
+            "recipient_ids": [str(b.user_id)], "text": "Khoảnh khắc",
+            "place": {"label": "UEH", "latitude": 10.78, "longitude": 106.69}}).status_code == 201
+        url = f"/api/v1/conversations/{cid}/messages"
+
+        # Recall: only the sender; content gone for both.
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"{url}/{sent[0]['id']}/recall").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: a
+        recalled = client.post(f"{url}/{sent[0]['id']}/recall")
+        assert recalled.status_code == 200
+        assert recalled.json()["recalled"] is True and recalled.json()["text"] is None
+        with SessionLocal() as db:
+            assert db.get(Message, UUID(sent[0]["id"])).text is None, "erased"
+        app.dependency_overrides[get_current_user] = lambda: b
+        items = client.get(url).json()["items"]
+        assert [m["text"] for m in items] == [None, "Tin 1", "Tin 2"]
+        assert items[0]["recalled"] is True
+        assert all(m["kind"] != "memory_share" for m in items)
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 2
+
+        # Hide one for B only.
+        assert client.delete(f"{url}/{sent[1]['id']}").status_code == 204
+        assert [m["text"] for m in client.get(url).json()["items"]] == [None, "Tin 2"]
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert len(client.get(url).json()["items"]) == 3, "A still has it"
+
+        # Strangers cannot touch the chat.
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.delete(f"/api/v1/conversations/{cid}").status_code == 404
+        assert client.delete(f"{url}/{sent[2]['id']}").status_code == 404
+
+        # Clear the whole chat for B: gone and read; A keeps it.
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.delete(f"/api/v1/conversations/{cid}").status_code == 204
+        assert client.get(url).json()["items"] == []
+        assert client.get("/api/v1/conversations").json() == []
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 0
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert len(client.get(url).json()["items"]) == 3
+        # A new message brings it back for B, from there on.
+        client.post(url, json={"client_id": "k9", "text": "Còn đó không?"})
+        app.dependency_overrides[get_current_user] = lambda: b
+        listing = client.get("/api/v1/conversations").json()
+        assert len(listing) == 1 and listing[0]["last_message"]["text"] == "Còn đó không?"
+        assert [m["text"] for m in client.get(url).json()["items"]] == ["Còn đó không?"]
+        assert listing[0]["unread_count"] == 1
     finally:
         app.dependency_overrides.clear()

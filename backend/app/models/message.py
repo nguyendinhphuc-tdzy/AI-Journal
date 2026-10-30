@@ -25,7 +25,7 @@ class Message(Base):
     __table_args__ = (
         UniqueConstraint("conversation_id", "sender_id", "client_id", name="uq_message_client_id"),
         CheckConstraint("kind IN ('text','place','memory_share')", name="ck_message_kind"),
-        CheckConstraint("kind != 'text' OR (text IS NOT NULL AND length(trim(text)) > 0 AND length(text) <= 2000)", name="ck_message_text"),
+        CheckConstraint("kind != 'text' OR recalled_at IS NOT NULL OR (text IS NOT NULL AND length(trim(text)) > 0 AND length(text) <= 2000)", name="ck_message_text"),
         Index("ix_messages_conversation_created", "conversation_id", "created_at", "id"),
         Index("ix_messages_sender_created", "sender_id", "created_at"),
     )
@@ -38,6 +38,8 @@ class Message(Base):
     place: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     memory_share_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("memory_shares.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    # Recalled by its sender: kept for order, content gone for both.
+    recalled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class ConversationRead(Base):
     __tablename__ = "conversation_reads"
@@ -48,3 +50,13 @@ class ConversationRead(Base):
     user_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), primary_key=True)
     last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_read_message_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
+    # The user deleted the conversation: nothing up to here shows for them.
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class MessageHide(Base):
+    """One message deleted by one user, for that user only."""
+    __tablename__ = "message_hides"
+    __table_args__ = (Index("ix_message_hides_user", "user_id"),)
+    message_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)

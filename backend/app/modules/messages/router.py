@@ -1,17 +1,18 @@
 """JWT-authenticated private conversations, polling, read state and place shares."""
 from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
-from app.models.message import Conversation, ConversationRead, Message
+from app.models.message import Conversation, ConversationRead, Message, MessageHide
 from app.modules.messages.service import (
     now_utc, can_send, conversation_for_user, get_or_create, peer_id,
     enforce_rate, deliver, present_message, present_conversation, unread, utc,
+    visible_to,
 )
 
 conversations_router = APIRouter(prefix="/conversations", tags=["messages"])
@@ -61,7 +62,10 @@ def list_conversations(user: AuthenticatedUser = Depends(get_current_user),
         Conversation.user_low_id == user.user_id,
         Conversation.user_high_id == user.user_id
     )).order_by(Conversation.updated_at.desc(), Conversation.id.desc()).limit(200)).all()
-    return [present_conversation(db, row, user.user_id) for row in rows]
+    # A chat with nothing left to show (never written in, only moments, or
+    # deleted by this user) is not listed; a new message brings it back.
+    listed = [present_conversation(db, row, user.user_id) for row in rows]
+    return [c for c in listed if c["last_message"] is not None]
 
 @conversations_router.post("")
 def open_conversation(payload: OpenConversation,
@@ -87,7 +91,7 @@ def list_messages(conversation_id: UUID,
     conversation = conversation_for_user(db, conversation_id, user.user_id)
     if after is not None and before is not None:
         raise HTTPException(422, detail="Use after OR before")
-    q = select(Message).where(Message.conversation_id == conversation.id)
+    q = select(Message).where(visible_to(db, conversation, user.user_id))
     if after is not None:
         anchor = _anchor(db, conversation, after)
         q = q.where(or_(Message.created_at > anchor.created_at,
@@ -153,6 +157,57 @@ def mark_read(conversation_id: UUID, payload: ReadUpTo,
         marker.last_read_message_id = message.id
     db.commit()
     return {"unread_count": unread(db, conversation, user.user_id)}
+
+def _marker(db: Session, conversation: Conversation, user_id: UUID) -> ConversationRead:
+    marker = db.get(ConversationRead, (conversation.id, user_id))
+    if marker is None:
+        marker = ConversationRead(conversation_id=conversation.id, user_id=user_id)
+        db.add(marker)
+    return marker
+
+@conversations_router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(conversation_id: UUID,
+                        user: AuthenticatedUser = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Deletes the chat for this user only: everything up to now is gone for
+    them (and read); the friend keeps theirs. A new message shows again."""
+    conversation = conversation_for_user(db, conversation_id, user.user_id)
+    latest = db.scalar(select(Message).where(Message.conversation_id == conversation.id)
+                       .order_by(Message.created_at.desc(), Message.id.desc()).limit(1))
+    marker = _marker(db, conversation, user.user_id)
+    marker.cleared_at = latest.created_at if latest is not None else now_utc()
+    if latest is not None:
+        marker.last_read_at = latest.created_at
+        marker.last_read_message_id = latest.id
+    db.commit()
+
+@conversations_router.post("/{conversation_id}/messages/{message_id}/recall")
+def recall_message(conversation_id: UUID, message_id: UUID,
+                   user: AuthenticatedUser = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """The sender takes a message back for both: its content is erased."""
+    conversation = conversation_for_user(db, conversation_id, user.user_id)
+    message = _anchor(db, conversation, message_id)
+    if message.sender_id != user.user_id:
+        raise HTTPException(403, detail="Only the sender can recall a message")
+    if message.recalled_at is None:
+        message.recalled_at = now_utc()
+        message.text = None
+        message.place = None
+        db.commit()
+    return present_message(db, message, user.user_id)
+
+@conversations_router.delete("/{conversation_id}/messages/{message_id}",
+                             status_code=status.HTTP_204_NO_CONTENT)
+def hide_message(conversation_id: UUID, message_id: UUID,
+                 user: AuthenticatedUser = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """Deletes one message for this user only; the friend still has it."""
+    conversation = conversation_for_user(db, conversation_id, user.user_id)
+    message = _anchor(db, conversation, message_id)
+    if db.get(MessageHide, (message.id, user.user_id)) is None:
+        db.add(MessageHide(message_id=message.id, user_id=user.user_id, created_at=now_utc()))
+        db.commit()
 
 @messages_router.get("/unread-count")
 def all_unread(user: AuthenticatedUser = Depends(get_current_user),
