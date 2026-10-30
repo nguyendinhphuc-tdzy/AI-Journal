@@ -12,11 +12,16 @@ dependencies:
   cupertino_icons: ^1.0.8
   http: ^1.2.2
   shared_preferences: ^2.5.6
-  supabase_flutter: ^2.10.0
   maplibre_gl: ^0.27.1
   local_auth: ^3.0.2
+  # Album PINs are kept only as a salted hash (lib/features/album/data/album_pins.dart).
+  crypto: ^3.0.7
   image_picker: ^1.2.4
   path_provider: ^2.1.6
+  # Background music and interface sounds (lib/features/sound).
+  audioplayers: ^6.8.1
+  geolocator: ^14.0.2
+  supabase_flutter: ^2.10.0
 
 dev_dependencies:
   flutter_test:
@@ -28,10 +33,21 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/scrapbook/
+    - assets/images/map-moods/
+    # Only what the map uses: not the APNG, sheet or notes beside them.
+    - assets/images/map-markers/pin-frame.png
+    - assets/images/map-markers/nudaeng-frame-01.png
+    - assets/images/map-markers/nudaeng-frame-02.png
+    - assets/images/map-markers/nudaeng-frame-03.png
+    - assets/images/map-markers/nudaeng-frame-04.png
+    - assets/images/map-markers/nudaeng-frame-05.png
+    - assets/images/map-markers/nudaeng-frame-06.png
     - assets/icons/
     - assets/mascot/
     - assets/NudaenggifDe/
     - assets/Deimage/
+    - assets/sounds/
 
   fonts:
     - family: Nunito
@@ -42,3 +58,7 @@ flutter:
         - asset: assets/fonts/BeVietnamPro-Regular.ttf
         - asset: assets/fonts/BeVietnamPro-SemiBold.ttf
           weight: 600
+    # Handwritten journal feel for Home's journal sections (OFL, full Vietnamese).
+    - family: Itim
+      fonts:
+        - asset: assets/fonts/Itim-Regular.ttf

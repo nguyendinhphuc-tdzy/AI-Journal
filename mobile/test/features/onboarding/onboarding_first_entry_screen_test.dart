@@ -2,7 +2,9 @@ import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/journal/data/journal_entry.dart';
 import 'package:ai_diary/features/journal/data/journal_mood.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
+import 'package:ai_diary/features/journal/data/reflection_service.dart';
 import 'package:ai_diary/features/journal/journal_scope.dart';
+import 'package:ai_diary/features/onboarding/data/data_policy.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
 import 'package:ai_diary/features/onboarding/presentation/first_entry_session.dart';
@@ -41,6 +43,7 @@ Future<OnboardingStore> _pump(
   },
   Size size = const Size(390, 844),
   double textScale = 1,
+  ReflectionService? reflections,
 }) async {
   SharedPreferences.setMockInitialValues(values);
   final store = await OnboardingStore.open();
@@ -58,7 +61,8 @@ Future<OnboardingStore> _pump(
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: child!,
       ),
-      home: OnboardingFlow(store: store, brandName: 'AI Diary'),
+      home: OnboardingFlow(
+          store: store, brandName: 'AI Diary', reflections: reflections),
     ),
   ));
   await tester.pump(const Duration(seconds: 2));
@@ -201,7 +205,12 @@ void main() {
 
   testWidgets('AI on: after the save, OB08', (tester) async {
     final store = await _pump(tester,
-        values: {'onboarding.step': 'firstEntry', 'onboarding.ai': 'on'});
+        values: {
+          'onboarding.step': 'firstEntry',
+          'onboarding.ai': 'on',
+          'onboarding.aiPolicyVersion': DataPolicy.localOllama.version!,
+        },
+        reflections: MockReflectionService());
     await _fill(tester, 'Điều mình đang nghĩ', 'x');
     await tester.tap(_cta);
     await _settle(tester);
@@ -286,7 +295,7 @@ void main() {
   });
 
   testWidgets('Back to OB06 and return: fields and mood kept', (tester) async {
-    await _pump(tester);
+    await _pump(tester, reflections: MockReflectionService());
     await _openBlank(tester, 'Chọn cảm xúc');
     await tester.tap(find.text('Mệt'));
     await _settle(tester);
@@ -294,8 +303,8 @@ void main() {
     await tester.tap(find.byTooltip('Quay lại'));
     await _settle(tester);
     expect(find.text(OnboardingAiDataScreen.title), findsOneWidget);
-    // Change the AI choice on the way back: the text stays.
-    await tester.tap(find.text(OnboardingAiDataScreen.withAiLabel));
+    // Through OB06 again on the way back: the text stays.
+    await tester.tap(find.text(OnboardingAiDataScreen.continueLabel));
     await _settle(tester);
     expect(find.text('Mệt'), findsOneWidget);
     expect(find.text('deadline'), findsOneWidget);

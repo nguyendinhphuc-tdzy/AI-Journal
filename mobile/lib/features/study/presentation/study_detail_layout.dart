@@ -267,9 +267,13 @@ class StudyCheckLine extends StatelessWidget {
 
 /// A numbered step for framework templates.
 class StudyStepLine extends StatelessWidget {
-  const StudyStepLine({super.key, required this.number, required this.text});
+  const StudyStepLine(
+      {super.key, required this.number, required this.text, this.detail});
   final int number;
   final String text;
+
+  /// A line under [text], e.g. the question the step asks.
+  final String? detail;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -293,11 +297,28 @@ class StudyStepLine extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text(text,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodyLarge
-                      ?.copyWith(color: AppColors.textSecondary)),
+              child: detail == null
+                  ? Text(text,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge
+                          ?.copyWith(color: AppColors.textSecondary))
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(text,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 2),
+                        Text(detail!,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: AppColors.textSecondary)),
+                      ],
+                    ),
             ),
           ),
         ]),

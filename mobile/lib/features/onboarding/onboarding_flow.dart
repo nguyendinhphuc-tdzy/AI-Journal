@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../journal/data/journal_entry.dart';
-import '../journal/data/api_ai_service.dart';
 import '../journal/data/reflection_service.dart';
 import '../journal/journal_scope.dart';
 import '../reminders/data/reminder_service.dart';
@@ -9,6 +8,7 @@ import 'data/data_policy.dart';
 import 'data/journal_goal.dart';
 import 'data/journaling_experience.dart';
 import 'data/onboarding_store.dart';
+import 'data/sign_in_service.dart';
 import 'presentation/falling_petals.dart';
 import 'presentation/first_entry_session.dart';
 import 'presentation/first_reflection.dart';
@@ -22,13 +22,15 @@ import 'presentation/onboarding_preparing_screen.dart';
 import 'presentation/onboarding_purpose_screen.dart';
 import 'presentation/onboarding_ready_screen.dart';
 import 'presentation/onboarding_reminder_screen.dart';
+import 'presentation/onboarding_sign_in_screen.dart';
 import 'presentation/onboarding_welcome_screen.dart';
 
 /// Onboarding entry (OB01 → OB11 → Home). Resumes at the saved route and
 /// saves every route change, so closing the app mid-way picks up there.
 ///
-/// OB01 → OB02 plays a wind transition: the OB01 petals are carried off, a
-/// gust of petals crosses the screen and OB02 appears part by part.
+/// OB01 → sign-in plays a wind transition: the OB01 petals are carried off,
+/// a gust of petals crosses the screen and the sign-in appears part by
+/// part. Signed in, or "Để sau", onboarding goes on to OB02.
 class OnboardingFlow extends StatefulWidget {
   const OnboardingFlow({
     super.key,
@@ -37,11 +39,25 @@ class OnboardingFlow extends StatefulWidget {
     this.reflections,
     this.reminders,
     this.onComplete,
+    this.signIn,
+    this.skipAccountStep = false,
+    this.onNicknameSaved,
   });
+
+  /// The account (OB01b); a simulated one when not given.
+  final SignInService? signIn;
+
+  /// AuthGate already authenticated the user (or selected guest mode).
+  final bool skipAccountStep;
 
   final OnboardingStore store;
 
-  /// AI reflections; the deterministic stand-in when not given.
+  /// Signed-in accounts can sync a chosen nickname to their private profile.
+  /// Guest/demo flows have no cloud callback.
+  final Future<void> Function(String?)? onNicknameSaved;
+
+  /// AI reflections; without one (guest mode), OB06 offers no AI choice,
+  /// nothing is asked and OB07 goes to OB09.
   final ReflectionService? reflections;
 
   /// Local reminders (OB10); the stand-in when not given, configurable with
@@ -60,7 +76,10 @@ class OnboardingFlow extends StatefulWidget {
 
 class _OnboardingFlowState extends State<OnboardingFlow>
     with SingleTickerProviderStateMixin {
-  late OnboardingStep _step = widget.store.step;
+  late OnboardingStep _step =
+      widget.skipAccountStep && widget.store.step == OnboardingStep.signIn
+          ? OnboardingStep.nickname
+          : widget.store.step;
 
   /// OB01 → OB02 wind, 0 → 1. Reset to 0 when done, so OB01 shows its
   /// petals again after Back.
@@ -111,7 +130,8 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// "analysing" screen). AI on: ask for a reflection (reusing one for the
   /// same body version); OB08 only while it is actually running.
   void _firstEntryDone(JournalEntry entry) {
-    if (widget.store.aiEnabled != true) {
+    if (widget.store.aiEnabled != true || widget.reflections == null ||
+        !widget.store.consentedToRemoteAi) {
       _goTo(OnboardingStep.entrySaved);
       return;
     }
@@ -130,17 +150,21 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// transition still resumes at OB02. Extra taps are ignored.
   void _start() {
     if (_gust.isAnimating || _step != OnboardingStep.welcome) return;
-    if (MediaQuery.disableAnimationsOf(context)) {
+    if (widget.skipAccountStep) {
       _goTo(OnboardingStep.nickname);
       return;
     }
-    widget.store.saveStep(OnboardingStep.nickname);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _goTo(OnboardingStep.signIn);
+      return;
+    }
+    widget.store.saveStep(OnboardingStep.signIn);
     _gust.forward(from: 0);
   }
 
   void _onGust() {
     if (_step == OnboardingStep.welcome && _gust.value >= _switchAt) {
-      setState(() => _step = OnboardingStep.nickname);
+      setState(() => _step = OnboardingStep.signIn);
     }
   }
 
@@ -155,6 +179,13 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// Checkpoint: the nickname is saved before moving on to OB03.
   Future<void> _saveNickname(String? nickname) async {
     await widget.store.saveNickname(nickname);
+    // Local onboarding remains usable offline. A later profile edit can
+    // retry a failed server write; do not silently enable public discovery.
+    try {
+      await widget.onNicknameSaved?.call(nickname);
+    } catch (_) {
+      // No personal data or token is logged.
+    }
     if (mounted) _goTo(OnboardingStep.purpose);
   }
 
@@ -178,9 +209,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   Future<void> _saveAiChoice(bool enabled) async {
     await widget.store.saveAiChoice(
         enabled: enabled,
-        policyVersion: widget.reflections is ApiAIService
-            ? DataPolicy.localOllama.version
-            : DataPolicy.current.version);
+        policyVersion: widget.reflections == null
+            ? DataPolicy.current.version
+            : DataPolicy.localOllama.version);
     // AI off from now on: stop waiting; a late response is ignored.
     if (!enabled) _reflection.cancel();
     if (mounted) _goTo(OnboardingStep.firstEntry);
@@ -219,7 +250,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
 
   void _back() {
     if (_step == OnboardingStep.welcome) return;
-    final previous = _previous(_step);
+    final rawPrevious = _previous(_step);
+    final previous = widget.skipAccountStep && rawPrevious == OnboardingStep.signIn
+        ? OnboardingStep.welcome : rawPrevious;
     // Back before the gust is over: stop it, or it would switch again.
     if (previous == OnboardingStep.welcome) _gust.value = 0;
     _goTo(previous);
@@ -258,6 +291,11 @@ class _OnboardingFlowState extends State<OnboardingFlow>
                 onStart: _start,
                 gust: _gust,
               ),
+            OnboardingStep.signIn => OnboardingSignInScreen(
+                service: widget.signIn ?? MockSignInService.instance,
+                onBack: _back,
+                onDone: () => _goTo(OnboardingStep.nickname),
+              ),
             OnboardingStep.nickname => OnboardingNicknameScreen(
                 initialValue: _nicknameDraft,
                 onChanged: (value) => _nicknameDraft = value,
@@ -282,11 +320,12 @@ class _OnboardingFlowState extends State<OnboardingFlow>
             OnboardingStep.features => OnboardingFeaturesScreen(
                 onBack: _back,
                 onContinue: () => _goTo(OnboardingStep.aiAndData),
+                aiAvailable: widget.reflections != null,
               ),
             OnboardingStep.aiAndData => OnboardingAiDataScreen(
-                policy: widget.reflections is ApiAIService
-                    ? DataPolicy.localOllama
-                    : DataPolicy.current,
+                policy: widget.reflections == null
+                    ? DataPolicy.current : DataPolicy.localOllama,
+                aiAvailable: widget.reflections != null,
                 onBack: _back,
                 onChoose: _saveAiChoice,
               ),
@@ -305,7 +344,9 @@ class _OnboardingFlowState extends State<OnboardingFlow>
             OnboardingStep.entrySaved => OnboardingEntrySavedScreen(
                 session: _firstEntry!,
                 reflection: _reflection,
-                aiEnabled: widget.store.aiEnabled == true,
+                aiEnabled: widget.store.aiEnabled == true &&
+                    widget.reflections != null &&
+                    widget.store.consentedToRemoteAi,
                 onBack: _back,
                 onContinue: () => _goTo(OnboardingStep.reminder),
               ),

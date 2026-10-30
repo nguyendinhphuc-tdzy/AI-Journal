@@ -1,8 +1,10 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
-/// Session-only mock state. Replace the initial count/date with backend data.
+import '../../core/network/api_client.dart';
+
+/// Session state; authenticated streaks are hydrated from /streak.
 class StreakState extends ValueNotifier<int> {
-  StreakState({int initialCount = 2, DateTime Function()? now})
+  StreakState({int initialCount = 0, DateTime Function()? now})
       : _now = now ?? DateTime.now,
         super(initialCount) {
     _lastCompletedDay = _today.subtract(const Duration(days: 1));
@@ -17,18 +19,14 @@ class StreakState extends ValueNotifier<int> {
     return DateTime.utc(now.year, now.month, now.day);
   }
 
+  /// Whether today already counts: its first entry was celebrated. The
+  /// streak screen shows for that entry only, not for later ones.
+  bool get completedToday => !_lastCompletedDay.isBefore(_today);
+
   int get nextCount {
     final gap = _today.difference(_lastCompletedDay).inDays;
     if (gap <= 0) return value;
     return gap == 1 ? value + 1 : 1;
-  }
-
-  /// Existing session-only demo counter must not leak between accounts
-  /// or between authenticated and guest sessions. Backend B06 remains the
-  /// future source of truth once integrated.
-  void resetForNewLocalSession() {
-    _lastCompletedDay = _today.subtract(const Duration(days: 1));
-    value = 0;
   }
 
   void completeToday() {
@@ -36,4 +34,49 @@ class StreakState extends ValueNotifier<int> {
     _lastCompletedDay = _today;
     value = updatedCount;
   }
+
+  /// Back to the starting state (yesterday done), for tests sharing [shared].
+  /// Do not carry a user's mock streak across a real auth identity switch.
+  void resetForNewLocalSession() => reset();
+
+  /// The server alone records streak completions. Hydration is read-only.
+  void applyServerSnapshot({required int currentStreak, required bool todayCompleted}) {
+    if (currentStreak < 0) throw ArgumentError.value(currentStreak);
+    _lastCompletedDay = todayCompleted
+        ? _today
+        : _today.subtract(const Duration(days: 1));
+    value = currentStreak;
+  }
+
+  /// Reads the account's streak from the server (read-only) into this
+  /// state. Throws when the answer is missing or malformed: no number is
+  /// ever made up.
+  Future<void> loadFrom(ApiClient api) async {
+    final data = await api.getJson('/streak', requireAuth: true);
+    final count = data['current_streak'];
+    final completed = data['today_completed'];
+    if (count is! int || count < 0 || completed is! bool) {
+      throw const FormatException('Invalid streak response');
+    }
+    applyServerSnapshot(currentStreak: count, todayCompleted: completed);
+  }
+
+  @visibleForTesting
+  void reset({int count = 0}) {
+    _lastCompletedDay = _today.subtract(const Duration(days: 1));
+    value = count;
+  }
+}
+
+/// Only a verified account has server streak access; guests never call /streak.
+class StreakApiScope extends InheritedWidget {
+  const StreakApiScope({super.key, required this.client, required super.child});
+
+  final ApiClient client;
+
+  static StreakApiScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<StreakApiScope>();
+
+  @override
+  bool updateShouldNotify(StreakApiScope oldWidget) => client != oldWidget.client;
 }

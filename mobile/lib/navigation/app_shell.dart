@@ -6,11 +6,13 @@ import '../features/album/presentation/share_memory_sheet.dart';
 import '../features/explore/data/explore_highlight.dart';
 import '../features/explore/presentation/explore_screen.dart';
 import '../features/home/presentation/home_screen.dart';
+import '../features/messages/presentation/messages_screen.dart';
+import 'app_destinations.dart';
 import '../features/study/presentation/study_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialIndex = 0})
-      : assert(initialIndex >= 0 && initialIndex < 4);
+      : assert(initialIndex >= 0 && initialIndex < 5);
 
   final int initialIndex;
 
@@ -30,6 +32,7 @@ class _AppShellState extends State<AppShell> {
         const StudyScreen(),
         AlbumScreen(onShare: _shareToExplore, onUnshare: _unshare),
         ExploreScreen(highlight: _shared),
+        const MessagesScreen(),
       ];
 
   /// A10 → E01: Explore with the new pin and its card open.
@@ -64,7 +67,10 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Tabs keep their own top inset, so a scene (Home) or backdrop (Album)
+      // can run up under the status bar.
       body: SafeArea(
+        top: false,
         child: IndexedStack(
           index: _index,
           children: [
@@ -76,16 +82,7 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined), label: 'Trang chủ'),
-          NavigationDestination(
-              icon: Icon(Icons.school_outlined), label: 'Học tập'),
-          NavigationDestination(
-              icon: Icon(Icons.photo_album_outlined), label: 'Kỷ niệm'),
-          NavigationDestination(
-              icon: Icon(Icons.map_outlined), label: 'Khám phá'),
-        ],
+        destinations: appDestinations,
       ),
     );
   }

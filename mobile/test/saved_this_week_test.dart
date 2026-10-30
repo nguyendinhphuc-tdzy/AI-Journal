@@ -2,6 +2,7 @@ import 'package:ai_diary/core/data/app_data.dart';
 import 'package:ai_diary/features/home/presentation/home_screen.dart';
 import 'package:ai_diary/features/journal/ai_reflection_screen.dart';
 import 'package:ai_diary/main.dart';
+import 'package:ai_diary/core/widgets/app_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,7 +29,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Lưu'));
       await tester.pump();
-      expect(find.text('Đã lưu vào mục Tuần này!'), findsOneWidget);
+      expect(find.text('Đã lưu. Xem lại ở mục Đã lưu trên Trang chủ.'),
+          findsOneWidget);
       expect(savedThisWeekItems.value.length, 2);
       expect(savedThisWeekItems.value.first['type'], 'quote');
       await tester.tap(find.text('Đã lưu'));
@@ -41,46 +43,47 @@ void main() {
       await tester.pumpAndSettle();
       final navigationPosition = tester.getTopLeft(find.byType(NavigationBar));
       final list = find.byKey(const PageStorageKey('home-scroll'));
-      final topBar = find.byKey(const ValueKey('home-sticky-top-bar'));
-      final topBarPosition = tester.getTopLeft(topBar);
-      final panel = find.byKey(const ValueKey('this-week-panel'));
-      final panelPosition = tester.getTopLeft(panel);
-      final controller = tester.widget<SingleChildScrollView>(list).controller!;
-      final fade = find.byKey(const ValueKey('home-header-fade'));
-      expect(tester.widget<Opacity>(fade).opacity, 1);
-      controller.jumpTo(75);
-      await tester.pump();
-      expect(tester.widget<Opacity>(fade).opacity, 0.5);
-      expect(tester.getTopLeft(topBar), topBarPosition);
-      controller.jumpTo(150);
-      await tester.pump();
-      expect(tester.widget<Opacity>(fade).opacity, 0);
-      controller.jumpTo(0);
-      await tester.pump();
-      expect(tester.widget<Opacity>(fade).opacity, 1);
-      await tester.drag(list, const Offset(0, -600));
+      // Home scrolls as one page (header included, as on the other tabs);
+      // the bottom bar stays put.
+      expect(find.byType(AppPageHeader), findsOneWidget);
+      final card = find.byKey(const ValueKey('home-reflection'));
+      final cardPosition = tester.getTopLeft(card);
+      await tester.drag(list, const Offset(0, -120));
       await tester.pumpAndSettle();
-      expect(tester.getTopLeft(topBar), topBarPosition);
-      expect(tester.getTopLeft(panel).dy, lessThan(panelPosition.dy));
+      expect(tester.getTopLeft(card).dy, lessThan(cardPosition.dy));
+      expect(tester.getTopLeft(find.byType(NavigationBar)), navigationPosition);
       await tester.scrollUntilVisible(
         find.text(
-            'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
+            'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'),
         150,
         scrollable:
             find.descendant(of: list, matching: find.byType(Scrollable)),
       );
       expect(
           find.text(
-              'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
+              'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'),
           findsOneWidget);
       expect(tester.getTopLeft(find.byType(NavigationBar)), navigationPosition);
-      await tester.scrollUntilVisible(
-        find.text('An existing insight.'),
-        150,
-        scrollable:
-            find.descendant(of: list, matching: find.byType(Scrollable)),
-      );
+      // Home keeps the newest; the older insight is one tap away.
+      expect(find.text('An existing insight.'), findsNothing);
+      final all = find.byKey(const ValueKey('home-saved-all'));
+      await tester.scrollUntilVisible(all, 150,
+          scrollable:
+              find.descendant(of: list, matching: find.byType(Scrollable)));
+      await tester.pumpAndSettle();
+      expect(find.text('Xem tất cả (2)'), findsOneWidget);
+      await tester.tap(all);
+      await tester.pumpAndSettle();
+      expect(find.byType(SavedItemsScreen), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('An existing insight.'), 150,
+          scrollable: find
+              .descendant(
+                  of: find.byType(SavedItemsScreen),
+                  matching: find.byType(Scrollable))
+              .first);
       expect(find.text('An existing insight.'), findsOneWidget);
+      await tester.tap(find.byTooltip('Đóng'));
+      await tester.pumpAndSettle();
       final unsave = find.byTooltip('Bỏ lưu trích dẫn');
       await Scrollable.ensureVisible(tester.element(unsave), alignment: 0.5);
       await tester.pumpAndSettle();
@@ -90,9 +93,9 @@ void main() {
       expect(savedThisWeekItems.value.single['type'], 'insight');
       expect(
           find.text(
-              'Hãy làm những gì bạn có thể, với những gì bạn đang có, ngay tại nơi bạn đang đứng.'),
+              'Hãy làm những gì bạn có thể, bằng những gì bạn có, ngay tại nơi bạn đang đứng.'),
           findsNothing);
-      expect(find.text('Đã xóa trích dẫn khỏi mục Tuần này'), findsOneWidget);
+      expect(find.text('Đã bỏ lưu trích dẫn'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pump(const Duration(seconds: 7));
     });

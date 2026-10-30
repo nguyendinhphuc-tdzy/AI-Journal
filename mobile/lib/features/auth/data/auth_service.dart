@@ -11,7 +11,6 @@ abstract interface class AuthService {
   Future<void> requestPhoneOtp(String phone);
   Future<void> verifyPhoneOtp(String phone, String otp);
   Future<void> signInGoogle();
-  Future<void> signInFacebook();
   Future<void> signOut();
 }
 
@@ -28,7 +27,13 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<bool> signUpEmail(String email, String password) async {
-    final response = await client.auth.signUp(email: email, password: password);
+    // The confirmation link comes back to the app (the OAuth deep link),
+    // not to the project's Site URL.
+    final response = await client.auth.signUp(
+      email: email,
+      password: password,
+      emailRedirectTo: AppConfig.oauthRedirectUrl,
+    );
     if (response.user == null) {
       throw const AuthException('Không tạo được tài khoản.');
     }
@@ -50,9 +55,15 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<void> verifyPhoneOtp(String phone, String otp) async {
-    await client.auth.verifyOTP(
+    if (!AppConfig.phoneOtpEnabled) {
+      throw const AuthException('SMS OTP chưa được bật.');
+    }
+    final response = await client.auth.verifyOTP(
       phone: phone, token: otp, type: OtpType.sms,
     );
+    if (response.session == null) {
+      throw const AuthException('Chưa xác nhận được phiên đăng nhập OTP.');
+    }
   }
 
   @override
@@ -66,24 +77,6 @@ class SupabaseAuthService implements AuthService {
     );
     if (!opened) {
       throw const AuthException('Không mở được trang đăng nhập Google.');
-    }
-  }
-
-  @override
-  Future<void> signInFacebook() async {
-    if (!AppConfig.facebookOAuthEnabled) {
-      throw const AuthException('Facebook OAuth chưa được bật trong ứng dụng.');
-    }
-    // Let Supabase Auth complete the OAuth handshake. Flutter only receives
-    // the signed-in Supabase session after the app deep link is processed.
-    // Never embed a Facebook App Secret or provider token in mobile code.
-    final opened = await client.auth.signInWithOAuth(
-      OAuthProvider.facebook,
-      redirectTo: AppConfig.oauthRedirectUrl,
-      scopes: 'email,public_profile',
-    );
-    if (!opened) {
-      throw const AuthException('Không mở được trang đăng nhập Facebook.');
     }
   }
 

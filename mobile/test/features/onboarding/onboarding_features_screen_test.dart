@@ -1,4 +1,5 @@
 import 'package:ai_diary/core/theme/app_theme.dart';
+import 'package:ai_diary/features/journal/data/reflection_service.dart';
 import 'package:ai_diary/features/onboarding/data/build_features.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
@@ -13,6 +14,7 @@ Future<OnboardingStore> _pump(
   Size size = const Size(390, 844),
   double textScale = 1,
   bool reducedMotion = false,
+  bool ai = true,
 }) async {
   SharedPreferences.setMockInitialValues({'onboarding.step': 'features'});
   final store = await OnboardingStore.open();
@@ -28,7 +30,10 @@ Future<OnboardingStore> _pump(
           disableAnimations: reducedMotion),
       child: child!,
     ),
-    home: OnboardingFlow(store: store, brandName: 'AI Diary'),
+    home: OnboardingFlow(
+        store: store,
+        brandName: 'AI Diary',
+        reflections: ai ? MockReflectionService() : null),
   ));
   await tester.pump(const Duration(seconds: 2));
   return store;
@@ -50,8 +55,8 @@ void main() {
     for (final (title, body) in const [
       ('Gợi ý để bắt đầu', 'Một câu hỏi nhỏ giúp bạn tìm điều muốn viết.'),
       (
-        'Phản hồi AI khi bạn chọn',
-        'Xem một góc nhìn gợi mở từ nội dung bạn gửi để phản hồi.'
+        'Phản hồi AI cho nhật ký',
+        'Một góc nhìn gợi mở và những câu hỏi giúp bạn hiểu mình hơn.'
       ),
       (
         'Giữ lại những điều đáng nhớ',
@@ -62,6 +67,15 @@ void main() {
       expect(find.text(body), findsOneWidget);
     }
     expect(find.byType(TextButton), findsNothing, reason: 'no "Để sau" here');
+  });
+
+  testWidgets('A guest is told AI comes with an account', (tester) async {
+    await _pump(tester, ai: false);
+    expect(find.text('Phản hồi AI khi đăng nhập'), findsOneWidget);
+    expect(find.text(OnboardingFeaturesScreen.guestAiCard.body),
+        findsOneWidget);
+    expect(find.text('Phản hồi AI cho nhật ký'), findsNothing);
+    expect(find.textContaining('khi bạn chọn'), findsNothing);
   });
 
   test('Cards follow the build: each has a flag', () {

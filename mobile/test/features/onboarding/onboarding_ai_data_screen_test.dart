@@ -1,9 +1,11 @@
 import 'package:ai_diary/core/theme/app_theme.dart';
+import 'package:ai_diary/features/journal/data/reflection_service.dart';
 import 'package:ai_diary/features/onboarding/data/data_policy.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_ai_data_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_features_screen.dart';
+import 'package:ai_diary/features/onboarding/presentation/onboarding_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +16,7 @@ Future<OnboardingStore> _pump(
   Size size = const Size(390, 844),
   double textScale = 1,
   bool reducedMotion = false,
+  bool ai = true,
 }) async {
   SharedPreferences.setMockInitialValues({'onboarding.step': step});
   final store = await OnboardingStore.open();
@@ -29,14 +32,17 @@ Future<OnboardingStore> _pump(
           disableAnimations: reducedMotion),
       child: child!,
     ),
-    home: OnboardingFlow(store: store, brandName: 'AI Diary'),
+    home: OnboardingFlow(
+        store: store,
+        brandName: 'AI Diary',
+        reflections: ai ? MockReflectionService() : null),
   ));
   await tester.pump(const Duration(seconds: 2));
   return store;
 }
 
-Finder get _withAi => find.widgetWithText(FilledButton, 'Tiếp tục với AI');
-Finder get _journalOnly => find.widgetWithText(TextButton, 'Chỉ viết nhật ký');
+Finder get _continue => find.widgetWithText(FilledButton, 'Tiếp tục');
+Finder get _journalOnly => find.text('Chỉ viết nhật ký');
 
 Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
@@ -55,35 +61,63 @@ void main() {
     await _pump(tester);
     expect(find.text(OnboardingAiDataScreen.title), findsOneWidget);
     expect(find.text('Bước 5/9'), findsOneWidget);
-    expect(DataPolicy.current.approved, isFalse);
-    expect(find.text(OnboardingAiDataScreen.demoLabel), findsOneWidget,
+    expect(DataPolicy.localOllama.approved, isFalse);
+    expect(find.text(OnboardingAiDataScreen.realAiLabel), findsOneWidget,
         reason: 'unapproved copy is labelled as a demo');
     for (final (heading, body) in [
-      (OnboardingAiDataScreen.storageHeading, DataPolicy.current.storage),
-      (OnboardingAiDataScreen.aiHeading, DataPolicy.current.aiRequest),
-      (OnboardingAiDataScreen.choiceHeading, DataPolicy.choiceNote),
+      (OnboardingAiDataScreen.storageHeading, DataPolicy.localOllama.storage),
+      (OnboardingAiDataScreen.aiHeading, DataPolicy.localOllama.aiRequest),
+      (OnboardingAiDataScreen.choiceHeading, DataPolicy.aiOffNote),
     ]) {
       expect(find.text(heading), findsOneWidget);
       expect(find.text(body), findsOneWidget);
     }
-    expect(DataPolicy.choiceNote,
-        'Bạn vẫn có thể viết và lưu nhật ký khi không dùng phản hồi AI.');
+    // Version 2 says what really happens: sent on save and "Nhìn lại cùng
+    // bạn", and Hồ sơ turns it off.
+    expect(DataPolicy.localOllama.version, 'local-ollama-demo-4');
+    expect(DataPolicy.localOllama.aiRequest, contains('việc lưu nhật ký'));
+    expect(DataPolicy.localOllama.aiRequest, contains('Nhìn lại cùng bạn'));
+    expect(DataPolicy.aiOffNote, contains('tắt phản hồi AI trong Hồ sơ'));
+    expect(DataPolicy.localOllama.aiRequest, contains('không phải chẩn đoán'));
   });
 
-  testWidgets('Makes no unconfirmed privacy claims', (tester) async {
-    await _pump(tester);
-    final text = _allText(tester);
+  test('Says where analyses are kept, per where journals are kept', () {
+    // This build (no cloud journals): on the device, as the journals.
+    expect(DataPolicy.localOllama.aiRequest, DataPolicy.aiRequestDevice);
+    expect(DataPolicy.aiRequestDevice, contains('lưu trên thiết bị'));
+    // Cloud journals (PR #72): with the journal on the server, deleted with
+    // it; never "only on this device" or "not synced".
     for (final claim in [
-      'chỉ lưu trên thiết bị',
-      'mã hóa',
-      'huấn luyện',
-      'được bảo mật',
+      'trong tài khoản trên máy chủ nhóm',
+      'xóa bài thì phân tích bị xóa theo',
+      'Nhận xét tuần chỉ được tạo khi bạn bấm',
+      'có thể chỉ có trên máy này',
+      'không phải chẩn đoán',
     ]) {
-      expect(text, isNot(contains(claim)), reason: claim);
+      expect(DataPolicy.aiRequestCloud, contains(claim), reason: claim);
     }
-    expect(find.byIcon(Icons.lock_outline), findsNothing);
-    expect(find.byIcon(Icons.lock), findsNothing);
+    for (final stale in ['chưa đồng bộ', 'không đồng bộ', 'chỉ lưu trên']) {
+      expect(DataPolicy.aiRequestCloud, isNot(contains(stale)), reason: stale);
+    }
   });
+
+  for (final ai in [true, false]) {
+    testWidgets('Makes no unconfirmed privacy claims (AI available: $ai)',
+        (tester) async {
+      await _pump(tester, ai: ai);
+      final text = _allText(tester);
+      for (final claim in [
+        'chỉ lưu trên thiết bị',
+        'mã hóa',
+        'huấn luyện',
+        'được bảo mật',
+      ]) {
+        expect(text, isNot(contains(claim)), reason: claim);
+      }
+      expect(find.byIcon(Icons.lock_outline), findsNothing);
+      expect(find.byIcon(Icons.lock), findsNothing);
+    });
+  }
 
   testWidgets('No policy link until a real one exists', (tester) async {
     await _pump(tester);
@@ -91,41 +125,53 @@ void main() {
     expect(find.text('Cách app dùng dữ liệu'), findsNothing);
   });
 
-  testWidgets('Two explicit paths; no pre-set toggle', (tester) async {
+  testWidgets('One way on, no "Chỉ viết nhật ký" that AI would not honour',
+      (tester) async {
     await _pump(tester);
-    expect(_withAi, findsOneWidget);
-    expect(_journalOnly, findsOneWidget);
+    expect(_continue, findsOneWidget);
+    expect(_journalOnly, findsNothing);
+    expect(find.text('Tiếp tục với AI'), findsNothing);
     expect(find.byType(Switch), findsNothing);
     expect(find.byType(Checkbox), findsNothing);
-    expect(tester.widget<FilledButton>(_withAi).onPressed, isNotNull);
   });
 
-  testWidgets('Tiếp tục với AI: AI on (no version yet) → OB07', (tester) async {
+  testWidgets('Tiếp tục: AI on with the copy shown → OB07', (tester) async {
     final store = await _pump(tester);
     expect(store.aiEnabled, isNull, reason: 'nothing chosen on arrival');
-    await tester.tap(_withAi);
+    await tester.tap(_continue);
     await _settle(tester);
     expect(store.aiEnabled, isTrue);
-    expect(store.aiPolicyVersion, isNull,
-        reason: 'the demo copy has no policy version');
+    expect(store.aiPolicyVersion, DataPolicy.localOllama.version,
+        reason: 'consent is to the copy the user read');
     expect(store.step, OnboardingStep.firstEntry);
   });
 
-  testWidgets('Chỉ viết nhật ký: AI off → OB07', (tester) async {
-    final store = await _pump(tester);
-    await tester.tap(_journalOnly);
+  testWidgets('No AI (guest): says it needs an account, one way on, AI off',
+      (tester) async {
+    final store = await _pump(tester, ai: false);
+    expect(find.text(OnboardingAiDataScreen.title), findsOneWidget);
+    expect(find.text(OnboardingAiDataScreen.needsAccountLabel), findsOneWidget);
+    expect(find.text(OnboardingAiDataScreen.needsAccountBody), findsOneWidget);
+    expect(find.text(OnboardingAiDataScreen.demoLabel), findsNothing);
+    expect(find.text(DataPolicy.current.aiRequest), findsNothing,
+        reason: 'no "simulated reply" that never comes');
+    expect(find.text(DataPolicy.aiOffNote), findsNothing,
+        reason: 'nothing to turn off');
+    await tester.tap(_continue);
     await _settle(tester);
     expect(store.aiEnabled, isFalse);
+    expect(store.aiPolicyVersion, isNull);
     expect(store.step, OnboardingStep.firstEntry);
   });
 
   testWidgets('The choice is about AI only: no other consent recorded',
       (tester) async {
     await _pump(tester);
-    await tester.tap(_withAi);
+    await tester.tap(_continue);
     await _settle(tester);
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getKeys(), {'onboarding.step', 'onboarding.ai'});
+    expect(prefs.getKeys(),
+        {'onboarding.step', 'onboarding.ai', 'onboarding.aiPolicyVersion'});
   });
 
   test('With an approved policy the version is kept; off clears it', () async {
@@ -170,8 +216,12 @@ void main() {
   });
 
   testWidgets('Desk stays put from OB05 to OB06', (tester) async {
+    // The guest copy: short enough to leave the desk room on screen.
     await _pump(tester,
-        step: 'features', size: const Size(430, 1300), reducedMotion: true);
+        step: 'features',
+        size: const Size(430, 1300),
+        reducedMotion: true,
+        ai: false);
     final ob05 = tester.getRect(find
         .bySemanticsLabel('Nudaeng ngồi bàn xem hướng dẫn trên điện thoại'));
     await tester.tap(find.text(OnboardingFeaturesScreen.continueLabel));
@@ -187,9 +237,30 @@ void main() {
       testWidgets('OB06 fits $size at text scale $scale', (tester) async {
         await _pump(tester, size: size, textScale: scale);
         expect(tester.takeException(), isNull);
-        expect(tester.getRect(_journalOnly).bottom,
+        expect(tester.getRect(_continue).bottom,
             lessThanOrEqualTo(size.height));
-        expect(tester.getSize(_journalOnly).height, greaterThanOrEqualTo(48));
+        expect(tester.getSize(_continue).height, greaterThanOrEqualTo(48));
+      });
+      testWidgets('OB06\'s long copy keeps Nudaeng at $size, scale $scale',
+          (tester) async {
+        await _pump(tester, size: size, textScale: scale);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(tester.takeException(), isNull);
+        expect(
+            find.descendant(
+                of: find.byType(OnboardingMascot),
+                matching: find.byType(Image)),
+            findsOneWidget,
+            reason: 'never hidden for want of room');
+      });
+      testWidgets('OB06 without AI fits $size at text scale $scale',
+          (tester) async {
+        await _pump(tester, size: size, textScale: scale, ai: false);
+        expect(tester.takeException(), isNull);
+        final cta = find.widgetWithText(
+            FilledButton, OnboardingAiDataScreen.continueLabel);
+        expect(tester.getRect(cta).bottom, lessThanOrEqualTo(size.height));
       });
     }
   }

@@ -550,8 +550,11 @@ class _TextSheet extends StatefulWidget {
 
 class _TextSheetState extends State<_TextSheet> {
   late final TextEditingController _controller =
-      TextEditingController(text: widget.initial)
-        ..addListener(() => widget.onDraft(_controller.text));
+      TextEditingController(text: widget.initial)..addListener(_changed);
+
+  // The pen (or eraser) while typing comes from AppSound, as in every
+  // text field.
+  void _changed() => widget.onDraft(_controller.text);
 
   @override
   void dispose() {

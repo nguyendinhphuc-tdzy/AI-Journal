@@ -10,8 +10,12 @@ import 'package:ai_diary/features/album/presentation/album_routes.dart';
 import 'package:ai_diary/features/album/presentation/album_settings_screen.dart';
 import 'package:ai_diary/features/album/presentation/memory_detail_screen.dart';
 import 'package:ai_diary/features/album/presentation/memory_editor_screen.dart';
+import 'package:ai_diary/features/sound/app_sound.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 typedef _A09 = AlbumBrowseScreen;
 
@@ -31,6 +35,7 @@ Future<(AlbumRepository, Album)> _pump(
   int count = 3,
   Size size = const Size(390, 844),
   double textScale = 1,
+  bool reduced = false,
 }) async {
   final albums = InMemoryAlbumRepository();
   final created = await albums.create(name: 'Đà Lạt');
@@ -53,8 +58,9 @@ Future<(AlbumRepository, Album)> _pump(
     child: MaterialApp(
       theme: AppTheme.light,
       builder: (context, child) => MediaQuery(
-        data: MediaQuery.of(context)
-            .copyWith(textScaler: TextScaler.linear(textScale)),
+        data: MediaQuery.of(context).copyWith(
+            textScaler: TextScaler.linear(textScale),
+            disableAnimations: reduced),
         child: child!,
       ),
       home: Builder(
@@ -74,13 +80,49 @@ Future<(AlbumRepository, Album)> _pump(
   return (albums, album);
 }
 
-Finder _button(String label) =>
-    find.ancestor(of: find.text(label), matching: find.byType(OutlinedButton));
+Finder get _pile => find.byKey(const ValueKey('album-pile'));
 
-bool _enabled(WidgetTester tester, String label) =>
-    tester.widget<OutlinedButton>(_button(label)).onPressed != null;
+/// The sounds asked for, by file.
+class _Sounds implements SoundBackend {
+  final played = <String>[];
 
-Finder get _stack => find.byKey(const ValueKey('album-stack'));
+  @override
+  Future<void> effect(String asset, double volume) async => played.add(asset);
+  @override
+  Future<void> music(String? asset, double volume) async {}
+  @override
+  Future<void> pauseMusic() async {}
+  @override
+  Future<void> preload(Iterable<String> assets) async {}
+}
+
+/// Records the page-turn sound and the phone's taps for one test.
+Future<(_Sounds, List<Object?>)> _listen(WidgetTester tester) async {
+  SharedPreferences.setMockInitialValues({});
+  final sounds = _Sounds();
+  AppSound.backend = sounds;
+  addTearDown(() => AppSound.backend = null);
+  await AppSound.instance.refresh();
+  final taps = <Object?>[];
+  tester.binding.defaultBinaryMessenger
+      .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+    if (call.method == 'HapticFeedback.vibrate') taps.add(call.arguments);
+    return null;
+  });
+  addTearDown(() => tester.binding.defaultBinaryMessenger
+      .setMockMethodCallHandler(SystemChannels.platform, null));
+  return (sounds, taps);
+}
+
+/// Throws the top photo away (up), or pulls the previous one back (down).
+Future<void> _swipe(WidgetTester tester, {bool back = false}) async {
+  await tester.drag(_pile, Offset(0, back ? 320 : -260));
+  await tester.pumpAndSettle();
+}
+
+/// Where the card showing [text] is now.
+Offset _at(WidgetTester tester, String text) =>
+    tester.getCenter(find.text(text));
 
 void main() {
   testWidgets('Album name, menu, count, add; newest in front', (tester) async {
@@ -95,16 +137,6 @@ void main() {
     expect(find.text(_A09.position(0, 3)), findsOneWidget);
   });
 
-  testWidgets('Behind: at most two, a strip each, no notes', (tester) async {
-    await _pump(tester, count: 5);
-    // Front 5; behind 4 and 3 (titles only); 2 and 1 not drawn.
-    expect(find.text('Kỷ niệm 4'), findsOneWidget);
-    expect(find.text('Kỷ niệm 3'), findsOneWidget);
-    expect(find.text('Kỷ niệm 2'), findsNothing);
-    expect(find.text('Ghi chú số 4'), findsNothing);
-    expect(find.text('Ghi chú số 3'), findsNothing);
-  });
-
   testWidgets('Order: memory date newest first, then newest created',
       (tester) async {
     final albums = InMemoryAlbumRepository();
@@ -112,6 +144,7 @@ void main() {
     final day = DateTime(2026, 10, 5);
     final first = await albums.createMemory(
         album.id, MemoryContent(note: 'trước', displayDate: day));
+    await tester.pump(const Duration(milliseconds: 1));
     final second = await albums.createMemory(
         album.id, MemoryContent(note: 'sau', displayDate: day));
     await albums.createMemory(
@@ -122,41 +155,160 @@ void main() {
     expect(tester, isNotNull);
   });
 
-  testWidgets('Trước / Sau; disabled and said at both ends', (tester) async {
+  testWidgets('A pile: two photos under the top one, no gap, no buttons',
+      (tester) async {
+    await _pump(tester, count: 5);
+    // Top 5; under it 4 and 3; 2 and 1 not drawn.
+    expect(find.text('Kỷ niệm 4'), findsOneWidget);
+    expect(find.text('Kỷ niệm 3'), findsOneWidget);
+    expect(find.text('Kỷ niệm 2'), findsNothing);
+    // Under, not after: they overlap the top one.
+    final top = tester.getRect(find
+        .ancestor(of: find.text('Kỷ niệm 5'), matching: find.byType(Material))
+        .first);
+    final under = tester.getRect(find
+        .ancestor(of: find.text('Kỷ niệm 4'), matching: find.byType(Material))
+        .first);
+    expect(top.overlaps(under), isTrue);
+    expect(find.text('Trước'), findsNothing);
+    expect(find.text('Sau'), findsNothing);
+    expect(find.text('5 tháng 10, 2026'), findsOneWidget, reason: 'date');
+  });
+
+  testWidgets('Throw the top photo: the next comes up; heard and felt once',
+      (tester) async {
+    final (sounds, taps) = await _listen(tester);
     await _pump(tester);
-    expect(_enabled(tester, _A09.previousLabel), isFalse);
-    expect(find.textContaining(_A09.firstNote), findsOneWidget);
-    await tester.tap(_button(_A09.nextLabel));
+    // Held: it follows the finger, nothing heard yet.
+    final before = _at(tester, 'Kỷ niệm 3');
+    final hand = await tester.startGesture(tester.getCenter(_pile));
+    await hand.moveBy(const Offset(20, -20));
+    await hand.moveBy(const Offset(60, -180));
+    await tester.pump();
+    expect(_at(tester, 'Kỷ niệm 3').dy, lessThan(before.dy - 150));
+    expect(sounds.played, isEmpty);
+    await hand.up();
+    await tester.pump();
+    expect(sounds.played, hasLength(1), reason: 'on letting go');
+    expect(SoundCue.pageTurn.assets, contains(sounds.played.single));
+    expect(taps, ['HapticFeedbackType.lightImpact']);
+    // In flight it turns over: the back of the paper.
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(find.byKey(const ValueKey('paper-back')), findsOneWidget);
     await tester.pumpAndSettle();
     expect(find.text(_A09.position(1, 3)), findsOneWidget);
-    expect(find.text('Ghi chú số 2'), findsOneWidget);
-    await tester.tap(_button(_A09.nextLabel));
+    expect(_A09.position(1, 3), '02 / 03');
+    expect(find.byKey(const ValueKey('paper-back')), findsNothing);
+    expect(sounds.played, hasLength(1));
+  });
+
+  testWidgets('A short drag settles back, quietly; a flick throws',
+      (tester) async {
+    final (sounds, taps) = await _listen(tester);
+    await _pump(tester);
+    final before = _at(tester, 'Kỷ niệm 3');
+    await tester.drag(_pile, const Offset(30, -40));
     await tester.pumpAndSettle();
-    expect(_enabled(tester, _A09.nextLabel), isFalse);
-    expect(find.textContaining(_A09.lastNote), findsOneWidget);
-    await tester.tap(_button(_A09.previousLabel));
+    expect(find.text(_A09.position(0, 3)), findsOneWidget);
+    expect(_at(tester, 'Kỷ niệm 3'), before);
+    expect(sounds.played, isEmpty);
+    expect(taps, isEmpty);
+    // 40 px in 30 ms: short, but fast.
+    final flick = await tester.startGesture(tester.getCenter(_pile));
+    for (var i = 1; i <= 5; i++) {
+      await flick.moveBy(const Offset(0, -8),
+          timeStamp: Duration(milliseconds: 6 * i));
+    }
+    await flick.up(timeStamp: const Duration(milliseconds: 31));
+    await tester.pumpAndSettle();
+    expect(find.text(_A09.position(1, 3)), findsOneWidget);
+    expect(sounds.played, hasLength(1));
+  });
+
+  testWidgets('Pull down: the previous photo comes back, face down first',
+      (tester) async {
+    final (sounds, _) = await _listen(tester);
+    await _pump(tester);
+    await _swipe(tester);
+    expect(find.text(_A09.position(1, 3)), findsOneWidget);
+    final hand = await tester.startGesture(tester.getCenter(_pile));
+    await hand.moveBy(const Offset(0, 20));
+    await hand.moveBy(const Offset(0, 60));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('paper-back')), findsOneWidget,
+        reason: 'still face down, high up');
+    await hand.moveBy(const Offset(0, 250));
+    await hand.up();
+    await tester.pumpAndSettle();
+    expect(find.text(_A09.position(0, 3)), findsOneWidget);
+    expect(find.byKey(const ValueKey('paper-back')), findsNothing);
+    expect(sounds.played, hasLength(2));
+  });
+
+  testWidgets('The ends: the last and a pull on the first only give',
+      (tester) async {
+    final (sounds, _) = await _listen(tester);
+    await _pump(tester);
+    await _swipe(tester, back: true);
+    expect(find.text(_A09.position(0, 3)), findsOneWidget);
+    await _swipe(tester);
+    await _swipe(tester);
+    expect(find.text(_A09.position(2, 3)), findsOneWidget);
+    await _swipe(tester);
+    expect(find.text(_A09.position(2, 3)), findsOneWidget);
+    await tester.drag(_pile, const Offset(300, 0));
+    await tester.pumpAndSettle();
+    expect(find.text(_A09.position(2, 3)), findsOneWidget);
+    expect(sounds.played, hasLength(2));
+  });
+
+  testWidgets('Screen readers: next and previous as actions', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _pump(tester);
+    SemanticsNode node() => tester.getSemantics(_pile);
+    List<String> actions() => [
+          for (final id in node().getSemanticsData().customSemanticsActionIds!)
+            CustomSemanticsAction.getAction(id)!.label!,
+        ];
+    expect(actions(), [_A09.nextAction]);
+    node().owner!.performAction(node().id, SemanticsAction.customAction,
+        node().getSemanticsData().customSemanticsActionIds!.single);
+    await tester.pumpAndSettle();
+    expect(find.text(_A09.position(1, 3)), findsOneWidget);
+    expect(actions(), unorderedEquals([_A09.nextAction, _A09.previousAction]));
+    semantics.dispose();
+  });
+
+  testWidgets('Reduced motion: no flying, no turning over', (tester) async {
+    await _pump(tester, reduced: true);
+    await tester.drag(_pile, const Offset(0, -260));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('paper-back')), findsNothing);
     await tester.pumpAndSettle();
     expect(find.text(_A09.position(1, 3)), findsOneWidget);
   });
 
-  testWidgets('Drag past 48 moves; a short drag snaps back', (tester) async {
-    await _pump(tester);
-    await tester.drag(_stack, const Offset(0, -30));
+  testWidgets('A memory added before it keeps the same one on top, quietly',
+      (tester) async {
+    final (sounds, _) = await _listen(tester);
+    final (albums, album) = await _pump(tester);
+    await _swipe(tester);
+    expect(sounds.played, hasLength(1));
+    await albums.createMemory(
+        album.id,
+        MemoryContent(
+            title: 'Mới',
+            note: 'Vừa thêm',
+            displayDate: DateTime(2026, 10, 30)));
     await tester.pumpAndSettle();
-    expect(find.text(_A09.position(0, 3)), findsOneWidget);
-    await tester.drag(_stack, const Offset(0, -70));
-    await tester.pumpAndSettle();
-    expect(find.text(_A09.position(1, 3)), findsOneWidget);
-    await tester.drag(_stack, const Offset(0, 70));
-    await tester.pumpAndSettle();
-    expect(find.text(_A09.position(0, 3)), findsOneWidget);
+    expect(find.text(_A09.position(2, 4)), findsOneWidget);
+    expect(sounds.played, hasLength(1));
   });
 
   testWidgets('Card → A08; Back keeps the selected card', (tester) async {
     await _pump(tester);
-    await tester.tap(_button(_A09.nextLabel));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Ghi chú số 2'));
+    await _swipe(tester);
+    await tester.tap(find.text('Ghi chú số 2').hitTestable());
     await tester.pumpAndSettle();
     expect(find.byType(MemoryDetailScreen), findsOneWidget);
     await tester.pageBack();
@@ -164,12 +316,12 @@ void main() {
     expect(find.text(_A09.position(1, 3)), findsOneWidget);
   });
 
-  testWidgets('Xem tất cả: timeline by month, 20 at a time; Back keeps mode',
+  testWidgets('Xem tất cả: grid by month, 20 at a time; Back keeps mode',
       (tester) async {
     await _pump(tester, count: 25);
     await tester.tap(find.text(_A09.seeAllLabel));
     await tester.pumpAndSettle();
-    expect(find.text(_A09.stackLabel), findsOneWidget);
+    expect(find.text(_A09.pileLabel), findsOneWidget);
     expect(find.text('Tháng 10, 2026'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Xem thêm kỷ niệm'), 400,
         scrollable: find.byType(Scrollable).last);
@@ -181,11 +333,13 @@ void main() {
         scrollable: find.byType(Scrollable).last);
     expect(find.text('Xem thêm kỷ niệm'), findsNothing);
 
-    await tester.tap(find.text('Kỷ niệm 1'));
+    await tester.ensureVisible(find.text('Kỷ niệm 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Kỷ niệm 1').hitTestable());
     await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text(_A09.stackLabel), findsOneWidget, reason: 'still list');
+    expect(find.text(_A09.pileLabel), findsOneWidget, reason: 'still list');
     expect(find.text('Kỷ niệm 1'), findsOneWidget, reason: 'same scroll');
   });
 

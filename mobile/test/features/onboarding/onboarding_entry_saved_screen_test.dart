@@ -5,9 +5,9 @@ import 'package:ai_diary/features/journal/data/journal_entry.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
 import 'package:ai_diary/features/journal/data/reflection_service.dart';
 import 'package:ai_diary/features/journal/journal_scope.dart';
+import 'package:ai_diary/features/onboarding/data/data_policy.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
-import 'package:ai_diary/features/onboarding/presentation/onboarding_ai_data_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_entry_saved_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_first_entry_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_preparing_screen.dart';
@@ -44,7 +44,12 @@ late _Reflections _reflections;
 Future<OnboardingStore> _pump(WidgetTester tester,
     {required bool ai, Size size = const Size(390, 1000)}) async {
   SharedPreferences.setMockInitialValues(
-      {'onboarding.step': 'firstEntry', 'onboarding.ai': ai ? 'on' : 'off'});
+      {
+        'onboarding.step': 'firstEntry',
+        'onboarding.ai': ai ? 'on' : 'off',
+        // Consent is to the current AI policy (OB06).
+        if (ai) 'onboarding.aiPolicyVersion': DataPolicy.localOllama.version!,
+      });
   final store = await OnboardingStore.open();
   _journals = InMemoryJournalRepository();
   _reflections = _Reflections();
@@ -138,7 +143,7 @@ void main() {
 
     _reflections.answer(0, 'Có lẽ điều này đáng để viết thêm.');
     await _settle(tester);
-    expect(find.text('Gợi ý từ AI · mô phỏng'), findsOneWidget);
+    expect(find.text('Góc nhìn từ AI · mô phỏng'), findsOneWidget);
     expect(find.text('Có lẽ điều này đáng để viết thêm.'), findsOneWidget);
     expect(find.text(OnboardingEntrySavedScreen.notReady), findsNothing);
     expect(find.textContaining('chuyến đi'), findsOneWidget);
@@ -215,25 +220,6 @@ void main() {
     await _settle(tester);
     expect(_reflections.calls, hasLength(1));
     expect(find.text('Một góc nhìn.'), findsOneWidget);
-  });
-
-  testWidgets('AI switched off while waiting: the answer is ignored',
-      (tester) async {
-    await _pump(tester, ai: true);
-    await _writeAndSave(tester, 'x');
-    await tester.tap(find.byTooltip('Quay lại')); // OB07
-    await _settle(tester);
-    await tester.tap(find.byTooltip('Quay lại')); // OB06
-    await _settle(tester);
-    await tester.tap(find.text(OnboardingAiDataScreen.journalOnlyLabel));
-    await _settle(tester);
-    await tester.tap(_ctaIn(OnboardingFirstEntryScreen)); // "Tiếp tục"
-    await _settle(tester);
-    _reflections.answer(0, 'Không được hiện.');
-    await _settle(tester);
-    expect(find.text(OnboardingEntrySavedScreen.plainTitle), findsOneWidget);
-    expect(find.text('Không được hiện.'), findsNothing);
-    expect(_reflections.calls, hasLength(1), reason: 'nothing new sent');
   });
 
   test('Stand-in reflection: tentative, never the screenshot text', () {

@@ -1,9 +1,15 @@
 from fastapi import APIRouter, Depends
 
+from .quota import enforce_ai_quota
+from .emotions import classify_emotion
+
 from app.schemas.ai import AiTextRequest, GoDeeperResponse, ReflectionResponse
 from .service import AIProvider, get_ai_provider
 
-router = APIRouter(prefix="/ai", tags=["ai"])
+# Never expose mock or Ollama through an unauthenticated AI route.
+router = APIRouter(
+    prefix="/ai", tags=["ai"], dependencies=[Depends(enforce_ai_quota)]
+)
 
 
 @router.post("/go-deeper", response_model=GoDeeperResponse)
@@ -19,4 +25,6 @@ def reflection(
     payload: AiTextRequest,
     provider: AIProvider = Depends(get_ai_provider),
 ):
-    return provider.reflect(payload.content, payload.mood)
+    result = provider.reflect(payload.content, payload.mood)
+    group, score = classify_emotion(result.emotion)
+    return result.model_copy(update={"mood_group": group, "mood_score": score})

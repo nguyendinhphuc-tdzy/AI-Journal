@@ -1,61 +1,145 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_radius.dart';
+import '../../../../core/theme/app_spacing.dart';
+import '../../../../core/theme/app_text.dart';
+import '../../../../core/widgets/app_ui.dart';
+import '../../data/place_mood.dart';
+import '../../data/saved_places.dart';
+
+export '../../data/place_mood.dart';
+export '../../data/saved_places.dart';
 
 class PlaceDraft {
   const PlaceDraft({
     required this.name,
     required this.category,
-    required this.moodTag,
+    required this.mood,
     required this.note,
-    required this.moodAsset,
-    required this.moodLabel,
     required this.isAnonymousShare,
   });
 
   final String name;
   final String category;
-  final String moodTag;
+
+  /// Null when no Nudaeng was chosen: nothing is assumed.
+  final PlaceMood? mood;
   final String note;
-  final String moodAsset;
-  final String moodLabel;
   final bool isAnonymousShare;
 }
 
-const moodOptions = [
-  ('Reading', 'assets/images/docsach.gif'),
-  ('On the road', 'assets/images/laixe.gif'),
-  ('Loved it', 'assets/images/like.gif'),
-  ('Taking a breath', 'assets/images/loading.gif'),
+/// What a place is for: the stored key and what it says.
+const placeCategories = [
+  ('Food', 'Ăn uống'),
+  ('Study', 'Học tập'),
+  ('Chill', 'Thư giãn'),
 ];
 
-const moodTags = ['Yên tĩnh', 'Cần chữa lành', 'Vui vẻ', 'Xả stress'];
+/// A category key's icon, where a place has no Nudaeng.
+IconData categoryIcon(String key) => switch (key) {
+      'Food' => Icons.restaurant_outlined,
+      'Study' => Icons.menu_book_outlined,
+      _ => Icons.spa_outlined,
+    };
 
-Future<PlaceDraft?> showAddPlaceSheet(BuildContext context) =>
-    showModalBottomSheet<PlaceDraft>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _AddPlaceSheet(),
-    );
+/// A category key ([placeCategories]) as it reads.
+String categoryName(String key) {
+  for (final (value, label) in placeCategories) {
+    if (value == key) return label;
+  }
+  return key;
+}
+
+abstract final class PlaceSheetText {
+  static const addTitle = 'Lưu một nơi mới';
+  static const addHelp = 'Nơi này được ghim ở giữa bản đồ bạn đang xem.';
+  static const addHelpPinned = 'Nơi này được lưu ở chỗ bạn vừa ghim.';
+  static const nameLabel = 'Tên địa điểm';
+  static const nameHint = 'Ví dụ: Tiệm bánh cô Hai';
+  static const nameMissing = 'Bạn đặt tên cho nơi này nhé.';
+  static const closeTooltip = 'Đóng';
+  static const categoryLabel = 'Nơi này dành cho…';
+  static const moodLabel = 'Nudaeng nào giống bạn lúc này?';
+  static const moodHelp = 'Chọn nếu bạn muốn';
+  static const noteLabel = 'Vài dòng về nơi này';
+  static const noteHint = 'Không bắt buộc';
+  static const filterTitle = 'Lọc theo cảm xúc';
+  static const filterHelp = 'Chỉ hiện những nơi bạn đã chọn Nudaeng này.';
+  static const filterAll = 'Mọi cảm xúc';
+  static const anonymousTitle = 'Chia sẻ ẩn danh cho cộng đồng';
+  static const anonymousHelp =
+      'Bản thử: trạm ẩn danh chỉ hiện trên máy này, chưa gửi cho cộng đồng.';
+  static const saveLabel = 'Lưu và ghim lên bản đồ';
+  static const shareLabel = 'Gửi cho bạn bè';
+  static const shareMock = 'Tính năng gửi cho bạn bè đang được hoàn thiện.';
+  static const postTitle = 'Gửi qua Nudaeng Post';
+  static const sendLabel = 'Gửi thư';
+  static const inboxTitle = 'Hòm thư của bạn';
+  static const inboxLetter = 'Tường Vy vừa gửi cho bạn một địa điểm bí mật!';
+  static const inboxMeta = 'Nudaeng Post · vừa xong';
+  static const openLabel = 'Mở và lưu vào bản đồ';
+}
+
+/// [pinned]: the user chose where the place goes (a pin, a search result)
+/// rather than the middle of the map. [name]: a name to start from, e.g. a
+/// search result's.
+Future<PlaceDraft?> showAddPlaceSheet(BuildContext context,
+        {bool pinned = false, String? name}) =>
+    showAppSheet<PlaceDraft>(context,
+        builder: (_) => _AddPlaceSheet(pinned: pinned, name: name));
+
+/// What was filled in before the sheet was closed without saving, for the
+/// session: opening it again carries on. Saving clears it.
+class _Unsaved {
+  static var name = '';
+  static var note = '';
+  static String category = placeCategories.first.$1;
+  static PlaceMood? mood;
+  static var anonymous = false;
+
+  static void clear() {
+    name = '';
+    note = '';
+    category = placeCategories.first.$1;
+    mood = null;
+    anonymous = false;
+  }
+}
+
+/// Forgets what [showAddPlaceSheet] kept from a closed sheet (tests).
+@visibleForTesting
+void clearUnsavedPlace() => _Unsaved.clear();
 
 class _AddPlaceSheet extends StatefulWidget {
-  const _AddPlaceSheet();
+  const _AddPlaceSheet({required this.pinned, this.name});
+
+  final bool pinned;
+  final String? name;
 
   @override
   State<_AddPlaceSheet> createState() => _AddPlaceSheetState();
 }
 
 class _AddPlaceSheetState extends State<_AddPlaceSheet> {
-  final _name = TextEditingController();
-  final _note = TextEditingController();
-  String _category = 'Food';
-  String _moodTag = moodTags.first;
-  var _mood = moodOptions.first;
-  bool _isAnonymousShare = false;
+  late final _name = TextEditingController(text: widget.name ?? _Unsaved.name);
+  final _note = TextEditingController(text: _Unsaved.note);
+  String _category = _Unsaved.category;
+  PlaceMood? _mood = _Unsaved.mood;
+  bool _isAnonymousShare = _Unsaved.anonymous;
+  bool _nameMissing = false;
+  var _saved = false;
 
   @override
   void dispose() {
+    // Closed without saving (close button, back, tapping outside): keep it.
+    if (!_saved) {
+      _Unsaved.name = _name.text;
+      _Unsaved.note = _note.text;
+      _Unsaved.category = _category;
+      _Unsaved.mood = _mood;
+      _Unsaved.anonymous = _isAnonymousShare;
+    }
     _name.dispose();
     _note.dispose();
     super.dispose();
@@ -64,215 +148,426 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
   void _save() {
     final name = _name.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hãy nhập tên địa điểm.')));
+      setState(() => _nameMissing = true);
       return;
     }
+    _saved = true;
+    _Unsaved.clear();
     Navigator.pop(
         context,
         PlaceDraft(
           name: name,
           category: _category,
-          moodTag: _moodTag,
+          mood: _mood,
           note: _note.text.trim(),
-          moodLabel: _mood.$1,
-          moodAsset: _mood.$2,
           isAnonymousShare: _isAnonymousShare,
         ));
   }
 
   @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.viewInsetsOf(context).bottom;
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottom),
-        child: Material(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                      color: Colors.grey.shade400,
-                      borderRadius: BorderRadius.circular(8))),
-              const SizedBox(height: 16),
-              Text('Save a new place',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _name,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  labelText: 'Tên địa điểm',
-                  hintText: 'Tiệm bánh cô Hai...',
-                  border: OutlineInputBorder(),
+  Widget build(BuildContext context) => Padding(
+        // The keyboard pushes the form up; the sheet scrolls.
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(top: AppSpacing.sm),
+                  child: Text(PlaceSheetText.addTitle,
+                      style: AppText.sectionTitle),
                 ),
               ),
-              const SizedBox(height: 16),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(spacing: 8, children: [
-                  for (final category in ['Food', 'Study', 'Chill'])
-                    ChoiceChip(
-                      label: Text(category),
-                      selected: _category == category,
-                      onSelected: (_) => setState(() => _category = category),
-                    ),
-                ]),
-              ),
-              const SizedBox(height: 16),
-              const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Cảm xúc tại địa điểm này')),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(spacing: 8, runSpacing: 8, children: [
-                  for (final moodTag in moodTags)
-                    ChoiceChip(
-                      label: Text(moodTag),
-                      selected: _moodTag == moodTag,
-                      onSelected: (_) => setState(() => _moodTag = moodTag),
-                    ),
-                ]),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _note,
-                minLines: 2,
-                maxLines: 4,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  labelText: 'Bạn cảm thấy thế nào ở đây?',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('Chọn Nudaeng Mood')),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 84,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: moodOptions.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 10),
-                  itemBuilder: (_, index) {
-                    final mood = moodOptions[index];
-                    final selected = mood == _mood;
-                    return Semantics(
-                      selected: selected,
-                      label: 'Mood ${mood.$1}',
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(14),
-                        onTap: () => setState(() => _mood = mood),
-                        child: Container(
-                          width: 76,
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                                color: selected
-                                    ? AppColors.primaryDark
-                                    : Colors.transparent,
-                                width: 2),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Image.asset(mood.$2, fit: BoxFit.contain),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 20),
-              SwitchListTile.adaptive(
-                contentPadding: EdgeInsets.zero,
-                value: _isAnonymousShare,
-                onChanged: (value) => setState(() => _isAnonymousShare = value),
-                title: const Text('Chia sẻ ẩn danh cho cộng đồng'),
-                subtitle: const Text(
-                  'Bản demo: trạm ẩn danh chỉ hiển thị trên máy này, chưa gửi cho cộng đồng.',
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryDark,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size.fromHeight(52),
-                  ),
-                  child: const Text('Lưu & Ghim lên bản đồ'),
-                ),
+              // Always a way back to the map without saving.
+              IconButton(
+                tooltip: PlaceSheetText.closeTooltip,
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.close_rounded,
+                    color: AppColors.textSecondary),
               ),
             ]),
+            Text(
+                widget.pinned
+                    ? PlaceSheetText.addHelpPinned
+                    : PlaceSheetText.addHelp,
+                style: AppText.meta),
+            const SizedBox(height: AppSpacing.lg),
+            TextField(
+              controller: _name,
+              textCapitalization: TextCapitalization.words,
+              style: AppText.body,
+              onChanged: (_) {
+                if (_nameMissing) setState(() => _nameMissing = false);
+              },
+              decoration: _field(
+                label: PlaceSheetText.nameLabel,
+                hint: PlaceSheetText.nameHint,
+                error: _nameMissing ? PlaceSheetText.nameMissing : null,
+              ),
+            ),
+            const _Section(PlaceSheetText.categoryLabel),
+            Wrap(spacing: AppSpacing.sm, runSpacing: AppSpacing.sm, children: [
+              for (final (value, label) in placeCategories)
+                _Choice(
+                  label: label,
+                  selected: _category == value,
+                  onTap: () => setState(() => _category = value),
+                ),
+            ]),
+            const _Section(PlaceSheetText.moodLabel,
+                help: PlaceSheetText.moodHelp),
+            MoodGrid(
+              selected: _mood,
+              // Tapping the chosen one again leaves it unchosen.
+              onChanged: (mood) => setState(() => _mood = mood),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            TextField(
+              controller: _note,
+              minLines: 2,
+              maxLines: 4,
+              textCapitalization: TextCapitalization.sentences,
+              style: AppText.body,
+              decoration: _field(
+                  label: PlaceSheetText.noteLabel,
+                  hint: PlaceSheetText.noteHint),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            SwitchListTile.adaptive(
+              contentPadding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md, vertical: AppSpacing.xs),
+              tileColor: AppColors.background,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.input)),
+              value: _isAnonymousShare,
+              onChanged: (value) => setState(() => _isAnonymousShare = value),
+              activeTrackColor: AppColors.primaryAction,
+              title: const Text(PlaceSheetText.anonymousTitle,
+                  style: AppText.label),
+              subtitle:
+                  const Text(PlaceSheetText.anonymousHelp, style: AppText.meta),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            AppPrimaryButton(
+              label: PlaceSheetText.saveLabel,
+              icon: Icons.push_pin_outlined,
+              onPressed: _save,
+            ),
+          ],
+        ),
+      );
+
+  static InputDecoration _field(
+          {required String label, String? hint, String? error}) =>
+      InputDecoration(
+        labelText: label,
+        hintText: hint,
+        errorText: error,
+        labelStyle: AppText.bodySecondary,
+        hintStyle: AppText.bodySecondary,
+        filled: true,
+        fillColor: AppColors.surface,
+        border: _border(AppColors.border),
+        enabledBorder: _border(AppColors.border),
+        focusedBorder: _border(AppColors.primaryAction, width: 1.5),
+      );
+
+  static OutlineInputBorder _border(Color color, {double width = 1}) =>
+      OutlineInputBorder(
+        borderRadius: const BorderRadius.all(Radius.circular(AppRadius.input)),
+        borderSide: BorderSide(color: color, width: width),
+      );
+}
+
+/// Picks a Nudaeng mood for the map filter: the same six, and "Mọi cảm xúc".
+/// Null when closed without choosing; `(null,)` for every mood.
+Future<(PlaceMood?,)?> showMoodFilterSheet(
+        BuildContext context, PlaceMood? current) =>
+    showAppSheet<(PlaceMood?,)>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(top: AppSpacing.sm),
+                child: Text(PlaceSheetText.filterTitle,
+                    style: AppText.sectionTitle),
+              ),
+            ),
+            IconButton(
+              tooltip: PlaceSheetText.closeTooltip,
+              onPressed: () => Navigator.pop(sheet),
+              icon: const Icon(Icons.close_rounded,
+                  color: AppColors.textSecondary),
+            ),
+          ]),
+          const Text(PlaceSheetText.filterHelp, style: AppText.meta),
+          const SizedBox(height: AppSpacing.lg),
+          MoodGrid(
+            selected: current,
+            onChanged: (mood) => Navigator.pop(sheet, (mood,)),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppSecondaryButton(
+            label: PlaceSheetText.filterAll,
+            compact: true,
+            onPressed: () => Navigator.pop(sheet, (null,)),
+          ),
+        ],
+      ),
+    );
+
+/// The six Nudaeng moods, three to a row, all in view at once. The chosen
+/// one has Primary Light behind it, a teal outline and a tick; every one
+/// keeps its name under it. Tapping the chosen one again gives null.
+class MoodGrid extends StatelessWidget {
+  const MoodGrid({super.key, required this.selected, required this.onChanged});
+
+  final PlaceMood? selected;
+  final ValueChanged<PlaceMood?> onChanged;
+
+  static const gap = AppSpacing.sm;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        final width = (box.maxWidth - gap * 2) / 3;
+        return Wrap(spacing: gap, runSpacing: gap, children: [
+          for (final mood in PlaceMood.values)
+            SizedBox(
+              width: width,
+              child: _MoodTile(
+                mood: mood,
+                selected: mood == selected,
+                onTap: () => onChanged(mood == selected ? null : mood),
+              ),
+            ),
+        ]);
+      });
+}
+
+/// A small label over a group of choices.
+class _Section extends StatelessWidget {
+  const _Section(this.text, {this.help});
+
+  final String text;
+  final String? help;
+
+  @override
+  Widget build(BuildContext context) {
+    final help = this.help;
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.lg, bottom: AppSpacing.sm),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(text,
+            style: AppText.label.copyWith(color: AppColors.textSecondary)),
+        if (help != null) ...[
+          const SizedBox(height: 2),
+          Text(help, style: AppText.meta.copyWith(fontSize: 12)),
+        ],
+      ]),
+    );
+  }
+}
+
+/// One of a few: Primary Light with an outline when chosen, as Journal's
+/// mood chips; 40 high.
+class _Choice extends StatelessWidget {
+  const _Choice(
+      {required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        selected: selected,
+        child: Material(
+          color: selected ? AppColors.primaryLight : AppColors.surface,
+          shape: StadiumBorder(
+              side: BorderSide(
+                  color:
+                      selected ? AppColors.primaryAction : AppColors.border)),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 40),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Center(
+                  widthFactor: 1,
+                  child: Text(label,
+                      style: AppText.meta.copyWith(
+                          color: selected
+                              ? AppColors.primaryAction
+                              : AppColors.textPrimary,
+                          fontWeight: selected ? FontWeight.w600 : null)),
+                ),
+              ),
+            ),
           ),
         ),
-      ),
+      );
+}
+
+/// Nudaeng in one mood with its name; chosen: Primary Light, a teal outline
+/// and a tick in the corner.
+class _MoodTile extends StatelessWidget {
+  const _MoodTile({
+    required this.mood,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final PlaceMood mood;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        selected: selected,
+        label: 'Nudaeng ${mood.label}',
+        excludeSemantics: true,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Material(
+            color: selected ? AppColors.primaryLight : AppColors.background,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.input),
+              side: BorderSide(
+                  color:
+                      selected ? AppColors.primaryAction : Colors.transparent,
+                  width: 1.5),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.xs, AppSpacing.sm, AppSpacing.xs, AppSpacing.sm),
+                child: Column(children: [
+                  AspectRatio(
+                    aspectRatio: 1.25,
+                    child: Image.asset(mood.asset,
+                        fit: BoxFit.contain, cacheWidth: 260),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(mood.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.meta.copyWith(
+                          fontSize: 13,
+                          color: selected
+                              ? AppColors.primaryAction
+                              : AppColors.textPrimary,
+                          fontWeight: selected ? FontWeight.w600 : null)),
+                ]),
+              ),
+            ),
+          ),
+          if (selected)
+            const Positioned(
+              top: 6,
+              right: 6,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                    color: AppColors.primaryAction, shape: BoxShape.circle),
+                child: Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(Icons.check_rounded,
+                      size: 14, color: AppColors.surface),
+                ),
+              ),
+            ),
+        ]),
+      );
+}
+
+/// The place's Nudaeng in a Primary Light circle at the top of its sheet;
+/// without one, what the place is for.
+class _PlaceBadge extends StatelessWidget {
+  const _PlaceBadge(this.place);
+
+  final SavedPlace place;
+  static const size = 88.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final mood = place.mood;
+    return Container(
+      width: size,
+      height: size,
+      padding: const EdgeInsets.all(size * .1),
+      decoration: const BoxDecoration(
+          color: AppColors.primaryLight, shape: BoxShape.circle),
+      child: mood != null
+          ? Image.asset(mood.asset, fit: BoxFit.contain, cacheWidth: 260)
+          : Icon(categoryIcon(place.category),
+              size: 36, color: AppColors.primaryAction),
     );
   }
 }
 
 Future<void> showSavedPlaceSheet(BuildContext context, SavedPlace place,
         {Future<void> Function()? onShare}) =>
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SafeArea(
-        top: false,
-        child: Material(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Container(width: 42, height: 4, color: Colors.grey),
-              const SizedBox(height: 20),
-              Image.asset(place.moodAsset, height: 72),
-              Text(place.name,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 6),
-              Text('${place.category} · ${place.moodTag} · ${place.moodLabel}'),
-              if (place.note.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Text(place.note, textAlign: TextAlign.center),
-              ],
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    if (onShare != null) {
-                      await onShare();
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                          content: Text('Share is a mock in this version.')));
-                    }
-                  },
-                  icon: const Icon(Icons.share_outlined),
-                  label: const Text('Share'),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryDark,
-                      foregroundColor: Colors.white),
+    showAppSheet<void>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(child: _PlaceBadge(place)),
+          const SizedBox(height: AppSpacing.md),
+          Text(place.name,
+              textAlign: TextAlign.center, style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final tag in [
+                categoryName(place.category),
+                if (place.mood case final mood?) mood.label,
+              ])
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: AppSpacing.xs),
+                  decoration: const ShapeDecoration(
+                      color: AppColors.background, shape: StadiumBorder()),
+                  child: Text(tag, style: AppText.meta),
                 ),
-              )
-            ]),
+            ],
           ),
-        ),
+          if (place.note.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(place.note,
+                textAlign: TextAlign.center, style: AppText.bodySecondary),
+          ],
+          const SizedBox(height: AppSpacing.xl),
+          AppPrimaryButton(
+            label: PlaceSheetText.shareLabel,
+            icon: Icons.send_outlined,
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.pop(sheet);
+              if (onShare != null) {
+                await onShare();
+              } else {
+                messenger.showSnackBar(
+                    const SnackBar(content: Text(PlaceSheetText.shareMock)));
+              }
+            },
+          ),
+        ],
       ),
     );
 
@@ -284,11 +579,8 @@ const _friends = [
 
 Future<List<String>?> showShareFriendsSheet(BuildContext context,
         {required String placeName}) =>
-    showModalBottomSheet<List<String>>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _ShareFriendsSheet(placeName: placeName),
-    );
+    showAppSheet<List<String>>(context,
+        builder: (_) => _ShareFriendsSheet(placeName: placeName));
 
 class _ShareFriendsSheet extends StatefulWidget {
   const _ShareFriendsSheet({required this.placeName});
@@ -302,145 +594,91 @@ class _ShareFriendsSheetState extends State<_ShareFriendsSheet> {
   final _recipients = <String>{};
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-        top: false,
-        child: Material(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Container(
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                        color: Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(8))),
-                const SizedBox(height: 16),
-                Text('Gửi qua Nudaeng Post',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(widget.placeName,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey.shade700)),
-                const SizedBox(height: 12),
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _friends.length,
-                  itemBuilder: (_, index) {
-                    final friend = _friends[index];
-                    final checked = _recipients.contains(friend.$1);
-                    return CheckboxListTile(
-                      value: checked,
-                      onChanged: (value) => setState(() {
-                        value == true
-                            ? _recipients.add(friend.$1)
-                            : _recipients.remove(friend.$1);
-                      }),
-                      secondary: CircleAvatar(child: Text(friend.$2)),
-                      title: Text(friend.$1),
-                      controlAffinity: ListTileControlAffinity.trailing,
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _recipients.isEmpty
-                        ? null
-                        : () => Navigator.pop(context, _recipients.toList()),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryDark,
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size.fromHeight(52),
-                    ),
-                    child: const Text('Gửi thư'),
-                  ),
-                ),
-              ]),
+  Widget build(BuildContext context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(PlaceSheetText.postTitle, style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.xs),
+          Text(widget.placeName, style: AppText.meta),
+          const SizedBox(height: AppSpacing.md),
+          for (final (name, initials) in _friends)
+            CheckboxListTile(
+              value: _recipients.contains(name),
+              onChanged: (value) => setState(() {
+                value == true
+                    ? _recipients.add(name)
+                    : _recipients.remove(name);
+              }),
+              contentPadding: EdgeInsets.zero,
+              activeColor: AppColors.primaryAction,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.small)),
+              secondary: CircleAvatar(
+                backgroundColor: AppColors.primaryLight,
+                foregroundColor: AppColors.primaryAction,
+                child: Text(initials,
+                    style: AppText.meta.copyWith(
+                        color: AppColors.primaryAction,
+                        fontWeight: FontWeight.w600)),
+              ),
+              title: Text(name, style: AppText.body),
+              controlAffinity: ListTileControlAffinity.trailing,
             ),
+          const SizedBox(height: AppSpacing.lg),
+          AppPrimaryButton(
+            label: PlaceSheetText.sendLabel,
+            icon: Icons.send_outlined,
+            onPressed: _recipients.isEmpty
+                ? null
+                : () => Navigator.pop(context, _recipients.toList()),
           ),
-        ),
+        ],
       );
 }
 
-Future<bool?> showInboxSheet(BuildContext context) =>
-    showModalBottomSheet<bool>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => SafeArea(
-        top: false,
-        child: Material(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Container(
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                        color: Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(8))),
-                const SizedBox(height: 16),
-                Text('Hòm thư của bạn',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleLarge
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                const ListTile(
-                  leading: CircleAvatar(child: Icon(Icons.card_giftcard)),
-                  title: Text('Tường Vy vừa gửi cho bạn một địa điểm bí mật!'),
-                  subtitle: Text('Nudaeng Post · vừa xong'),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryDark,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size.fromHeight(52)),
-                    child: const Text('Mở & Lưu vào bản đồ'),
-                  ),
-                ),
-              ]),
+Future<bool?> showInboxSheet(BuildContext context) => showAppSheet<bool>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(PlaceSheetText.inboxTitle, style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.md),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(AppRadius.input),
             ),
+            child: Row(children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: const BoxDecoration(
+                    color: AppColors.primaryLight, shape: BoxShape.circle),
+                child: const Icon(Icons.mail_outline_rounded,
+                    color: AppColors.primaryAction),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(PlaceSheetText.inboxLetter, style: AppText.label),
+                    SizedBox(height: 2),
+                    Text(PlaceSheetText.inboxMeta, style: AppText.meta),
+                  ],
+                ),
+              ),
+            ]),
           ),
-        ),
+          const SizedBox(height: AppSpacing.xl),
+          AppPrimaryButton(
+            label: PlaceSheetText.openLabel,
+            icon: Icons.mark_email_read_outlined,
+            onPressed: () => Navigator.pop(sheet, true),
+          ),
+        ],
       ),
     );
-
-class SavedPlace {
-  const SavedPlace({
-    required this.id,
-    required this.name,
-    required this.category,
-    required this.moodTag,
-    required this.note,
-    required this.latitude,
-    required this.longitude,
-    required this.moodAsset,
-    required this.moodLabel,
-  });
-
-  final String id;
-  final String name;
-  final String category;
-  final String moodTag;
-  final String note;
-  final double latitude;
-  final double longitude;
-  final String moodAsset;
-  final String moodLabel;
-}

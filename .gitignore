@@ -48,3 +48,17 @@ mobile/ios/Pods/
 # Secrets
 *.pem
 *.key
+
+# Local map preview build (about 1.4 GB); never committed.
+/..AI-Journal-map-preview/
+
+# Firebase ADMIN credentials are private keys. Never commit them, even
+# to a private repository. Only the non-secret Android google-services.json
+# may be deliberately committed after verifying its package/project IDs.
+**/fcm-sender.json
+**/*service-account*.json
+**/*service_account*.json
+**/firebase-adminsdk-*.json
+**/serviceAccountKey.json
+**/firebase-private-key*.json
+**/google-application-credentials.json

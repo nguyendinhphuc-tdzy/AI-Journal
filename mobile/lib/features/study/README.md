@@ -66,8 +66,9 @@ was added to fake them; they belong with the real API integration.
 
 ## Demo limitations
 
-The existing local fixture remains in use. Enrollment, task progress, entries, and drafts
-are kept in memory for this app session, with no backend or disk persistence.
+The existing local fixture remains in use for the catalog. Enrollment, task
+progress and drafts are kept on the device and entries go into the local
+journal (see "Journal and progress"); nothing is synced to a backend.
 Only one challenge exists in the fixture, so choosing between multiple active /
 paused enrollments is not implemented. Banner task counts and progress are
 calculated from that fixture and the completed task set.
@@ -220,6 +221,50 @@ new, non-final completion events and never when loading old progress.
 
 See [FLOW_ASSET_AUDIT.md](FLOW_ASSET_AUDIT.md) for remaining gaps. These UI fixes
 do not implement production enrollment, entry persistence, or task associations.
+
+## Wording and cards (27/10/2026)
+
+- "Challenge" stays as the feature's name; the rest is Vietnamese: filters
+  "Khóa học / Mẫu viết / Bài đọc" (the same words as each card's type),
+  "câu gợi ý" for prompt, "bài viết" for entry, "Suy ngẫm sâu hơn" for Go
+  Deeper (as in the journal editor), the framework "Gỡ rối suy nghĩ".
+- S01 cards show a line under the description: type and length
+  ("Khóa học · 3 bài · 12 phút"), so a course and a short reading read apart.
+- The filter row has its own `PageStorageKey`: without it, it restored the
+  page's scroll offset and opened scrolled past "Tất cả".
+- Leaving a challenge asks in the app's confirm sheet (`showAppSheet`, "Ở lại"
+  / "Rời challenge"), as the journal editor does.
+
+## Journal and progress (27/10/2026)
+
+- Everything written in Study (challenge tasks, course and lesson practice,
+  the "Gỡ rối suy nghĩ" template) is saved by `StudySession` as a journal
+  entry with a `JournalSource` ("Challenge · Nhiệm vụ 2", "Mẫu viết · Gỡ rối
+  suy nghĩ", "Bài học · …"). It is listed in "Nhật ký của bạn" with that
+  label, can be edited or deleted there (editing keeps the source), and
+  marks today as written for the streak (no streak celebration from Study).
+- A challenge task keeps one entry (task → journal id). If that entry is
+  deleted from the journal the task stays done and says so when opened.
+- `StudyProgress` (joined / paused / left, tasks done, lessons read, the
+  reading read, drafts, task entries) is kept on the device by
+  `LocalStudyProgressStore` (`study.progress` in shared_preferences); drafts
+  are kept 600 ms after typing pauses. If it cannot be read or written,
+  Study still works for the session. Tests pass an
+  `InMemoryStudyProgressStore`.
+- The Study editor writes on the journal's chosen paper and text size
+  (`JournalPaperView`, `WritingPreferences`). The ruled paper shows its
+  texture without lines here (the journal editor draws those). Its own
+  after-save flow (short reflection, J03) is kept.
+- "Suy ngẫm sâu hơn" works as in the journal editor, deeper: each piece of
+  writing has two questions of its own (`studyFollowUps`: the seven tasks,
+  the three lessons, the reading, the course practice, the template). Once
+  something is written, the button keeps the answer above (muted, at the
+  text size), shows the next question and a fresh field; "Bản nháp ·
+  Suy ngẫm 1/2" says where the user is. After the last question the button
+  turns off and says so. Saving joins the answers with a blank line, as the
+  journal editor does; a task draft keeps them all.
+- J03 says when the daily reminders are set, or that they can be set in
+  Hồ sơ (reminders are still simulated, see Hồ sơ).
 
 ## User-requested mock content
 

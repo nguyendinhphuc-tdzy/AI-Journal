@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../core/theme/app_colors.dart';
+import 'app_destinations.dart';
 
+/// The app shell's bottom bar on screens pushed above the shell (J01, the
+/// streak): same tabs, icons and style ([appDestinations]); choosing a tab
+/// is up to the screen.
 class CustomBottomNavigation extends StatelessWidget {
   const CustomBottomNavigation({
     super.key,
@@ -12,57 +15,10 @@ class CustomBottomNavigation extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
 
-  static const _tabs = [
-    (label: 'Trang chủ', icon: Icons.home_outlined),
-    (label: 'Học tập', icon: Icons.school_outlined),
-    (label: 'Kỷ niệm', icon: Icons.photo_album_outlined),
-    (label: 'Khám phá', icon: Icons.explore_outlined),
-  ];
-
   @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Row(
-              children: List.generate(_tabs.length, (index) {
-            final tab = _tabs[index];
-            final selected = selectedIndex == index;
-            final color =
-                selected ? AppColors.primaryDark : AppColors.textSecondary;
-            return Expanded(
-              child: Semantics(
-                selected: selected,
-                button: true,
-                label: tab.label,
-                excludeSemantics: true,
-                child: InkWell(
-                  onTap: () => onDestinationSelected(index),
-                  borderRadius: BorderRadius.circular(16),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(tab.icon, color: color),
-                      const SizedBox(height: 6),
-                      Text(tab.label,
-                          style:
-                              Theme.of(context).textTheme.labelMedium?.copyWith(
-                                    color: color,
-                                    fontWeight: selected
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                  )),
-                    ]),
-                  ),
-                ),
-              ),
-            );
-          })),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => NavigationBar(
+        selectedIndex: selectedIndex,
+        onDestinationSelected: onDestinationSelected,
+        destinations: appDestinations,
+      );
 }

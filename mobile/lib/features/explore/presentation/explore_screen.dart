@@ -1,14 +1,39 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../auth/data/guest_mode_store.dart';
+import '../../auth/presentation/auth_gate.dart';
+import '../../../core/theme/app_radius.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../data/explore_highlight.dart';
+import '../../social/presentation/friend_space_screen.dart';
+import '../../messages/data/chat_message.dart';
+import '../../messages/messages_scope.dart';
+import '../../messages/presentation/send_place_sheet.dart';
+import '../../album/album_scope.dart';
+import '../../social/data/friends_sharing.dart';
+import '../../social/data/my_shares.dart';
+import '../../album/presentation/share_memory_sheet.dart';
+import 'widgets/friend_post_card.dart';
+import '../data/device_location.dart';
 import '../data/explore_places_repository.dart';
+import '../data/place_lookup.dart';
+import '../data/remote_saved_places_repository.dart';
+import 'map_style.dart';
+import 'widgets/map_marker_art.dart';
+import 'widgets/map_overlay_parts.dart';
 import 'widgets/nudaeng_map_marker.dart';
+import 'widgets/place_pick_overlay.dart';
 import 'widgets/place_sheets.dart';
+import 'widgets/places_sheet.dart';
 import 'widgets/share_dialog.dart';
 
 Future<void> showShareDialog(BuildContext context) => showDialog<void>(
@@ -20,30 +45,97 @@ class ExploreScreen extends StatefulWidget {
   const ExploreScreen({
     super.key,
     this.placesRepository = const MockExplorePlacesRepository(),
-    this.clock,
+    this.savedPlacesStore = const LocalSavedPlacesStore(),
+    this.location = const GeolocatorDeviceLocation(),
     this.highlight,
   });
 
   final ExplorePlacesRepository placesRepository;
 
-  /// Allows deterministic day/night rendering in widget tests.
-  final DateTime Function()? clock;
+  /// Where saved places and community stops are kept between runs.
+  final SavedPlacesStore savedPlacesStore;
+
+  /// "Vị trí của tôi": permission is asked only when it is tapped.
+  final DeviceLocation location;
 
   /// Shared memory pin passed from Album A10; cleared after A11/A12 revoke.
   final ExploreHighlight? highlight;
+
+  static const searchHint = 'Tìm địa điểm';
+  static const inboxTooltip = 'Mở hộp thư';
+  static const friendsTooltip = 'Bạn bè trên app';
+  static const allFilter = 'Tất cả';
+  static const moodFilter = 'Cảm xúc';
+  static const communityLabel = 'Cộng đồng';
+  static const saveLabel = 'Lưu một nơi';
+  static const saveHereLabel = 'Lưu nơi này';
+  static const locateTooltip = 'Vị trí của tôi';
+  static const zoomInTooltip = MapZoomButtons.zoomInTooltip;
+  static const zoomOutTooltip = MapZoomButtons.zoomOutTooltip;
+  static const locationDenied =
+      'Bạn chưa cho phép dùng vị trí. Có thể bật lại trong Cài đặt của máy.';
+  static const locationFailed = 'Chưa lấy được vị trí. Bạn thử lại nhé.';
+  static const pinHint = 'Chạm vào bản đồ để ghim tạm';
+  static const noResults = 'Không tìm thấy địa điểm';
+  static const searchFailed = 'Chưa tải được địa điểm. Bạn thử lại nhé.';
+  static const retryLabel = 'Thử lại';
+  static const sample = 'Địa điểm mẫu';
+  static const draftTitle = 'Ghim tạm';
+  static const draftDetail = 'Chưa lưu · Chạm chỗ khác để dời';
+  static const closePlaceTooltip = 'Đóng địa điểm';
+  static const removeDraftTooltip = 'Bỏ ghim tạm';
+  static const closePostTooltip = 'Đóng bài chia sẻ';
+  static const mapFailed =
+      'Không tải được bản đồ. Bạn kiểm tra kết nối mạng nhé.';
+  static const reloadMapLabel = 'Tải lại bản đồ';
+  static const savedResult = 'Đã lưu';
+  static const saved = 'Đã lưu nơi này';
+  static const savedShown = 'Đã lưu. Bộ lọc được bỏ để bạn thấy nơi này.';
+  static const keepFailed =
+      'Đã ghim trên bản đồ nhưng chưa lưu được vào máy. Bạn thử lại nhé.';
+  static const cloudSaved = 'Đã lưu vào tài khoản';
+  static const cloudSaveFailed = 'Không lưu được ghim trên cloud. Hãy thử lại.';
+  static const cloudPartlySaved =
+      'Đã tạo ghim nhưng chưa lưu được ghi chú. Vui lòng kiểm tra lại.';
+  static const cloudLoadFailed =
+      'Không tải được địa điểm đã lưu từ tài khoản. Thử mở lại bản đồ.';
+  static const cloudShareUnsupported =
+      'Chia sẻ địa điểm chưa được hỗ trợ trên cloud.';
+  static const sharedFilter = 'Đã chia sẻ';
+  static String sharedStatus(int n) => 'Đang xem: $n bài bạn đã chia sẻ';
+
+  /// "Đang chia sẻ với Tường Vy", "Đã hết hạn", "Đã gỡ".
+  static String mineByline(MyShare share, DateTime now) {
+    if (share.revokedAt != null) return 'Bài của bạn · đã gỡ';
+    if (!share.isActive(now)) return 'Bài của bạn · đã hết hạn';
+    final to = share.recipientNames;
+    return to.isEmpty
+        ? 'Bài của bạn · đang chia sẻ'
+        : 'Đang chia sẻ với ${to.join(', ')}';
+  }
+
+  /// "Chia sẻ lúc 15:49, 30/10/2026".
+  static String sharedOn(DateTime at) {
+    final t = at.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return 'Chia sẻ lúc ${two(t.hour)}:${two(t.minute)}, '
+        '${two(t.day)}/${two(t.month)}/${t.year}';
+  }
+
+  static const momentsShow = 'Hiện khoảnh khắc của bạn bè';
+  static const momentsHide = 'Ẩn khoảnh khắc của bạn bè';
+  static String momentsNew(int n) => '$n khoảnh khắc mới';
+  static String momentsShown(int n) => 'Đang hiện $n khoảnh khắc của bạn bè';
+  static const momentsNone =
+      'Chưa có khoảnh khắc nào của bạn bè trong 24 giờ qua.';
+  static const cloudInboxUnsupported =
+      'Hòm thư mẫu chưa kết nối với tài khoản.';
 
   @override
   State<ExploreScreen> createState() => _ExploreScreenState();
 }
 
 class _ExploreScreenState extends State<ExploreScreen> {
-  static const _dayStyle = 'https://tiles.openfreemap.org/styles/liberty';
-  static const _nightStyle = 'https://tiles.openfreemap.org/styles/dark';
-  // The requested ngu.gif asset is not part of this repository yet. Keep the
-  // fallback local and replace this path once that approved asset is added.
-  static const _nightMascotAsset = 'assets/images/loading.gif';
-
-  late final bool _isNight;
   MapLibreMapController? _map;
   final _searchController = TextEditingController();
   Timer? _debounce;
@@ -55,67 +147,141 @@ class _ExploreScreenState extends State<ExploreScreen> {
   bool _loadFailed = false;
   String? _searchError;
   String _query = '';
-  String _selectedMood = 'Tất cả';
+
+  /// The filters: what places are for, and the Nudaeng felt there. Null:
+  /// any.
+  String? _category;
+  PlaceMood? _mood;
   List<ExplorePlace> _places = [];
+  List<ExplorePlace> _nearbyPois = const [];
+  int _poiRequestVersion = 0;
+  DateTime? _lastPoiRefresh;
+  LatLng? _lastPoiCentre;
+  String? _lastPoiCategory;
   ExplorePlace? _selected;
   LatLng? _draftPin;
   ExploreHighlight? _highlight;
   bool _highlightCard = false;
   LatLng _currentCameraPosition = const LatLng(10.8231, 106.6297);
+  double _zoom = 12;
+
+  /// The saved place chosen (its pin larger, named, its card highlighted).
+  String? _selectedSavedId;
+  Symbol? _selectedSymbol;
+
+  /// The wave frame the chosen pin shows while Nudaeng waves; a redraw
+  /// meanwhile (the map settling, a filter) carries on from it.
+  String? _waveFrame;
+  var _waveRun = 0;
+  final _cardKeys = <String, GlobalKey>{};
+
+  /// Groups drawn as one numbered pin, by their symbol id.
+  var _clusters = <String, List<SavedPlace>>{};
+  final _clusterImages = <String>{};
+  double _clusteredAt = 12;
+
+  /// "Những nơi của bạn": its controller, height (a part of the room) and
+  /// the room's height.
+  final _sheet = DraggableScrollableController();
+  double? _sheetSize;
+  double _room = 700;
+  static const _collapsedHeight = 84.0;
+  static const _half = PlacesSheet.half;
+
+  /// Choosing where a new place goes: the pin at the middle of the map.
+  var _picking = false;
+  var _moving = false;
+
+  var _locating = false;
+  var _located = false;
   final List<SavedPlace> _savedPlaces = [
     const SavedPlace(
       id: 'saved:0',
       name: 'Góc đọc sách ven sông',
-      category: 'Chill',
-      moodTag: 'Yên tĩnh',
+      category: 'Study',
+      mood: PlaceMood.peaceful,
       note: 'Gió nhẹ và đủ yên để đọc vài trang sách.',
       latitude: 10.7792,
       longitude: 106.6974,
-      moodAsset: 'assets/images/docsach.gif',
-      moodLabel: 'Reading',
     ),
     const SavedPlace(
       id: 'saved:1',
       name: 'Con đường nhỏ đầy nắng',
       category: 'Chill',
-      moodTag: 'Cần chữa lành',
+      mood: PlaceMood.reflective,
       note: 'Một đoạn đường để đi chậm và hít thở.',
       latitude: 10.7709,
       longitude: 106.7048,
-      moodAsset: 'assets/images/laixe.gif',
-      moodLabel: 'On the road',
     ),
     const SavedPlace(
       id: 'saved:2',
       name: 'Quán bánh cuối tuần',
       category: 'Food',
-      moodTag: 'Vui vẻ',
+      mood: PlaceMood.happy,
       note: 'Một nơi để gặp bạn bè và cười thật nhiều.',
       latitude: 10.7757,
       longitude: 106.6929,
-      moodAsset: 'assets/images/like.gif',
-      moodLabel: 'Loved it',
     ),
   ];
   int _nextSavedPlaceId = 3;
+
+  /// The signed-in user's private places ([SavedPlacesScope]); then the
+  /// samples and the device store are not used for them.
+  RemoteSavedPlacesRepository? _cloudPlaces;
+  bool _storeReady = false;
+  bool _signedIn = false;
+
+  /// Friends' 24-hour posts shared with the user (signed in), asked again
+  /// every minute while Explore is open.
+  RemoteFriendsSharing? _friendsSharing;
+  List<FriendPost> _friendPosts = const [];
+  Timer? _friendPostsTimer;
+
+  /// Moments the user has seen (shown on the map since they came), kept on
+  /// this device per account; the rest are counted on the button.
+  Set<String> _seenMoments = {};
+
+  /// Friends' moments are on the map only while this is on.
+  var _showMoments = false;
+
+  /// "Đã chia sẻ": the map and the sheet show the user's own posts (ended
+  /// ones too) instead of saved places.
+  var _sharedView = false;
+
+  /// The user's own post whose card is open, and its photos (the album's
+  /// files on this device), by post id.
+  MyShare? _openMine;
+  final _minePhotos = <String, Future<Uint8List>>{};
+
+  MySharesArchive? get _archive => _friendsSharing?.archive;
+  List<MyShare> get _myShares => _archive?.shares.value ?? const [];
+
+  /// The friend's post whose card is open, and photos already asked for.
+  FriendPost? _openPost;
+  final _postPhotos = <String, Future<Uint8List>>{};
+  PlaceLookup? _placeLookup;
+  late SavedPlacesStore _effectiveLocalStore;
   bool _hasUnreadMail = true;
   bool _showAnonymous = false;
 
+  /// The pin hint is said until the first pin.
+  bool _pinnedOnce = false;
+
   /// Mock community posts deliberately contain no name, account or identifier.
-  final List<Map<String, dynamic>> _anonymousPlaces = [
-    {
-      'id': 'hope-1',
-      'latitude': 10.7733,
-      'longitude': 106.6983,
-      'message':
+  final List<CommunityStop> _anonymousPlaces = [
+    const CommunityStop(
+      id: 'hope-1',
+      latitude: 10.7733,
+      longitude: 106.6983,
+      message:
           'Một người lạ đã từng rất áp lực ở đây, nhưng mọi chuyện rồi sẽ ổn!',
-    },
-    {
-      'id': 'hope-2',
-      'latitude': 10.7816,
-      'longitude': 106.7040,
-      'message': 'Bạn không cần phải mạnh mẽ mọi lúc. Hãy nghỉ một chút nhé.',
-    },
+    ),
+    const CommunityStop(
+      id: 'hope-2',
+      latitude: 10.7816,
+      longitude: 106.7040,
+      message: 'Bạn không cần phải mạnh mẽ mọi lúc. Hãy nghỉ một chút nhé.',
+    ),
   ];
 
   @override
@@ -126,9 +292,117 @@ class _ExploreScreenState extends State<ExploreScreen> {
     // Use Android TextureView so Flutter overlays and tab clipping compose
     // correctly; the default SurfaceView uses a separate virtual display.
     MapLibreMap.useHybridComposition = true;
-    final hour = (widget.clock?.call() ?? DateTime.now()).hour;
-    _isNight = hour >= 18 || hour < 5;
-    _search();
+  }
+
+  /// What was saved before (in an earlier run); the samples until then.
+  Future<void> _loadKept() async {
+    try {
+      final places = await _effectiveLocalStore.places();
+      final stops = _signedIn
+          ? null // No mock community messages/inbox for authenticated users.
+          : await _effectiveLocalStore.stops();
+      if (!mounted) return;
+      setState(() {
+        // Account places come from the cloud, never from the device.
+        if (places != null && _cloudPlaces == null) {
+          _savedPlaces
+            ..clear()
+            ..addAll(places);
+        }
+        if (stops != null) {
+          _anonymousPlaces
+            ..clear()
+            ..addAll(stops);
+        }
+      });
+      _syncMarkers();
+    } catch (_) {
+      // Unreadable: the samples stay; nothing is overwritten until a save.
+    }
+  }
+
+  /// Keeps the places and stops; false when that failed.
+  Future<bool> _keep() async {
+    try {
+      if (_cloudPlaces == null) {
+        await _effectiveLocalStore.keepPlaces(_savedPlaces);
+      }
+      if (!_signedIn) await _effectiveLocalStore.keepStops(_anonymousPlaces);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final lookup = PlaceLookupScope.maybeOf(context);
+    final searchChanged = !_storeReady || !identical(lookup, _placeLookup);
+    _placeLookup = lookup;
+    // Choose the correct account key BEFORE reading saved pins. The old
+    // unscoped demo key must not leak between signed-in accounts.
+    if (!_storeReady) {
+      _storeReady = true;
+      final id = AuthScope.maybeOf(context)?.currentUserId;
+      _signedIn = id != null;
+      // A guest's pins live under the guest's own key, which leaving guest
+      // mode discards; never the old shared key, which outlived every
+      // guest and showed one guest's pins to the next.
+      final owner = id ??
+          (GuestScope.maybeOf(context) != null ? GuestModeStore.userId : null);
+      _effectiveLocalStore = owner == null
+          ? widget.savedPlacesStore
+          : LocalSavedPlacesStore(userId: owner);
+      if (_signedIn) {
+        _savedPlaces.clear();
+        _anonymousPlaces.clear();
+        _hasUnreadMail = false;
+        _showAnonymous = false;
+      }
+      _loadKept();
+    }
+    if (searchChanged) _search();
+    final sharing = AlbumScope.memorySharingOf(context);
+    if (sharing is RemoteFriendsSharing && !identical(sharing, _friendsSharing)) {
+      _friendsSharing?.archive?.shares.removeListener(_archiveChanged);
+      _friendsSharing = sharing;
+      sharing.archive?.shares.addListener(_archiveChanged);
+      _loadSeenMoments();
+      _friendPostsTimer?.cancel();
+      _friendPostsTimer = Timer.periodic(
+          const Duration(minutes: 1), (_) => _loadFriendPosts());
+      _loadFriendPosts();
+    }
+    final cloud = SavedPlacesScope.maybeOf(context);
+    if (cloud == null || identical(cloud, _cloudPlaces)) return;
+    _cloudPlaces = cloud;
+    // Authenticated cloud screens never display the three local demo pins
+    // or the sample mail.
+    setState(() {
+      _savedPlaces.clear();
+      _hasUnreadMail = false;
+    });
+    _syncMarkers();
+    _reloadSavedPlaces();
+  }
+
+  Future<void> _reloadSavedPlaces() async {
+    final cloud = _cloudPlaces;
+    if (cloud == null) return;
+    try {
+      final items = await cloud.all();
+      if (!mounted || !identical(cloud, _cloudPlaces)) return;
+      setState(() {
+        _savedPlaces
+          ..clear()
+          ..addAll(items);
+      });
+      await _syncMarkers();
+    } catch (_) {
+      if (!mounted || !identical(cloud, _cloudPlaces)) return;
+      _toast(ExploreScreen.cloudLoadFailed);
+    }
   }
 
   @override
@@ -162,6 +436,98 @@ class _ExploreScreenState extends State<ExploreScreen> {
         : null;
   }
 
+  void _archiveChanged() {
+    if (!mounted) return;
+    setState(() {});
+    _syncMarkers();
+  }
+
+  /// "Đã chia sẻ" on or off: own posts (ended ones too) instead of saved
+  /// places, on the map and in the sheet.
+  void _toggleSharedView([bool? on]) {
+    final next = on ?? !_sharedView;
+    if (next == _sharedView) return;
+    setState(() {
+      _sharedView = next;
+      _category = null;
+      _mood = null;
+      _selectedSavedId = null;
+      _openMine = null;
+    });
+    _syncMarkers(fade: true);
+    if (next) {
+      _frame([
+        for (final s in _myShares) LatLng(s.latitude, s.longitude)
+      ]);
+    }
+  }
+
+  /// The user's own post: its card, the pin brought into view.
+  void _showMine(MyShare share) {
+    final path = share.photoPath;
+    setState(() {
+      _openMine = share;
+      _openPost = null;
+      _highlightCard = false;
+      _selected = null;
+      _selectedSavedId = null;
+      _draftPin = null;
+      if (path != null) {
+        _minePhotos.putIfAbsent(
+            share.id, () => File(path).readAsBytes());
+      }
+    });
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    final camera = CameraUpdate.newLatLngZoom(
+        LatLng(share.latitude, share.longitude), 15);
+    (MediaQuery.disableAnimationsOf(context)
+            ? map.moveCamera(camera)
+            : map.animateCamera(camera))
+        .catchError((Object _) => false);
+  }
+
+  Future<void> _loadFriendPosts() async {
+    final sharing = _friendsSharing;
+    if (sharing == null) return;
+    try {
+      final posts = await sharing.received();
+      if (!mounted) return;
+      // The button's count of new moments changes too.
+      setState(() => _friendPosts = posts);
+      // On the map already: new ones are seen as they come.
+      if (_showMoments) _markMomentsSeen(posts);
+      _syncMarkers();
+    } catch (_) {
+      // Offline: the pins already shown stay until the next try.
+    }
+  }
+
+  /// A friend's post: its card, the pin brought into view.
+  /// A friend's post: its card with the photo, the pin brought into view.
+  void _showFriendPost(FriendPost post) {
+    setState(() {
+      _openMine = null;
+      _openPost = post;
+      if (post.hasPhoto) {
+        _postPhotos.putIfAbsent(post.id, () => _friendsSharing!.photo(post.id));
+      }
+      _highlightCard = false;
+      _selected = null;
+      _selectedSavedId = null;
+      _draftPin = null;
+    });
+    _syncMarkers();
+    final map = _map;
+    if (map == null || !_styleReady) return;
+    final camera = CameraUpdate.newLatLngZoom(
+        LatLng(post.latitude, post.longitude), 15);
+    (MediaQuery.disableAnimationsOf(context)
+            ? map.moveCamera(camera)
+            : map.animateCamera(camera))
+        .catchError((Object _) => false);
+  }
+
   Future<void> _focusHighlight() async {
     final highlight = _activeHighlight;
     final map = _map;
@@ -179,18 +545,129 @@ class _ExploreScreenState extends State<ExploreScreen> {
 
   @override
   void dispose() {
+    _friendsSharing?.archive?.shares.removeListener(_archiveChanged);
+    ++_poiRequestVersion;
+    _friendPostsTimer?.cancel();
     _debounce?.cancel();
     _loadTimeout?.cancel();
     _searchController.dispose();
+    _sheet.dispose();
     // MapLibreMap owns and disposes its controller.
     _map = null;
     super.dispose();
   }
 
+  static String _poiLabel(String? category) {
+    if (category == null) return 'Địa điểm';
+    if (category.startsWith('catering.cafe')) return 'Quán cà phê';
+    if (category.startsWith('catering')) return 'Ăn uống';
+    if (category.startsWith('commercial')) return 'Cửa hàng';
+    if (category.startsWith('education')) return 'Trường học';
+    if (category.startsWith('healthcare')) return 'Y tế';
+    if (category.startsWith('public_transport')) return 'Giao thông';
+    if (category.startsWith('accommodation')) return 'Lưu trú';
+    if (category.startsWith('tourism') || category.startsWith('entertainment')) {
+      return 'Tham quan';
+    }
+    return 'Địa điểm';
+  }
+
+  String get _poiCategory => switch (_category) {
+    'Food' => 'food',
+    'Study' => 'school',
+    'Chill' => 'cafe',
+    _ => 'all',
+  };
+
+  ExplorePlace _asPoi(PlaceCandidate p) => ExplorePlace(
+    'poi:${p.id ?? '${p.latitude},${p.longitude}'}',
+    p.name ?? p.coordinates,
+    _poiLabel(p.category),
+    p.latitude, p.longitude,
+    sample: false, poi: true, address: p.address,
+  );
+
+  /// Nearby POIs are only loaded when the map is zoomed in; no automatic
+  /// GPS permission is needed. Server caps radius/results and provider costs.
+  Future<void> _loadNearbyPois() async {
+    final lookup = _placeLookup;
+    if (!_styleReady || lookup is! RemotePlaceLookup || _zoom < 14 ||
+        _query.trim().isNotEmpty || _picking) {
+      return;
+    }
+    final center = _currentCameraPosition;
+    final now = DateTime.now();
+    final last = _lastPoiCentre;
+    final category = _poiCategory;
+    if (last != null && _lastPoiRefresh != null &&
+        now.difference(_lastPoiRefresh!) < const Duration(seconds: 20) &&
+        _lastPoiCategory == category &&
+        (last.latitude - center.latitude).abs() < .004 &&
+        (last.longitude - center.longitude).abs() < .004) {
+      return;
+    }
+    _lastPoiCentre = center;
+    _lastPoiCategory = category;
+    _lastPoiRefresh = now;
+    final version = ++_poiRequestVersion;
+    final radius = _zoom >= 17 ? 400 : _zoom >= 16 ? 750 :
+        _zoom >= 15 ? 1200 : 2200;
+    try {
+      final pois = await lookup.nearby(center.latitude, center.longitude,
+          radius: radius, category: category);
+      if (!mounted || version != _poiRequestVersion ||
+          _query.trim().isNotEmpty) {
+        return;
+      }
+      setState(() => _nearbyPois = [for (final p in pois) _asPoi(p)]);
+      _syncMarkers();
+    } catch (_) {
+      // Preserve current pins offline; the named map tiles remain available.
+    }
+  }
+
   Future<void> _search() async {
     final version = ++_searchVersion;
+    final query = _query.trim();
     try {
-      final results = await widget.placesRepository.search(_query, null);
+      final lookup = _placeLookup;
+      final List<ExplorePlace> results;
+      if (lookup != null) {
+        List<PlaceCandidate> address = const [];
+        List<PlaceCandidate> pois = const [];
+        var succeeded = query.length < 2;
+        try {
+          address = await lookup.search(query);
+          succeeded = true;
+        } catch (_) { /* POI search may still work. */ }
+        if (lookup is RemotePlaceLookup && query.length >= 2) {
+          try {
+            pois = await lookup.nearby(
+              _currentCameraPosition.latitude,
+              _currentCameraPosition.longitude,
+              radius: 5000, name: query,
+            );
+            succeeded = true;
+          } catch (_) { /* Address lookup may still work. */ }
+        }
+        if (!succeeded) throw const PlaceLookupUnavailable();
+        final seen = <String>{};
+        results = [
+          for (final p in pois)
+            if (seen.add('poi:${p.id}')) _asPoi(p),
+          for (final candidate in address)
+            if (seen.add('address:${candidate.id ?? candidate.coordinates}'))
+              ExplorePlace(
+                'address:${candidate.id ?? candidate.coordinates}',
+                candidate.name ?? candidate.coordinates, 'Địa chỉ',
+                candidate.latitude, candidate.longitude,
+                sample: candidate.sample, address: candidate.address,
+              ),
+        ];
+      } else {
+        results = _signedIn
+            ? const [] : await widget.placesRepository.search(query, null);
+      }
       if (!mounted || version != _searchVersion) return;
       setState(() {
         _places = results;
@@ -202,7 +679,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (!mounted || version != _searchVersion) return;
       setState(() {
         _places = [];
-        _searchError = 'Could not load places. Try again.';
+        _searchError = ExploreScreen.searchFailed;
       });
       _syncMarkers();
     }
@@ -215,9 +692,65 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _debounce = Timer(const Duration(milliseconds: 350), _search);
   }
 
-  void _filterPlacesByMood(String mood) {
-    setState(() => _selectedMood = mood);
-    _syncMarkers();
+  void _filter({String? category, PlaceMood? mood}) {
+    setState(() {
+      _category = category;
+      _mood = mood;
+      // A chosen place the filters hide is no longer chosen.
+      if (!_visibleSavedPlaces.any((p) => p.id == _selectedSavedId)) {
+        _selectedSavedId = null;
+      }
+    });
+    _syncMarkers(fade: true);
+    if (_query.trim().isEmpty) _loadNearbyPois();
+    // Filtered: the map goes to what is left, wherever it is.
+    if (category != null || mood != null) {
+      _frame([
+        for (final place in _visibleSavedPlaces)
+          LatLng(place.latitude, place.longitude)
+      ]);
+    }
+  }
+
+  /// Moves the map to show [points], zoomed in: one up close, several all
+  /// in view clear of the overlays. Nothing to show: the map stays.
+  Future<void> _frame(List<LatLng> points) async {
+    final map = _map;
+    if (map == null || points.isEmpty) return;
+    final CameraUpdate camera;
+    if (points.length == 1) {
+      camera = CameraUpdate.newLatLngZoom(points.single, 16);
+    } else {
+      var south = points.first.latitude, north = south;
+      var west = points.first.longitude, east = west;
+      for (final point in points.skip(1)) {
+        south = math.min(south, point.latitude);
+        north = math.max(north, point.latitude);
+        west = math.min(west, point.longitude);
+        east = math.max(east, point.longitude);
+      }
+      camera = CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+              southwest: LatLng(south, west), northeast: LatLng(north, east)),
+          // Clear of the search and chips above, the sheet and buttons below.
+          left: 48,
+          top: 200,
+          right: 48,
+          bottom: _sheetHeight + 90);
+    }
+    try {
+      MediaQuery.disableAnimationsOf(context)
+          ? await map.moveCamera(camera)
+          : await map.animateCamera(camera);
+    } catch (_) {
+      if (mounted) setState(() => _loadFailed = true);
+    }
+  }
+
+  Future<void> _pickMood() async {
+    final picked = await showMoodFilterSheet(context, _mood);
+    if (!mounted || picked == null) return;
+    _filter(category: _category, mood: picked.$1);
   }
 
   void _toggleAnonymous(bool value) {
@@ -225,33 +758,58 @@ class _ExploreScreenState extends State<ExploreScreen> {
     _syncMarkers();
   }
 
-  Future<void> _showAnonymousMessage(Map<String, dynamic> place) =>
-      showDialog<void>(
+  Future<void> _showAnonymousMessage(CommunityStop place) => showDialog<void>(
         context: context,
-        builder: (_) => AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          content: Column(mainAxisSize: MainAxisSize.min, children: [
-            ClipOval(
-                child: Image.asset('assets/images/loading.gif',
-                    height: 76, width: 76)),
-            const SizedBox(height: 14),
-            const Text('Trạm dừng ẩn danh',
-                style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            Text(place['message'] as String, textAlign: TextAlign.center),
-          ]),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Đóng')),
-          ],
+        barrierColor: Colors.black.withValues(alpha: .35),
+        builder: (dialog) => Dialog(
+          backgroundColor: AppColors.surface,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.modal)),
+          insetPadding: const EdgeInsets.all(AppSpacing.lg),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: ClipOval(
+                        child: Image.asset('assets/images/loading.gif',
+                            height: 76, width: 76)),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  Semantics(
+                    header: true,
+                    child: const Text('Trạm dừng ẩn danh',
+                        textAlign: TextAlign.center,
+                        style: AppText.sectionTitle),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(place.message,
+                      textAlign: TextAlign.center,
+                      style: AppText.bodySecondary),
+                  const SizedBox(height: AppSpacing.xl),
+                  AppSecondaryButton(
+                      label: 'Đóng',
+                      compact: true,
+                      onPressed: () => Navigator.pop(dialog)),
+                ],
+              ),
+            ),
+          ),
         ),
       );
 
-  List<SavedPlace> get _visibleSavedPlaces => _selectedMood == 'Tất cả'
-      ? _savedPlaces
-      : _savedPlaces.where((place) => place.moodTag == _selectedMood).toList();
+  List<SavedPlace> get _visibleSavedPlaces => [
+        if (!_sharedView)
+          for (final place in _savedPlaces)
+          if ((_category == null || place.category == _category) &&
+              (_mood == null || place.mood == _mood))
+            place,
+      ];
 
   void _created(MapLibreMapController controller) {
     _map = controller;
@@ -261,9 +819,9 @@ class _ExploreScreenState extends State<ExploreScreen> {
       if (!mounted || _map != controller) return;
       final id = symbol.data?['id'];
       if (id is String && id.startsWith('anonymous:')) {
-        Map<String, dynamic>? anonymous;
+        CommunityStop? anonymous;
         for (final place in _anonymousPlaces) {
-          if ('anonymous:${place['id']}' == id) {
+          if ('anonymous:${place.id}' == id) {
             anonymous = place;
             break;
           }
@@ -272,18 +830,32 @@ class _ExploreScreenState extends State<ExploreScreen> {
         return;
       }
       if (id is String && id.startsWith('saved:')) {
-        SavedPlace? saved;
         for (final place in _savedPlaces) {
           if (place.id == id) {
-            saved = place;
-            break;
+            _selectSaved(place);
+            return;
           }
         }
-        final selectedPlace = saved;
-        if (selectedPlace != null) {
-          showSavedPlaceSheet(context, selectedPlace,
-              onShare: () => _showShareBottomSheet(selectedPlace));
+        return;
+      }
+      if (id is String && id.startsWith('poi:')) {
+        for (final place in [..._places, ..._nearbyPois]) {
+          if (place.id == id) {
+            setState(() {
+              _selected = place;
+              _draftPin = null;
+            });
+            _syncMarkers();
+            return;
+          }
         }
+      }
+      if (id is String && id.startsWith('cluster:')) {
+        // A group: the map zooms in until they come apart.
+        _frame([
+          for (final place in _clusters[id] ?? const <SavedPlace>[])
+            LatLng(place.latitude, place.longitude)
+        ]);
         return;
       }
       for (final place in _places) {
@@ -291,6 +863,20 @@ class _ExploreScreenState extends State<ExploreScreen> {
           setState(() => _selected = place);
           return;
         }
+      }
+      if (id is String && id.startsWith('mine:')) {
+        final share = _archive?.byId(id.substring('mine:'.length));
+        if (share != null) _showMine(share);
+        return;
+      }
+      if (id is String && id.startsWith('friend:')) {
+        for (final post in [..._friendPosts, if (_openPost != null) _openPost!]) {
+          if ('friend:${post.id}' == id) {
+            _showFriendPost(post);
+            return;
+          }
+        }
+        return;
       }
       if (id == 'draft') setState(() => _selected = null);
       if (id == 'highlight') {
@@ -306,25 +892,37 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
-  String get _mapStyle => _isNight ? _nightStyle : _dayStyle;
-
-  String get _vibeLabel => _isNight ? 'Vibe ban đêm' : 'Vibe ban ngày';
-
   Future<void> _styleLoaded() async {
     final map = _map;
     if (map == null) return;
     try {
-      final markers = <String, Uint8List>{};
-      for (final mood in moodOptions) {
-        final mascotAsset = _isNight ? _nightMascotAsset : mood.$2;
-        markers['nudaeng-${mood.$1}'] = await createNudaengMarker(mascotAsset);
-      }
-      markers['nudaeng'] = markers['nudaeng-Reading']!;
+      // Every pin: Nudaeng in the pin frame, its tip on the place. A saved
+      // place shows the Nudaeng felt there; others, the neutral one.
+      final markers = <String, Uint8List>{
+        'nudaeng': await createPinMarker(PinArt.neutral, crop: PinArt.waveCrop),
+        for (final mood in PlaceMood.values)
+          mood.marker: await createPinMarker(mood.asset),
+        // The blink-and-wave frames, played on the chosen pin.
+        for (final (i, frame) in PinArt.waveFrames.indexed)
+          'wave-${i + 1}': await createPinMarker(frame, crop: PinArt.waveCrop),
+      };
+      markers['drop'] = await createDropMarker();
+      markers['mine'] = await createShareMarker(active: true);
+      markers['mine-past'] = await createShareMarker(active: false);
+      markers['ring'] = await createRingMarker();
+      markers['poi'] = await createPoiMarker();
       markers['anonymous'] = await createNudaengMarker(
-        _isNight ? _nightMascotAsset : 'assets/images/loading.gif',
+        'assets/images/loading.gif',
         const Color(0xFF6FBFB5),
       );
       if (!mounted || _map != map) return;
+      // Pins and the chosen one's name always show, over street names.
+      await map.setSymbolIconAllowOverlap(true);
+      await map.setSymbolIconIgnorePlacement(true);
+      await map.setSymbolTextAllowOverlap(true);
+      await map.setSymbolTextIgnorePlacement(true);
+      if (!mounted || _map != map) return;
+      _clusterImages.clear();
       for (final marker in markers.entries) {
         await map.addImage(marker.key, marker.value);
       }
@@ -335,6 +933,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
         _loadFailed = false;
       });
       _syncMarkers();
+      _loadNearbyPois();
     } catch (_) {
       if (mounted && _map == map) setState(() => _loadFailed = true);
     }
@@ -345,74 +944,205 @@ class _ExploreScreenState extends State<ExploreScreen> {
   /// MapLibre has no declarative `markers: Set<Marker>` property like Google
   /// Maps. Waiting for this future means a successful save is already queued
   /// (and normally rendered) before its confirmation is shown.
-  Future<void> _syncMarkers() {
+  Future<void> _syncMarkers({bool fade = false}) {
     final map = _map;
     if (!_styleReady || map == null) return Future.value();
+    final reduced = MediaQuery.disableAnimationsOf(context);
     // Serialize annotation updates so quick searches/taps cannot duplicate pins.
     _markerWork = _markerWork.then((_) async {
       if (!mounted || _map != map || !_styleReady) return;
       final places = List<ExplorePlace>.of(_places);
+      final nearby = _query.trim().isEmpty
+          ? List<ExplorePlace>.of(_nearbyPois) : const <ExplorePlace>[];
       final savedPlaces = List<SavedPlace>.of(_visibleSavedPlaces);
       final anonymousPlaces = _showAnonymous
-          ? List<Map<String, dynamic>>.of(_anonymousPlaces)
-          : const <Map<String, dynamic>>[];
+          ? List<CommunityStop>.of(_anonymousPlaces)
+          : const <CommunityStop>[];
       final draft = _draftPin;
       final highlight = _activeHighlight;
+      final now = DateTime.now();
+      final open = _openPost;
+      final friendPosts = [
+        if (_showMoments)
+          for (final post in _friendPosts)
+            if (post.isActive(now)) post,
+        // An open post not in the list (e.g. just expired off it) keeps its pin.
+        if (open != null &&
+            open.isActive(now) &&
+            !_friendPosts.any((post) => post.id == open.id))
+          open,
+      ];
+      final selectedId = _selectedSavedId;
+      final zoom = _zoom;
+      final clusters = clusterPlaces(savedPlaces, zoom, keep: selectedId);
       await map.clearSymbols();
+      _selectedSymbol = null;
+      _clusteredAt = zoom;
+      final shown = <Symbol>[];
+      final groups = <String, List<SavedPlace>>{};
       if (!mounted || _map != map) return;
+      for (final poi in nearby) {
+        await map.addSymbol(
+            SymbolOptions(
+              geometry: LatLng(poi.latitude, poi.longitude),
+              iconImage: 'poi', iconSize: .52, iconAnchor: 'center',
+            ),
+            {'id': poi.id});
+        if (!mounted || _map != map) return;
+      }
       for (final place in places) {
         await map.addSymbol(
             SymbolOptions(
               geometry: LatLng(place.latitude, place.longitude),
-              iconImage: 'nudaeng',
-              iconSize: .5,
-              iconAnchor: 'bottom',
+              iconImage: place.poi ? 'poi' : 'nudaeng',
+              iconSize: place.poi ? .65 : PinArt.size,
+              iconAnchor: place.poi ? 'center' : 'bottom',
             ),
             {'id': place.id});
         if (!mounted || _map != map) return;
       }
-      for (final place in savedPlaces) {
-        await map.addSymbol(
+      for (final (index, cluster) in clusters.indexed) {
+        if (cluster.places.length > 1) {
+          final count = cluster.places.length;
+          final image = 'cluster-${math.min(count, 100)}';
+          if (_clusterImages.add(image)) {
+            await map.addImage(image, await createClusterMarker(count));
+          }
+          final id = 'cluster:$index';
+          groups[id] = cluster.places;
+          shown.add(await map.addSymbol(
+              SymbolOptions(
+                geometry: cluster.centre,
+                iconImage: image,
+                iconSize: .5,
+                iconAnchor: 'center',
+                iconOpacity: fade && !reduced ? 0 : 1,
+              ),
+              {'id': id}));
+          if (!mounted || _map != map) return;
+          continue;
+        }
+        final place = cluster.places.single;
+        final selected = place.id == selectedId;
+        final symbol = await map.addSymbol(
             SymbolOptions(
               geometry: LatLng(place.latitude, place.longitude),
-              iconImage: 'nudaeng-${place.moodLabel}',
-              iconSize: .5,
+              iconImage: selected && _waveFrame != null
+                  ? _waveFrame
+                  : place.mood?.marker ?? 'nudaeng',
+              // Anchored at the tip: growing never moves it off its place.
+              iconSize: selected ? PinArt.chosenSize : PinArt.size,
               iconAnchor: 'bottom',
+              iconOpacity: fade && !reduced ? 0 : 1,
+              zIndex: selected ? 2 : 1,
+              // The chosen one is named under its pin.
+              textField: selected ? place.name : null,
+              fontNames: const ['Noto Sans Bold'],
+              textSize: 13,
+              textAnchor: 'top',
+              textOffset: const Offset(0, .3),
+              textColor: '#1F201C',
+              textHaloColor: '#FFFFFF',
+              textHaloWidth: 1.6,
             ),
             {'id': place.id});
+        shown.add(symbol);
+        if (selected) _selectedSymbol = symbol;
         if (!mounted || _map != map) return;
       }
+      _clusters = groups;
       for (final place in anonymousPlaces) {
         await map.addSymbol(
             SymbolOptions(
-              geometry: LatLng(
-                place['latitude'] as double,
-                place['longitude'] as double,
-              ),
+              geometry: LatLng(place.latitude, place.longitude),
               iconImage: 'anonymous',
               iconSize: .5,
               iconAnchor: 'bottom',
             ),
-            {'id': 'anonymous:${place['id']}'});
+            {'id': 'anonymous:${place.id}'});
+        if (!mounted || _map != map) return;
+      }
+      // The user's own posts: those still on, always (unless a category or
+      // mood filter is on); ended ones too under "Đã chia sẻ".
+      final filtered = _category != null || _mood != null;
+      final mine = [
+        for (final share in _myShares)
+          if (_sharedView || (!filtered && share.isActive(now))) share
+      ];
+      // Moments on the same spot (the user's and friends') side by side.
+      final spread = spreadSameSpot({
+        for (final s in mine) 'mine:${s.id}': (lat: s.latitude, lon: s.longitude),
+        for (final p in friendPosts)
+          'friend:${p.id}': (lat: p.latitude, lon: p.longitude),
+      });
+      // Offsets are in screen points, scaled by the icon's size.
+      Offset shift(String id, double size) =>
+          Offset((spread[id] ?? 0) / size, 0);
+      for (final share in mine) {
+        final active = share.isActive(now);
+        final size = _openMine?.id == share.id ? .85 : .7;
+        await map.addSymbol(
+            SymbolOptions(
+              geometry: LatLng(share.latitude, share.longitude),
+              iconImage: active ? 'mine' : 'mine-past',
+              iconSize: size,
+              iconOffset: shift('mine:${share.id}', size),
+              iconAnchor: 'bottom',
+              zIndex: active ? 3 : 1,
+            ),
+            {'id': 'mine:${share.id}'});
+        if (!mounted || _map != map) return;
+      }
+      for (final post in friendPosts) {
+        await map.addSymbol(
+            SymbolOptions(
+              geometry: LatLng(post.latitude, post.longitude),
+              iconImage: 'nudaeng',
+              iconSize: PinArt.size,
+              iconOffset: shift('friend:${post.id}', PinArt.size),
+              iconAnchor: 'bottom',
+              zIndex: 2,
+              // Whose post it is, under the pin.
+              textField: post.senderName,
+              fontNames: const ['Noto Sans Bold'],
+              textSize: 12,
+              textAnchor: 'top',
+              textOffset: Offset((spread['friend:${post.id}'] ?? 0) / 12, .3),
+              textColor: '#2E6E78',
+              textHaloColor: '#FFFFFF',
+              textHaloWidth: 1.6,
+            ),
+            {'id': 'friend:${post.id}'});
         if (!mounted || _map != map) return;
       }
       if (draft != null) {
         await map.addSymbol(
             SymbolOptions(
                 geometry: draft,
-                iconImage: 'nudaeng',
+                iconImage: 'drop',
                 iconSize: .5,
                 iconAnchor: 'bottom'),
             {'id': 'draft'});
       }
-      if (highlight != null) {
+      // A post just shared that the archive knows has its own gold pin.
+      if (highlight != null && _archive?.byId(highlight.id) == null) {
         await map.addSymbol(
             SymbolOptions(
                 geometry: LatLng(highlight.latitude, highlight.longitude),
                 iconImage: 'nudaeng',
-                iconSize: .7,
+                iconSize: PinArt.chosenSize,
                 iconAnchor: 'bottom'),
             {'id': 'highlight'});
+      }
+      // Filtered: the pins come in over 180 ms rather than at once.
+      if (fade && !reduced) {
+        for (final opacity in [.35, .7, 1.0]) {
+          await Future<void>.delayed(const Duration(milliseconds: 60));
+          if (!mounted || _map != map) return;
+          for (final symbol in shown) {
+            await map.updateSymbol(symbol, SymbolOptions(iconOpacity: opacity));
+          }
+        }
       }
     }).catchError((Object error) {
       if (mounted && _map == map) setState(() => _loadFailed = true);
@@ -421,73 +1151,360 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   void _pick(math.Point<double> point, LatLng coordinate) {
+    if (_picking) return;
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
       _draftPin = coordinate;
       _selected = null;
+      _selectedSavedId = null;
+      _highlightCard = false;
+      _pinnedOnce = true;
+    });
+    _syncMarkers().then((_) => _ripple(coordinate));
+  }
+
+  /// A soft ring spreads once around a new pin.
+  Future<void> _ripple(LatLng at) async {
+    final map = _map;
+    if (map == null ||
+        !_styleReady ||
+        MediaQuery.disableAnimationsOf(context)) {
+      return;
+    }
+    try {
+      final ring = await map.addSymbol(SymbolOptions(
+          geometry: at,
+          iconImage: 'ring',
+          iconAnchor: 'center',
+          iconSize: .15,
+          iconOpacity: .9));
+      for (var step = 1; step <= 6; step++) {
+        await Future<void>.delayed(const Duration(milliseconds: 55));
+        if (!mounted || _map != map) return;
+        await map.updateSymbol(
+            ring,
+            SymbolOptions(
+                iconSize: .15 + .12 * step, iconOpacity: .9 - .15 * step));
+      }
+      await map.removeSymbol(ring);
+    } catch (_) {
+      // Cleared by a newer redraw meanwhile: nothing to finish.
+    }
+  }
+
+  /// The chosen pin's Nudaeng blinks and waves once (about 1.8 s), then is
+  /// its own again. Only the art inside changes: the frame and its tip stay
+  /// on the place. Reduced motion: nothing.
+  Future<void> _wave(SavedPlace place) async {
+    final map = _map;
+    if (map == null || MediaQuery.disableAnimationsOf(context)) return;
+    // A newer wave (chosen again) takes over from this one.
+    final run = ++_waveRun;
+    // Shows [image] on the chosen pin, whichever symbol it is now (a redraw
+    // makes a new one). False once something else is chosen.
+    Future<bool> show(String? image) async {
+      if (!mounted ||
+          _map != map ||
+          _selectedSavedId != place.id ||
+          run != _waveRun) {
+        return false;
+      }
+      _waveFrame = image;
+      final symbol = _selectedSymbol;
+      if (symbol == null) return true;
+      try {
+        await map.updateSymbol(symbol,
+            SymbolOptions(iconImage: image ?? place.mood?.marker ?? 'nudaeng'));
+      } catch (_) {
+        // Redrawn meanwhile: the redraw shows [_waveFrame] itself.
+      }
+      return true;
+    }
+
+    for (final (frame, ms) in PinArt.wave) {
+      if (!await show('wave-$frame')) break;
+      await Future<void>.delayed(Duration(milliseconds: ms));
+    }
+    if (run != _waveRun) return;
+    _waveFrame = null;
+    await show(null);
+  }
+
+  double get _sheetHeight => (_sheetSize ?? _collapsedHeight / _room) * _room;
+
+  /// A saved place chosen from its pin, its card or a search: its pin
+  /// grows and its Nudaeng waves, the sheet rises to show its card, and the map moves
+  /// it into the part left in view above the sheet.
+  Future<void> _selectSaved(SavedPlace place) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      _selectedSavedId = place.id;
+      _selected = null;
+      _draftPin = null;
       _highlightCard = false;
     });
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    // After this frame: the sheet may only now be back (it waits while
+    // searching). It goes to half, then the card comes into view.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || !_sheet.isAttached) return;
+      // Half open: the card below, the place in view on the map above.
+      if ((_sheet.size - _half).abs() > .01) {
+        reduced
+            ? _sheet.jumpTo(_half)
+            : await _sheet.animateTo(_half,
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeOutCubic);
+      }
+      // Its card is first: the list goes back to the top, under the title.
+      final card = _cardKeys[place.id]?.currentContext;
+      final list =
+          card != null && card.mounted ? Scrollable.maybeOf(card) : null;
+      if (mounted && list != null && list.position.pixels > 0) {
+        reduced
+            ? list.position.jumpTo(0)
+            : await list.position.animateTo(0,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOut);
+      }
+    });
+    final at = LatLng(place.latitude, place.longitude);
+    final map = _map;
+    if (map != null) {
+      // A little around the place, fitted above the half-open sheet.
+      const span = .0025;
+      final camera = CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+              southwest: LatLng(at.latitude - span, at.longitude - span),
+              northeast: LatLng(at.latitude + span, at.longitude + span)),
+          left: 48,
+          top: 200,
+          right: 48,
+          bottom: _half * _room + 24);
+      try {
+        reduced
+            ? await map.moveCamera(camera)
+            : await map.animateCamera(camera);
+      } catch (_) {
+        if (mounted) setState(() => _loadFailed = true);
+      }
+    }
+    await _syncMarkers();
+    if (mounted) _wave(place);
+  }
+
+  /// "+ Lưu một nơi": the pin at the middle of the map; the user moves the
+  /// map under it. From a dropped pin, the map starts there.
+  void _startPick() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final from = _draftPin;
+    setState(() {
+      _picking = true;
+      _selected = null;
+      _selectedSavedId = null;
+      _highlightCard = false;
+    });
+    if (from != null) _map?.animateCamera(CameraUpdate.newLatLng(from));
     _syncMarkers();
   }
 
-  Future<void> _addPlace() async {
-    FocusManager.instance.primaryFocus?.unfocus();
-    final draft = await showAddPlaceSheet(context);
-    if (!mounted || draft == null) return;
-    await _saveNewPlace(draft);
+  Future<void> _confirmPick() async {
+    final target = _map?.cameraPosition?.target ?? _currentCameraPosition;
+    setState(() {
+      _picking = false;
+      _draftPin = null;
+    });
+    await _addPlaceAt(target, pinned: true);
   }
 
-  /// Stores a private place or a community pin at the current map centre.
+  Future<void> _locate() async {
+    if (_locating) return;
+    setState(() => _locating = true);
+    final fix = await widget.location.current();
+    if (!mounted) return;
+    setState(() => _locating = false);
+    switch (fix) {
+      case DeviceFixFound(:final latitude, :final longitude):
+        setState(() => _located = true);
+        final camera =
+            CameraUpdate.newLatLngZoom(LatLng(latitude, longitude), 15);
+        try {
+          MediaQuery.disableAnimationsOf(context)
+              ? await _map?.moveCamera(camera)
+              : await _map?.animateCamera(camera);
+        } catch (_) {
+          if (mounted) setState(() => _loadFailed = true);
+        }
+      case DeviceFixDenied():
+        _toast(ExploreScreen.locationDenied);
+      case DeviceFixFailed():
+        _toast(ExploreScreen.locationFailed);
+    }
+  }
+
+  void _cameraIdle() {
+    if (_moving) setState(() => _moving = false);
+    // Zoomed: groups come apart or join.
+    if ((_zoom - _clusteredAt).abs() > .25) _syncMarkers();
+    if (_query.trim().isEmpty) _loadNearbyPois();
+  }
+
+  /// The form for a place at [at] ([name] to start from); saved there.
+  Future<void> _addPlaceAt(LatLng at,
+      {String? name, bool pinned = false}) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final draft = await showAddPlaceSheet(context, pinned: pinned, name: name);
+    if (!mounted || draft == null) return;
+    await _saveNewPlace(draft, at);
+  }
+
+  /// Stores a private place or a community pin where the user pinned, or
+  /// at the map centre without a pin, keeps it on the device, and shows it:
+  /// filters that would hide it are dropped and the map goes to it.
   ///
   /// MapLibre renders annotations imperatively, so [_syncMarkers] is the
   /// equivalent of updating a GoogleMap `Set<Marker>` after `setState`.
-  Future<void> _saveNewPlace(PlaceDraft draft) async {
+  Future<void> _saveNewPlace(PlaceDraft draft, LatLng target) async {
+    final cloud = _cloudPlaces;
+    if (cloud != null && !draft.isAnonymousShare) {
+      await _saveCloudPlace(cloud, draft, target);
+      return;
+    }
     try {
       final markerIdVal = 'marker_${DateTime.now().millisecondsSinceEpoch}';
-      final target = _currentCameraPosition;
+      var unfiltered = false;
+      SavedPlace? added;
       setState(() {
         if (draft.isAnonymousShare) {
-          _anonymousPlaces.add({
-            'id': markerIdVal,
-            'latitude': target.latitude,
-            'longitude': target.longitude,
-            'message': draft.note.isEmpty
+          _anonymousPlaces.add(CommunityStop(
+            id: markerIdVal,
+            latitude: target.latitude,
+            longitude: target.longitude,
+            message: draft.note.isEmpty
                 ? 'Một người bạn ẩn danh để lại nơi này để bạn có thể dừng lại và thở thật sâu.'
                 : draft.note,
-          });
+          ));
           // Make a newly shared community pin visible immediately.
           _showAnonymous = true;
         } else {
-          _savedPlaces.add(SavedPlace(
+          _savedPlaces.add(added = SavedPlace(
             id: 'saved:$markerIdVal',
             name: draft.name,
             category: draft.category,
-            moodTag: draft.moodTag,
+            mood: draft.mood,
             note: draft.note,
             latitude: target.latitude,
             longitude: target.longitude,
-            moodAsset: draft.moodAsset,
-            moodLabel: draft.moodLabel,
           ));
+          // A filter that would hide it at once is dropped.
+          if ((_category != null && _category != draft.category) ||
+              (_mood != null && _mood != draft.mood)) {
+            _category = null;
+            _mood = null;
+            unfiltered = true;
+          }
         }
         _draftPin = null;
         _selected = null;
       });
-      await _syncMarkers();
+      final kept = await _keep();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            draft.isAnonymousShare ? 'Đã thả trạm ẩn danh' : 'Đã lưu cho bạn'),
-      ));
+      // The new pin, chosen: its Nudaeng, its card, in view.
+      final place = added;
+      if (place != null) {
+        await _selectSaved(place);
+      } else {
+        await _syncMarkers();
+        _frame([target]);
+      }
+      if (!mounted) return;
+      _toast(!kept
+          ? ExploreScreen.keepFailed
+          : draft.isAnonymousShare
+              ? 'Đã thả trạm ẩn danh'
+              : unfiltered
+                  ? ExploreScreen.savedShown
+                  : ExploreScreen.saved);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Chưa lấy được vị trí bản đồ. Hãy thử lại.')));
+        _toast('Chưa lấy được vị trí bản đồ. Bạn thử lại nhé.');
       }
     }
   }
 
+  /// A private place saved to the signed-in account, then shown as a local
+  /// one would be.
+  Future<void> _saveCloudPlace(RemoteSavedPlacesRepository cloud,
+      PlaceDraft draft, LatLng target) async {
+    final SavedPlace place;
+    try {
+      place = await cloud.create(draft,
+          latitude: target.latitude, longitude: target.longitude);
+    } on PartiallySavedPlace {
+      // The pin was created; reloading prevents a retry from duplicating it.
+      await _reloadSavedPlaces();
+      if (mounted) _toast(ExploreScreen.cloudPartlySaved);
+      return;
+    } catch (_) {
+      if (mounted) _toast(ExploreScreen.cloudSaveFailed);
+      return;
+    }
+    if (!mounted || !identical(cloud, _cloudPlaces)) return;
+    var unfiltered = false;
+    setState(() {
+      _savedPlaces.add(place);
+      // A filter that would hide it at once is dropped.
+      if ((_category != null && _category != place.category) ||
+          (_mood != null && _mood != place.mood)) {
+        _category = null;
+        _mood = null;
+        unfiltered = true;
+      }
+      _draftPin = null;
+      _selected = null;
+    });
+    await _selectSaved(place);
+    if (!mounted) return;
+    _toast(unfiltered ? ExploreScreen.savedShown : ExploreScreen.cloudSaved);
+  }
+
+  /// A short message, above the floating "Cộng đồng" / "Lưu nơi này" row so
+  /// it never covers them.
+  void _toast(String text) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(text),
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 116),
+    ));
+
   Future<void> _showShareBottomSheet(SavedPlace place) async {
+    // Signed in: to real friends, as a message each (no private note).
+    final messages = MessagesScope.maybeOf(context);
+    if (messages != null) {
+      try {
+        final recipients = await sendPlaceToFriends(
+            context,
+            messages.repository,
+            SharedPlace(
+              name: place.name,
+              category: place.category,
+              latitude: place.latitude,
+              longitude: place.longitude,
+            ));
+        if (!mounted || recipients == null) return;
+        await _showDeliveryAnimation(recipients);
+      } on SendPlaceFailed catch (failure) {
+        if (mounted) _toast(failure.message);
+      }
+      return;
+    }
+    // The friends list here is a sample: never pretend to send a real
+    // account's place.
+    if (_cloudPlaces != null) {
+      _toast(ExploreScreen.cloudShareUnsupported);
+      return;
+    }
     final recipients =
         await showShareFriendsSheet(context, placeName: place.name);
     if (!mounted || recipients == null || recipients.isEmpty) return;
@@ -505,21 +1522,22 @@ class _ExploreScreenState extends State<ExploreScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Image.asset('assets/images/laixe.gif', height: 140),
           const SizedBox(height: 12),
-          const Text('Nudaeng đang giao thư...',
-              style:
-                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          Text('Nudaeng đang giao thư…',
+              style: AppText.label.copyWith(color: AppColors.surface)),
         ]),
       ),
     );
     await Future<void>.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content:
-            Text('Thư đã được gửi thành công tới ${recipients.join(', ')}!')));
+    _toast('Thư đã được gửi tới ${recipients.join(', ')}!');
   }
 
   Future<void> _showInbox() async {
+    if (_cloudPlaces != null) {
+      _toast(ExploreScreen.cloudInboxUnsupported);
+      return;
+    }
     final accept = await showInboxSheet(context);
     if (!mounted || accept != true) return;
     final target =
@@ -530,17 +1548,65 @@ class _ExploreScreenState extends State<ExploreScreen> {
         id: 'saved:${_nextSavedPlaceId++}',
         name: 'Góc bí mật của Tường Vy',
         category: 'Chill',
-        moodTag: 'Cần chữa lành',
         note: 'Một nơi Tường Vy muốn gửi bạn ghé qua.',
         latitude: target.latitude,
         longitude: target.longitude,
-        moodAsset: 'assets/images/laixe.gif',
-        moodLabel: 'On the road',
       ));
     });
+    await _keep();
+    if (!mounted) return;
     _syncMarkers();
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã lưu vào bản đồ của bạn')));
+    _toast('Đã lưu vào bản đồ của bạn');
+  }
+
+  /// Saved places whose name or note has the query, accents or not.
+  List<SavedPlace> get _savedMatches {
+    final query = _fold(_query.trim());
+    if (query.isEmpty) return const [];
+    return [
+      for (final place in _savedPlaces)
+        if (_fold(place.name).contains(query) ||
+            _fold(place.note).contains(query))
+          place,
+    ];
+  }
+
+  /// Lower case without Vietnamese accents: "cach mang" finds "Cách Mạng".
+  static String _fold(String text) {
+    const from = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡ'
+        'ùúụủũưừứựửữỳýỵỷỹđ';
+    const to = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiiooooooooooooooooo'
+        'uuuuuuuuuuuyyyyyd';
+    final buffer = StringBuffer();
+    for (final rune in text.toLowerCase().runes) {
+      final char = String.fromCharCode(rune);
+      final at = from.indexOf(char);
+      buffer.write(at < 0 ? char : to[at]);
+    }
+    return buffer.toString();
+  }
+
+  /// Search submitted: the map shows every result, the user's and the
+  /// samples, zoomed in on them.
+  void _frameResults() => _frame([
+        for (final place in _savedMatches)
+          LatLng(place.latitude, place.longitude),
+        for (final place in _places) LatLng(place.latitude, place.longitude),
+      ]);
+
+  /// A saved place picked from the results: the map goes to it, close up,
+  /// and its sheet opens.
+  Future<void> _showSaved(SavedPlace place) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    _debounce?.cancel();
+    _searchController.clear();
+    setState(() {
+      _query = '';
+      _selected = null;
+      _highlightCard = false;
+    });
+    _search();
+    await _selectSaved(place);
   }
 
   Future<void> _showPlace(ExplorePlace place) async {
@@ -553,12 +1619,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
       _highlightCard = false;
     });
     _search();
-    try {
-      await _map?.animateCamera(CameraUpdate.newLatLngZoom(
-          LatLng(place.latitude, place.longitude), 15));
-    } catch (_) {
-      if (mounted) setState(() => _loadFailed = true);
-    }
+    await _frame([LatLng(place.latitude, place.longitude)]);
   }
 
   void _retryMap() {
@@ -571,221 +1632,661 @@ class _ExploreScreenState extends State<ExploreScreen> {
     });
   }
 
+  /// One line under the chips: the vibe, and either the pin hint (until
+  /// the first pin) or what the chosen mood shows. Nothing once both are
+  /// said.
+  String? get _status {
+    final filters = [
+      if (_category case final category?) categoryName(category),
+      if (_mood case final mood?) mood.label,
+    ];
+    if (filters.isNotEmpty) {
+      return 'Đang xem: ${filters.join(' · ')} · '
+          '${_visibleSavedPlaces.length} địa điểm';
+    }
+    if (_sharedView) return ExploreScreen.sharedStatus(_myShares.length);
+    if (_showMoments) {
+      final now = DateTime.now();
+      return ExploreScreen.momentsShown(
+          _friendPosts.where((p) => p.isActive(now)).length);
+    }
+    return _pinnedOnce ? null : ExploreScreen.pinHint;
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: AppColors.background,
-        body: Stack(fit: StackFit.expand, children: [
+  Widget build(BuildContext context) {
+    final highlight = _activeHighlight;
+    final openPost = _openPost != null &&
+            _openPost!.isActive(DateTime.now()) &&
+            _selected == null &&
+            _draftPin == null
+        ? _openPost
+        : null;
+    final now = DateTime.now();
+    final openMine =
+        _selected == null && _draftPin == null ? _openMine : null;
+    final showHighlight = _selected == null &&
+        _draftPin == null &&
+        openPost == null &&
+        openMine == null &&
+        _highlightCard &&
+        highlight != null;
+    final status = _status;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: LayoutBuilder(builder: (context, box) {
+        _room = box.maxHeight;
+        final collapsed = (_collapsedHeight / box.maxHeight).clamp(.06, .3);
+        final sheetHeight = (_sheetSize ?? collapsed) * box.maxHeight;
+        // Pulled well up, the sheet is the focus: the map's buttons step aside.
+        final sheetOpen = (_sheetSize ?? collapsed) > _half + .05;
+        final visible = _visibleSavedPlaces;
+        final searching = _query.trim().isNotEmpty || _searchError != null;
+        for (final place in visible) {
+          _cardKeys.putIfAbsent(place.id, GlobalKey.new);
+        }
+        return Stack(fit: StackFit.expand, children: [
           MapLibreMap(
             key: ValueKey(_generation),
-            styleString: _mapStyle,
+            styleString: ExploreMapStyle.day,
             initialCameraPosition: const CameraPosition(
                 target: LatLng(10.8231, 106.6297), zoom: 12),
             onMapCreated: _created,
             onStyleLoadedCallback: _styleLoaded,
             trackCameraPosition: true,
+            // Pinch and double-tap zoom; the buttons do the same.
+            zoomGesturesEnabled: true,
+            minMaxZoomPreference: const MinMaxZoomPreference(4, 19),
+            myLocationEnabled: _located,
             onCameraMove: (position) {
               _currentCameraPosition = position.target;
+              _zoom = position.zoom;
+              if (_picking && !_moving) setState(() => _moving = true);
             },
+            onCameraIdle: _cameraIdle,
             onMapClick: _pick,
             onMapLongClick: _pick,
-            compassViewMargins: const math.Point(12, 100),
-            attributionButtonMargins: const math.Point(12, 8),
+            compassViewMargins: const math.Point(16, 210),
+            attributionButtonPosition: AttributionButtonPosition.topRight,
+            attributionButtonMargins: const math.Point(12, 210),
           ),
-          SafeArea(
+          if (!_picking)
+            SafeArea(
               child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(children: [
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                    child: Material(
-                        color: Colors.white,
-                        elevation: 2,
-                        borderRadius: BorderRadius.circular(16),
-                        child: TextField(
-                            controller: _searchController,
-                            onChanged: _queryChanged,
-                            onTapOutside: (_) =>
-                                FocusManager.instance.primaryFocus?.unfocus(),
-                            decoration: const InputDecoration(
-                                hintText: 'Search places',
-                                prefixIcon: Icon(Icons.search),
-                                border: InputBorder.none,
-                                contentPadding:
-                                    EdgeInsets.symmetric(vertical: 14))))),
-                const SizedBox(width: 12),
-                Material(
-                    color: Colors.white,
-                    elevation: 2,
-                    borderRadius: BorderRadius.circular(16),
-                    child: SizedBox(
-                        width: 52,
-                        height: 52,
-                        child: PopupMenuButton<String>(
-                            tooltip: 'Filter places',
-                            icon: const Icon(Icons.menu),
-                            position: PopupMenuPosition.under,
-                            onSelected: _filterPlacesByMood,
-                            itemBuilder: (_) => [
-                                  for (final mood in [
-                                    'Tất cả',
-                                    ...moodTags,
-                                  ])
-                                    CheckedPopupMenuItem(
-                                        value: mood,
-                                        checked: _selectedMood == mood,
-                                        child: Text(mood))
-                                ]))),
-                const SizedBox(width: 8),
-                Material(
-                  color: Colors.white,
-                  elevation: 2,
-                  borderRadius: BorderRadius.circular(16),
-                  child: SizedBox(
-                    width: 52,
-                    height: 52,
-                    child: Stack(clipBehavior: Clip.none, children: [
-                      IconButton(
-                        tooltip: 'Open inbox',
-                        onPressed: _showInbox,
-                        icon: const Icon(Icons.mail_outline),
-                      ),
-                      if (_hasUnreadMail)
-                        const Positioned(
-                          top: 9,
-                          right: 10,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            child: SizedBox(width: 9, height: 9),
-                          ),
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, 12, AppSpacing.md, 0),
+                child: Column(children: [
+                  Row(children: [
+                    Expanded(child: _buildSearch()),
+                    const SizedBox(width: 12),
+                    _buildFriends(),
+                    if (_friendsSharing != null) ...[
+                      const SizedBox(width: 8),
+                      _buildMoments(),
+                    ],
+                    // Signed in, messages live in the "Tin nhắn" tab.
+                    if (MessagesScope.maybeOf(context) == null) ...[
+                      const SizedBox(width: 8),
+                      _buildInbox(),
+                    ],
+                  ]),
+                  const SizedBox(height: 12),
+                  _buildMoods(),
+                  if (status != null) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: MapFloatingSurface(
+                        radius: 16,
+                        color: AppColors.surface.withValues(alpha: .94),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(
+                                _category != null || _mood != null
+                                    ? Icons.filter_list_rounded
+                                    : Icons.touch_app_outlined,
+                                size: 16,
+                                color: AppColors.primaryAction),
+                            const SizedBox(width: 6),
+                            Flexible(child: Text(status, style: AppText.meta)),
+                          ]),
                         ),
-                    ]),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: 8),
-              Material(
-                color: Colors.white.withValues(alpha: .94),
-                elevation: 1,
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(children: [
-                    const Icon(Icons.volunteer_activism_outlined, size: 20),
-                    const SizedBox(width: 8),
-                    const Expanded(child: Text('Cộng đồng ẩn danh')),
-                    Switch.adaptive(
-                      value: _showAnonymous,
-                      onChanged: _toggleAnonymous,
+                      ),
                     ),
+                  ],
+                  if (_query.trim().isNotEmpty || _searchError != null) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    Flexible(child: _buildResults()),
+                  ],
+                ]),
+              ),
+            ),
+          if (_loadFailed) Center(child: _buildMapFailed()),
+          // Searching: the results are in front; the sheet waits.
+          if (!_picking && !searching) ...[
+            Positioned(
+              left: AppSpacing.md,
+              right: AppSpacing.md,
+              bottom: sheetHeight + 12,
+              child: AnimatedOpacity(
+                opacity: sheetOpen ? 0 : 1,
+                duration:
+                    reduced ? Duration.zero : const Duration(milliseconds: 160),
+                child: IgnorePointer(
+                  ignoring: sheetOpen,
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Align(
+                        alignment: Alignment.centerRight, child: _buildZoom()),
+                    const SizedBox(height: 12),
+                    if (openMine != null) ...[
+                      PostCard(
+                        key: ValueKey('mine-${openMine.id}'),
+                        title: openMine.title ?? openMine.placeLabel,
+                        byline: ExploreScreen.mineByline(openMine, now),
+                        text: openMine.text,
+                        meta: [
+                          if (openMine.category != null) openMine.category!,
+                          openMine.placeLabel,
+                        ].join(' · '),
+                        footnote: openMine.isActive(now)
+                            ? ShareMemorySheet.expiresLabel(openMine.expiresAt)
+                            : ExploreScreen.sharedOn(openMine.sharedAt),
+                        photo: _minePhotos[openMine.id],
+                        onClose: () => setState(() => _openMine = null),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (openPost != null) ...[
+                      FriendPostCard(
+                        key: ValueKey('friend-post-${openPost.id}'),
+                        post: openPost,
+                        photo: _postPhotos[openPost.id],
+                        onClose: () => setState(() => _openPost = null),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (showHighlight) ...[
+                      // Signed in, the user's own post is on the server:
+                      // its card shows the photo too.
+                      if (_friendsSharing case final sharing?)
+                        PostCard(
+                          key: ValueKey('own-post-${highlight.id}'),
+                          title: highlight.title,
+                          byline: FriendPostText.mine,
+                          text: highlight.subtitle.split('\n').first,
+                          meta: highlight.subtitle.contains('\n')
+                              ? highlight.subtitle
+                                  .substring(
+                                      highlight.subtitle.indexOf('\n') + 1)
+                                  .replaceAll('\n', ' · ')
+                              : null,
+                          photo: _postPhotos.putIfAbsent(
+                              highlight.id, () => sharing.photo(highlight.id)),
+                          onClose: () =>
+                              setState(() => _highlightCard = false),
+                        )
+                      else
+                        MapInfoCard(
+                          icon: Icons.share_location_outlined,
+                          title: highlight.title,
+                          subtitle: highlight.subtitle,
+                          closeTooltip: ExploreScreen.closePostTooltip,
+                          onClose: () =>
+                              setState(() => _highlightCard = false),
+                        ),
+                      const SizedBox(height: 12),
+                    ],
+                    if (_selected != null || _draftPin != null) ...[
+                      _buildPinnedCard(),
+                      const SizedBox(height: 12),
+                    ],
+                    _buildMapButtons(),
                   ]),
                 ),
               ),
-              const SizedBox(height: 8),
-              Card(
-                  child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: Text(
-                          _selectedMood == 'Tất cả'
-                              ? '$_vibeLabel · Khám phá theo cảm xúc · Chạm/nhấn giữ để ghim tạm'
-                              : '$_vibeLabel · Đang xem: $_selectedMood · ${_visibleSavedPlaces.length} địa điểm',
-                          textAlign: TextAlign.center))),
-              if (_query.trim().isNotEmpty || _searchError != null)
-                Flexible(
-                    child: Card(
-                        child: ListView(shrinkWrap: true, children: [
-                  if (_searchError != null)
-                    ListTile(
-                        title: Text(_searchError!),
-                        trailing: IconButton(
-                            onPressed: _search,
-                            icon: const Icon(Icons.refresh))),
-                  if (_places.isEmpty && _searchError == null)
-                    const ListTile(title: Text('No places found')),
-                  for (final place in _places)
-                    ListTile(
-                        title: Text(place.label),
-                        subtitle: Text('${place.category} · Demo'),
-                        onTap: () => _showPlace(place)),
-                ]))),
-            ]),
-          )),
-          if (_loadFailed)
-            Center(
-                child: Card(
-                    child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                          const Text(
-                              'Map could not load. Check your Internet connection.'),
-                          TextButton(
-                              onPressed: _retryMap,
-                              child: const Text('Retry map')),
-                        ])))),
-          if (_selected == null &&
-              _draftPin == null &&
-              _highlightCard &&
-              _activeHighlight != null)
-            Positioned(
-                left: 12,
-                right: 12,
-                bottom: 40,
-                child: SafeArea(
-                    top: false,
-                    child: Card(
-                        child: ListTile(
-                      leading: const Icon(Icons.share_location_outlined),
-                      title: Text(_activeHighlight!.title),
-                      subtitle: Text(_activeHighlight!.subtitle),
-                      isThreeLine: true,
-                      trailing: IconButton(
-                          tooltip: 'Đóng bài chia sẻ',
-                          icon: const Icon(Icons.close),
-                          onPressed: () =>
-                              setState(() => _highlightCard = false)),
-                    )))),
-          if (_selected != null || _draftPin != null)
-            Positioned(
-                left: 12,
-                right: 12,
-                bottom: 96,
-                child: SafeArea(
-                    top: false,
-                    child: Card(
-                        child: ListTile(
-                      title: Text(_selected?.label ?? 'Temporary pin'),
-                      subtitle: Text(_selected != null
-                          ? '${_selected!.category} · Demo only'
-                          : '${_draftPin!.latitude.toStringAsFixed(5)}, ${_draftPin!.longitude.toStringAsFixed(5)}\nNot saved · Tap elsewhere to move'),
-                      isThreeLine: _selected == null,
-                      trailing: IconButton(
-                          tooltip: _selected == null
-                              ? 'Remove temporary pin'
-                              : 'Close place details',
-                          icon: const Icon(Icons.close),
-                          onPressed: () {
-                            setState(() {
-                              if (_selected == null) _draftPin = null;
-                              _selected = null;
-                            });
-                            _syncMarkers();
-                          }),
-                    )))),
-          Positioned(
-            right: 18,
-            bottom: 26,
-            child: FloatingActionButton(
-              heroTag: 'add-place',
-              tooltip: 'Save a new place',
-              backgroundColor: AppColors.primaryDark,
-              foregroundColor: Colors.white,
-              onPressed: _addPlace,
-              child: const Icon(Icons.add_location_alt),
+            ),
+            NotificationListener<DraggableScrollableNotification>(
+              onNotification: (notification) {
+                setState(() => _sheetSize = notification.extent);
+                return false;
+              },
+              child: PlacesSheet(
+                controller: _sheet,
+                collapsed: collapsed,
+                // The chosen place's card first, so it is always in view.
+                places: [
+                  ...visible.where((p) => p.id == _selectedSavedId),
+                  ...visible.where((p) => p.id != _selectedSavedId),
+                ],
+                savedCount: _savedPlaces.length,
+                selectedId: _selectedSavedId,
+                cardKeys: _cardKeys,
+                community: _showAnonymous,
+                onCommunity: _toggleAnonymous,
+                onSelect: _selectSaved,
+                onDetails: (place) => showSavedPlaceSheet(context, place,
+                    onShare: () => _showShareBottomSheet(place)),
+                onShare: _showShareBottomSheet,
+                onAdd: _startPick,
+                onClearFilters: () => _filter(),
+                shares: _archive == null ? null : _myShares,
+                sharedView: _sharedView,
+                onView: _toggleSharedView,
+                onSelectShare: _showMine,
+                selectedShareId: _openMine?.id,
+              ),
+            ),
+          ],
+          if (_picking)
+            PlacePickOverlay(
+              moving: _moving,
+              onCancel: () => setState(() => _picking = false),
+              onConfirm: _confirmPick,
+            ),
+        ]);
+      }),
+    );
+  }
+
+  /// The dropped pin, or a search result shown on the map: what it is, a
+  /// way to save it there, and a way to close it.
+  Widget _buildPinnedCard() {
+    final place = _selected;
+    final pin = _draftPin;
+    return MapInfoCard(
+      icon: place != null ? Icons.place_outlined : Icons.push_pin_outlined,
+      title: place?.label ?? ExploreScreen.draftTitle,
+      subtitle: place != null
+          ? (place.address ?? (place.sample
+              ? '${place.category} · ${ExploreScreen.sample}'
+              : place.category))
+          : ExploreScreen.draftDetail,
+      closeTooltip: place != null
+          ? ExploreScreen.closePlaceTooltip
+          : ExploreScreen.removeDraftTooltip,
+      onClose: () {
+        setState(() {
+          if (_selected == null) _draftPin = null;
+          _selected = null;
+        });
+        _syncMarkers();
+      },
+      action: Align(
+        alignment: Alignment.centerLeft,
+        child: FilledButton.icon(
+          onPressed: () => place != null
+              ? _addPlaceAt(LatLng(place.latitude, place.longitude),
+                  name: place.label, pinned: true)
+              : pin != null
+                  ? _addPlaceAt(pin, pinned: true)
+                  : null,
+          icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+          label: const Text(ExploreScreen.saveHereLabel),
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.primaryAction,
+            minimumSize: const Size(48, 40),
+            shape: const StadiumBorder(),
+            textStyle: AppText.label.copyWith(fontSize: 14),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildZoom() => MapZoomButtons(
+        onZoomIn: () => _zoomBy(CameraUpdate.zoomIn()),
+        onZoomOut: () => _zoomBy(CameraUpdate.zoomOut()),
+      );
+
+  Future<void> _zoomBy(CameraUpdate step) async {
+    final map = _map;
+    if (map == null) return;
+    try {
+      MediaQuery.disableAnimationsOf(context)
+          ? await map.moveCamera(step)
+          : await map.animateCamera(step,
+              duration: const Duration(milliseconds: 250));
+    } catch (_) {
+      // The map is not ready yet: nothing to zoom.
+    }
+  }
+
+  /// "Vị trí của tôi" and "+ Lưu một nơi", on the right above the sheet; on
+  /// a narrow screen the save button keeps only its icon.
+  Widget _buildMapButtons() => LayoutBuilder(builder: (context, box) {
+        final narrow = box.maxWidth < 340;
+        return Row(children: [
+          const Spacer(),
+          MapCircleButton(
+            tooltip: ExploreScreen.locateTooltip,
+            busy: _locating,
+            onPressed: _locate,
+            color: AppColors.primaryAction,
+            icon: _located
+                ? Icons.my_location_rounded
+                : Icons.location_searching_rounded,
+          ),
+          const SizedBox(width: 12),
+          Tooltip(
+            message: ExploreScreen.saveLabel,
+            child: DecoratedBox(
+              decoration: const ShapeDecoration(
+                  shape: StadiumBorder(), shadows: mapOverlayShadow),
+              child: FilledButton(
+                onPressed: _startPick,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AppColors.primaryAction,
+                  foregroundColor: AppColors.surface,
+                  minimumSize: const Size(52, 52),
+                  padding: EdgeInsets.symmetric(horizontal: narrow ? 0 : 20),
+                  shape: const StadiumBorder(),
+                  textStyle: AppText.label,
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.add_rounded, size: 22),
+                  if (!narrow) ...[
+                    const SizedBox(width: AppSpacing.sm),
+                    const Text(ExploreScreen.saveLabel),
+                  ],
+                ]),
+              ),
             ),
           ),
+        ]);
+      });
+
+  Widget _buildSearch() => MapFloatingSurface(
+        child: TextField(
+          controller: _searchController,
+          onChanged: _queryChanged,
+          onSubmitted: (_) => _frameResults(),
+          onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+          style: AppText.body,
+          textInputAction: TextInputAction.search,
+          decoration: const InputDecoration(
+            hintText: ExploreScreen.searchHint,
+            hintStyle: AppText.bodySecondary,
+            prefixIcon:
+                Icon(Icons.search_rounded, color: AppColors.textSecondary),
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+      );
+
+  /// Friends on the app ("Bạn bè"): requests are answered on that screen.
+  Widget _buildFriends() => MapFloatingSurface(
+        child: SizedBox.square(
+          dimension: 52,
+          child: IconButton(
+            tooltip: ExploreScreen.friendsTooltip,
+            onPressed: () => openFriendSpace(context),
+            icon: const Icon(Icons.group_outlined, color: AppColors.textPrimary),
+          ),
+        ),
+      );
+
+  /// Friends' moments on the map: off, the map has only the user's own
+  /// places; on, their 24-hour moments are pinned too. The count is the
+  /// moments not seen yet.
+  Widget _buildMoments() {
+    final now = DateTime.now();
+    final unseen = _friendPosts
+        .where((p) => p.isActive(now) && !_seenMoments.contains(p.id))
+        .length;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    final on = _showMoments;
+    return MapFloatingSurface(
+      child: SizedBox.square(
+        dimension: 52,
+        child: AnimatedContainer(
+          duration: reduced ? Duration.zero : const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
+            color: on ? AppColors.primaryAction : Colors.transparent,
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            tooltip: [
+              on ? ExploreScreen.momentsHide : ExploreScreen.momentsShow,
+              if (unseen > 0) ExploreScreen.momentsNew(unseen),
+            ].join(', '),
+            isSelected: on,
+            onPressed: _toggleMoments,
+            icon: Badge(
+              isLabelVisible: unseen > 0 && !on,
+              backgroundColor: AppColors.primaryAction,
+              textColor: AppColors.surface,
+              label: reduced
+                  ? Text('$unseen')
+                  : AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 280),
+                      switchInCurve: Curves.easeOutBack,
+                      transitionBuilder: (child, animation) =>
+                          ScaleTransition(scale: animation, child: child),
+                      child: Text('$unseen', key: ValueKey(unseen)),
+                    ),
+              child: Icon(
+                  on ? Icons.auto_awesome_rounded : Icons.auto_awesome_outlined,
+                  color: on ? AppColors.surface : AppColors.textPrimary),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Shows friends' moments on the map (and brings them into view), or
+  /// hides them again.
+  Future<void> _toggleMoments() async {
+    if (_showMoments) {
+      setState(() {
+        _showMoments = false;
+        _openPost = null;
+      });
+      _syncMarkers();
+      return;
+    }
+    setState(() => _showMoments = true);
+    await _loadFriendPosts();
+    if (!mounted || !_showMoments) return;
+    final now = DateTime.now();
+    final active = [
+      for (final p in _friendPosts)
+        if (p.isActive(now)) p
+    ];
+    _markMomentsSeen(active);
+    if (active.isEmpty) {
+      _toast(ExploreScreen.momentsNone);
+      return;
+    }
+    _frame([for (final p in active) LatLng(p.latitude, p.longitude)]);
+  }
+
+  String get _seenKey =>
+      'moments.seen.${AuthScope.maybeOf(context)?.currentUserId ?? 'local'}';
+
+  Future<void> _loadSeenMoments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final ids = prefs.getStringList(_seenKey) ?? const [];
+      if (mounted) setState(() => _seenMoments = {...ids, ..._seenMoments});
+    } catch (_) {
+      // Unreadable: everything counts as new once.
+    }
+  }
+
+  void _markMomentsSeen(List<FriendPost> posts) {
+    final now = DateTime.now();
+    final active = {
+      for (final p in posts)
+        if (p.isActive(now)) p.id
+    };
+    // Kept: what is still active (old ids expire with their posts).
+    setState(() => _seenMoments = {..._seenMoments.where(active.contains), ...active});
+    final key = _seenKey;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setStringList(key, _seenMoments.toList()))
+        .ignore();
+  }
+
+  Widget _buildInbox() => MapFloatingSurface(
+        child: SizedBox.square(
+          dimension: 52,
+          child: Stack(alignment: Alignment.center, children: [
+            IconButton(
+              tooltip: ExploreScreen.inboxTooltip,
+              onPressed: _showInbox,
+              icon: const Icon(Icons.mail_outline_rounded,
+                  color: AppColors.textPrimary),
+            ),
+            if (_hasUnreadMail)
+              Positioned(
+                top: 12,
+                right: 12,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryAction,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.surface, width: 2),
+                    ),
+                  ),
+                ),
+              ),
+          ]),
+        ),
+      );
+
+  /// "Tất cả", the Nudaeng felt there (a chip that opens the six, early so
+  /// it is always in view) and what places are for; the shadow needs a
+  /// little room to show.
+  Widget _buildMoods() {
+    final mood = _mood;
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      clipBehavior: Clip.none,
+      child: Row(children: [
+        MapMoodChip(
+          label: ExploreScreen.allFilter,
+          selected: _category == null && mood == null && !_sharedView,
+          onTap: () {
+            _toggleSharedView(false);
+            _filter();
+          },
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        MapMoodChip(
+          key: const ValueKey('mood-filter'),
+          label: mood?.label ?? ExploreScreen.moodFilter,
+          selected: mood != null,
+          leading: mood != null
+              ? Image.asset(mood.asset, width: 26, height: 26, cacheWidth: 90)
+              : const Icon(Icons.sentiment_satisfied_outlined,
+                  size: 18, color: AppColors.textSecondary),
+          trailing: const Icon(Icons.keyboard_arrow_down_rounded,
+              size: 18, color: AppColors.textSecondary),
+          onTap: _pickMood,
+        ),
+        if (_archive != null) ...[
+          const SizedBox(width: AppSpacing.sm),
+          MapMoodChip(
+            key: const ValueKey('shared-filter'),
+            label: ExploreScreen.sharedFilter,
+            selected: _sharedView,
+            leading: Icon(Icons.photo_rounded,
+                size: 18,
+                color: _sharedView
+                    ? AppColors.primaryAction
+                    : const Color(0xFFD99A2B)),
+            onTap: () => _toggleSharedView(),
+          ),
+        ],
+        for (final (value, label) in placeCategories) ...[
+          const SizedBox(width: AppSpacing.sm),
+          MapMoodChip(
+            label: label,
+            selected: _category == value,
+            onTap: () {
+              _toggleSharedView(false);
+              _filter(category: _category == value ? null : value, mood: mood);
+            },
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _buildResults() => MapFloatingSurface(
+        child: ListView(shrinkWrap: true, padding: EdgeInsets.zero, children: [
+          if (_searchError != null)
+            ListTile(
+              title: Text(_searchError!, style: AppText.body),
+              trailing: IconButton(
+                  tooltip: ExploreScreen.retryLabel,
+                  onPressed: _search,
+                  icon: const Icon(Icons.refresh_rounded,
+                      color: AppColors.primaryAction)),
+            ),
+          if (_places.isEmpty && _savedMatches.isEmpty && _searchError == null)
+            const ListTile(
+                title: Text(ExploreScreen.noResults,
+                    style: AppText.bodySecondary)),
+          // The user's own places first.
+          for (final place in _savedMatches)
+            ListTile(
+              leading: SizedBox.square(
+                dimension: 36,
+                child: place.mood != null
+                    ? Image.asset(place.mood!.asset, cacheWidth: 120)
+                    : Icon(categoryIcon(place.category),
+                        color: AppColors.primaryAction),
+              ),
+              title: Text(place.name, style: AppText.label),
+              subtitle: Text(
+                  '${categoryName(place.category)} · ${ExploreScreen.savedResult}',
+                  style: AppText.meta),
+              onTap: () => _showSaved(place),
+            ),
+          for (final place in _places)
+            ListTile(
+              leading: const Icon(Icons.place_outlined,
+                  color: AppColors.primaryAction),
+              title: Text(place.label, style: AppText.label),
+              subtitle: Text(
+                  place.address ?? (place.sample
+                      ? '${place.category} · ${ExploreScreen.sample}'
+                      : place.category),
+                  style: AppText.meta),
+              onTap: () => _showPlace(place),
+            ),
         ]),
+      );
+
+  Widget _buildMapFailed() => Padding(
+        padding: const EdgeInsets.all(AppSpacing.xl),
+        child: MapFloatingSurface(
+          radius: 24,
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.cloud_off_rounded,
+                  size: 32, color: AppColors.textSecondary),
+              const SizedBox(height: 12),
+              const Text(ExploreScreen.mapFailed,
+                  textAlign: TextAlign.center, style: AppText.body),
+              const SizedBox(height: AppSpacing.md),
+              AppSecondaryButton(
+                  label: ExploreScreen.reloadMapLabel,
+                  icon: Icons.refresh_rounded,
+                  compact: true,
+                  onPressed: _retryMap),
+            ]),
+          ),
+        ),
       );
 }

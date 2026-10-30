@@ -1,13 +1,14 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../reminders/data/reminder_service.dart';
-import 'data_policy.dart';
 import 'journal_goal.dart';
+import 'data_policy.dart';
 import 'journaling_experience.dart';
 
 /// Onboarding routes OB01–OB11. Names are persisted; do not rename.
 enum OnboardingStep {
   welcome, // OB01
+  signIn, // OB01b: account (email, Google), or later
   nickname, // OB02
   purpose, // OB03
   experience, // OB04
@@ -22,13 +23,13 @@ enum OnboardingStep {
   /// Interactive routes shown in the progress bar ("Bước x/9").
   static const progressSteps = 9;
 
-  /// 1-based progress position. OB01 has no progress; the transient OB08
-  /// keeps OB07's position.
+  /// 1-based progress position. OB01 and the sign-in before the questions
+  /// have no progress; the transient OB08 keeps OB07's position.
   int? get progressPosition => switch (this) {
-        welcome => null,
+        welcome || signIn => null,
         saving => firstEntry.progressPosition,
-        _ when index < saving.index => index,
-        _ => index - 1,
+        _ when index < saving.index => index - 1,
+        _ => index - 2,
       };
 }
 
@@ -37,12 +38,15 @@ enum OnboardingStep {
 class OnboardingStore {
   OnboardingStore._(this._prefs, this.userId);
 
+  final String? userId;
+  String _key(String key) => userId == null ? key : 'account.$userId.$key';
+  bool get consentedToRemoteAi => aiEnabled == true &&
+      aiPolicyVersion == DataPolicy.localOllama.version;
+
   static Future<OnboardingStore> open({String? userId}) async =>
       OnboardingStore._(await SharedPreferences.getInstance(), userId);
 
   final SharedPreferences _prefs;
-  final String? userId;
-  String _key(String key) => userId == null ? key : 'users.$userId.$key';
 
   static const _completedKey = 'onboarding.completed';
   static const _stepKey = 'onboarding.step';
@@ -51,6 +55,7 @@ class OnboardingStore {
   static const _experienceKey = 'onboarding.experience';
   static const _aiKey = 'onboarding.ai';
   static const _aiPolicyKey = 'onboarding.aiPolicyVersion';
+  static const _aiInAppKey = 'onboarding.aiInApp';
   static const _firstEntryKey = 'onboarding.firstEntryId';
   static const _remindersKey = 'onboarding.reminders';
 
@@ -100,11 +105,6 @@ class OnboardingStore {
   /// Policy version the AI choice was made under, when the policy has one.
   String? get aiPolicyVersion => _prefs.getString(_key(_aiPolicyKey));
 
-  /// Explicit opt-in under the *current* local Ollama disclosure. A choice
-  /// made under an earlier simulated-AI policy is never reused silently.
-  bool get consentedToRemoteAi =>
-      aiEnabled == true && aiPolicyVersion == DataPolicy.localOllama.version;
-
   /// Applies to the next requests only; it cannot recall anything sent
   /// before.
   Future<void> saveAiChoice(
@@ -116,6 +116,18 @@ class OnboardingStore {
       await _prefs.remove(_key(_aiPolicyKey));
     }
   }
+
+  /// AI defaults on for new signed-in users, but a legacy account which
+  /// explicitly selected "Chỉ viết nhật ký" must remain OFF until it opts
+  /// in via Profile. Never silently undo a previous privacy choice.
+  bool get aiInApp => switch (_prefs.getString(_key(_aiInAppKey))) {
+        'on' => true,
+        'off' => false,
+        _ => aiEnabled != false,
+      };
+
+  Future<void> saveAiInApp(bool on) =>
+      _prefs.setString(_key(_aiInAppKey), on ? 'on' : 'off');
 
   /// Id of the entry saved in OB07; Back to OB07 then edits that entry
   /// instead of creating another.
@@ -143,7 +155,8 @@ class OnboardingStore {
   /// so the flow starts again at OB01. Journal entries are not touched.
   Future<void> reset() async {
     for (final key in _prefs.getKeys().toList()) {
-      if (key.startsWith(_key('onboarding.'))) {
+      if (userId == null ? key.startsWith('onboarding.')
+          : key.startsWith('account.$userId.onboarding.')) {
         await _prefs.remove(key);
       }
     }

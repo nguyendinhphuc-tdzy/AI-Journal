@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/widgets/mascot_placeholder.dart';
-import '../home/presentation/widgets/primary_button.dart';
+import '../../core/widgets/app_ui.dart';
 import '../streak/streak_screen.dart';
 
 class ReflectionScreen extends StatelessWidget {
@@ -79,7 +79,7 @@ class ReflectionScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            PrimaryButton(
+            AppPrimaryButton(
               label: 'Continue',
               onPressed: () => Navigator.of(context).pushReplacement(
                 StreakScreen.route(),
