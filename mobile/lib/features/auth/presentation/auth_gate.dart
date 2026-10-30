@@ -329,6 +329,13 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
                     // itself enforces the user's AI choice.
                     reflections: _ai,
                     skipAccountStep: true,
+                    onNicknameSaved: _api == null ? null : (nickname) async {
+                      if (nickname != null && nickname.isNotEmpty) {
+                        await _api!.patchJson('/me', {
+                          'display_name': nickname,
+                        }, requireAuth: true);
+                      }
+                    },
                     onComplete: () => setState(() {}),
                   ),
           );
