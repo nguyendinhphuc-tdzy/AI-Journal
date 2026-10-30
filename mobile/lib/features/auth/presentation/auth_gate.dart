@@ -284,6 +284,21 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
       albums = CombinedAlbumRepository(local: localAlbums, remote: remote);
     }
     final onboarding = await OnboardingStore.open(userId: widget.userId);
+    // Existing users completed OB02 before cloud profiles existed. Migrate
+    // their nickname once when the cloud display name is still missing.
+    // Never overwrite a name intentionally changed on another device.
+    if (api != null && onboarding.nickname != null) {
+      try {
+        final profile = await api.getJson('/me', requireAuth: true);
+        if (profile['display_name'] == null) {
+          await api.patchJson('/me', {
+            'display_name': onboarding.nickname,
+          }, requireAuth: true);
+        }
+      } catch (_) {
+        // Offline sessions still have their device-only onboarding data.
+      }
+    }
     if (widget.resetOnboarding) {
       await onboarding.reset();
       await journals.deleteDraft(FirstEntrySession.draftKey);
@@ -329,6 +344,13 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
                     // itself enforces the user's AI choice.
                     reflections: _ai,
                     skipAccountStep: true,
+                    onNicknameSaved: _api == null ? null : (nickname) async {
+                      if (nickname != null && nickname.isNotEmpty) {
+                        await _api.patchJson('/me', {
+                          'display_name': nickname,
+                        }, requireAuth: true);
+                      }
+                    },
                     onComplete: () => setState(() {}),
                   ),
           );

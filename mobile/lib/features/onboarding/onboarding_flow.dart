@@ -43,6 +43,7 @@ class OnboardingFlow extends StatefulWidget {
     this.signIn,
     this.friends,
     this.skipAccountStep = false,
+    this.onNicknameSaved,
   });
 
   /// The account (OB01b); a simulated one when not given.
@@ -54,6 +55,10 @@ class OnboardingFlow extends StatefulWidget {
   final bool skipAccountStep;
 
   final OnboardingStore store;
+
+  /// Signed-in accounts can sync a chosen nickname to their private profile.
+  /// Guest/demo flows have no cloud callback.
+  final Future<void> Function(String?)? onNicknameSaved;
 
   /// AI reflections; without one (guest mode), OB06 offers no AI choice,
   /// nothing is asked and OB07 goes to OB09.
@@ -178,6 +183,13 @@ class _OnboardingFlowState extends State<OnboardingFlow>
   /// Checkpoint: the nickname is saved before moving on to OB03.
   Future<void> _saveNickname(String? nickname) async {
     await widget.store.saveNickname(nickname);
+    // Local onboarding remains usable offline. A later profile edit can
+    // retry a failed server write; do not silently enable public discovery.
+    try {
+      await widget.onNicknameSaved?.call(nickname);
+    } catch (_) {
+      // No personal data or token is logged.
+    }
     if (mounted) _goTo(OnboardingStep.purpose);
   }
 

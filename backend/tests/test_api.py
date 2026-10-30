@@ -45,7 +45,7 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261029_16"
+    assert revision == "20261030_17"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
@@ -1735,5 +1735,83 @@ def test_weekly_narrative_caches_and_invalidates_with_journal_updates(monkeypatc
         assert after.json()["summary"] is None
         assert after.json()["summary_status"] == "no_data"
         assert provider.calls == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_username_discovery_privacy_and_friendship_roundtrip():
+    """A username is globally unique; search is opt-in; friends are real users."""
+    from app.core.database import SessionLocal
+    from app.models.user_profile import UserProfile
+
+    alice = AuthenticatedUser(user_id=uuid4(), email="u-alice@example.test")
+    bob = AuthenticatedUser(user_id=uuid4(), email="u-bob@example.test")
+    outsider = AuthenticatedUser(user_id=uuid4(), email="u-third@example.test")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: alice
+        a = client.patch("/api/v1/me", json={
+            "display_name": "Vy Tường", "username": "@VyTuong",
+        })
+        assert a.status_code == 200, a.text
+        assert a.json()["username"] == "vytuong"
+        assert a.json()["discoverable"] is False
+        assert client.get("/api/v1/friends/discover", params={"q": "vyt"}).json() == []
+
+        app.dependency_overrides[get_current_user] = lambda: bob
+        b = client.patch("/api/v1/me", json={"display_name": "Người B",
+                                              "username": "another_b"})
+        assert b.status_code == 200, b.text
+        duplicate = client.patch("/api/v1/me", json={"username": "VYTUONG"})
+        assert duplicate.status_code == 409, duplicate.text
+        # Failed writes never overwrite the old username.
+        assert client.get("/api/v1/me").json()["username"] == "another_b"
+        assert client.patch("/api/v1/me",
+                            json={"username": "no spaces"}).status_code == 422
+        assert client.patch("/api/v1/me",
+                            json={"username": "ok"}).status_code == 422
+        assert client.patch("/api/v1/me",
+                            json={"discoverable": True}).status_code == 200
+
+        app.dependency_overrides[get_current_user] = lambda: alice
+        assert client.get("/api/v1/friends/discover", params={"q": "another"}).json()[0]["username"] == "another_b"
+        # The requester is not discoverable until explicitly enabled.
+        app.dependency_overrides[get_current_user] = lambda: bob
+        assert client.get("/api/v1/friends/discover", params={"q": "@vytuong"}).json() == []
+        app.dependency_overrides[get_current_user] = lambda: alice
+        assert client.patch("/api/v1/me", json={"discoverable": True}).status_code == 200
+
+        app.dependency_overrides[get_current_user] = lambda: bob
+        found = client.get("/api/v1/friends/discover", params={"q": "@vyt"})
+        assert found.status_code == 200, found.text
+        assert found.json()[0]["user_id"] == str(alice.user_id)
+        assert found.json()[0]["display_name"] == "Vy Tường"
+        assert "email" not in found.json()[0]
+        invite = client.post("/api/v1/friends/requests", json={"user_id": str(alice.user_id)})
+        assert invite.status_code == 201, invite.text
+
+        app.dependency_overrides[get_current_user] = lambda: alice
+        inbox = client.get("/api/v1/friends")
+        assert inbox.status_code == 200
+        row = next(x for x in inbox.json() if x["user_id"] == str(bob.user_id))
+        assert row["status"] == "pending"
+        assert row["direction"] == "incoming"
+        assert row["username"] == "another_b"
+        assert client.post(f"/api/v1/friends/{bob.user_id}/accept").status_code == 200
+
+        app.dependency_overrides[get_current_user] = lambda: bob
+        result = client.get("/api/v1/friends").json()
+        assert any(x["status"] == "accepted" and
+                   x["user_id"] == str(alice.user_id) for x in result)
+        assert client.delete(f"/api/v1/friends/{alice.user_id}").status_code == 204
+
+        app.dependency_overrides[get_current_user] = lambda: outsider
+        assert client.get("/api/v1/friends").json() == []
+        # Disable discovery but keep the owner's private profile intact.
+        app.dependency_overrides[get_current_user] = lambda: alice
+        assert client.patch("/api/v1/me", json={"discoverable": False}).status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: bob
+        assert client.get("/api/v1/friends/discover", params={"q": "Vy Tường"}).json() == []
+        with SessionLocal() as db:
+            assert db.get(UserProfile, alice.user_id).username == "vytuong"
     finally:
         app.dependency_overrides.clear()

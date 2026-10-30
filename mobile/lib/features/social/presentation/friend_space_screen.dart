@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../auth/data/auth_service.dart';
+import '../../auth/presentation/auth_gate.dart';
+import 'real_friends_screen.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
@@ -65,9 +68,15 @@ abstract final class FriendSpaceText {
 
 /// Opens "Space của bạn" over Explore.
 Future<void> openFriendSpace(BuildContext context,
-        {required FriendsAccount account, required FriendSpace space}) =>
-    Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => FriendSpaceScreen(account: account, space: space)));
+    {required FriendsAccount account, required FriendSpace space}) {
+  final auth = AuthScope.maybeOf(context);
+  // Signed-in accounts must NEVER be shown simulated Facebook friends.
+  return Navigator.of(context).push(MaterialPageRoute(
+    builder: (_) => auth is SupabaseAuthService
+        ? RealFriendsScreen(auth: auth)
+        : FriendSpaceScreen(account: account, space: space),
+  ));
+}
 
 /// "Space của bạn": the friends on the app the user shares with. Joining
 /// takes both: invitations to the user first ("Đồng ý" / "Từ chối"), then
