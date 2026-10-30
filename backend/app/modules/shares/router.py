@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from sqlalchemy import select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 from app.core.auth import AuthenticatedUser, get_current_user
 from app.core.database import get_db
@@ -96,6 +96,24 @@ def readable(db: Session, s: MemoryShare | None, reader: UUID) -> MemoryShare:
         missing()
     return s
 
+
+SHARE_LIMIT_PER_MINUTE = 5
+
+def enforce_share_rate(db: Session, owner_id: UUID, now: datetime) -> None:
+    """Five moment posts per minute, independent of chat-message quota.
+
+    Lock by sender in PostgreSQL to prevent parallel requests bypassing the
+    quota across API workers. A replaced/revoked moment still counts.
+    """
+    if db.bind.dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:sender, 0))"),
+                   {"sender": "share:" + str(owner_id)})
+    recent = db.scalar(select(func.count()).select_from(MemoryShare).where(
+        MemoryShare.owner_id == owner_id,
+        MemoryShare.created_at > now - timedelta(minutes=1))) or 0
+    if recent >= SHARE_LIMIT_PER_MINUTE:
+        raise HTTPException(429, detail="Memory share rate limit exceeded")
+
 @router.post("", response_model=ShareInfo, status_code=status.HTTP_201_CREATED)
 def create_share(payload: ShareCreate, background_tasks: BackgroundTasks,
                  user: AuthenticatedUser = Depends(get_current_user),
@@ -117,6 +135,7 @@ def create_share(payload: ShareCreate, background_tasks: BackgroundTasks,
         if old.memory_id != payload.memory_id:
             raise HTTPException(status_code=422, detail="Replacement memory mismatch")
     now = datetime.now(timezone.utc)
+    enforce_share_rate(db, user.user_id, now)
     # Photos never outlive their 24 hours: the owner's expired ones go now.
     db.execute(update(MemoryShare).where(
         MemoryShare.owner_id == user.user_id, MemoryShare.expires_at <= now,
