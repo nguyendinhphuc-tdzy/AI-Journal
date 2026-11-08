@@ -13,6 +13,7 @@ import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text.dart';
 import '../../../core/widgets/app_ui.dart';
+import '../data/explore_focus.dart';
 import '../data/explore_highlight.dart';
 import '../../social/presentation/friend_space_screen.dart';
 import '../../messages/data/chat_message.dart';
@@ -122,6 +123,8 @@ class ExploreScreen extends StatefulWidget {
         '${two(t.day)}/${two(t.month)}/${t.year}';
   }
 
+  static const momentGone =
+      'Khoảnh khắc này đã hết hạn hoặc đã được gỡ nên không còn xem được.';
   static const momentsShow = 'Hiện khoảnh khắc của bạn bè';
   static const momentsHide = 'Ẩn khoảnh khắc của bạn bè';
   static String momentsNew(int n) => '$n khoảnh khắc mới';
@@ -289,6 +292,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     super.initState();
     _highlight = widget.highlight;
     _highlightCard = _highlight != null;
+    ExploreFocus.post.addListener(_focusAsked);
     // Use Android TextureView so Flutter overlays and tab clipping compose
     // correctly; the default SurfaceView uses a separate virtual display.
     MapLibreMap.useHybridComposition = true;
@@ -369,6 +373,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
       _friendsSharing = sharing;
       sharing.archive?.shares.addListener(_archiveChanged);
       _loadSeenMoments();
+      // A moment asked for before Khám phá was ready.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focusAsked());
       _friendPostsTimer?.cancel();
       _friendPostsTimer = Timer.periodic(
           const Duration(minutes: 1), (_) => _loadFriendPosts());
@@ -504,6 +510,32 @@ class _ExploreScreenState extends State<ExploreScreen> {
   }
 
   /// A friend's post: its card, the pin brought into view.
+  /// A moment asked for ([ExploreFocus], a tapped notification): friends'
+  /// moments on, that one open; the user's own when it is theirs.
+  Future<void> _focusAsked() async {
+    final id = ExploreFocus.post.value;
+    final sharing = _friendsSharing;
+    if (id == null || sharing == null || !mounted) return;
+    ExploreFocus.post.value = null;
+    if (!_showMoments) setState(() => _showMoments = true);
+    await _loadFriendPosts();
+    FriendPost? post;
+    for (final p in _friendPosts) {
+      if (p.id == id) post = p;
+    }
+    try {
+      post ??= (await sharing.shared(id))?.from('Bạn');
+    } catch (_) {
+      post = null;
+    }
+    if (!mounted) return;
+    if (post == null || !post.isActive(DateTime.now())) {
+      _toast(ExploreScreen.momentGone);
+      return;
+    }
+    _showFriendPost(post);
+  }
+
   /// A friend's post: its card with the photo, the pin brought into view.
   void _showFriendPost(FriendPost post) {
     setState(() {
@@ -546,6 +578,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
   @override
   void dispose() {
     _friendsSharing?.archive?.shares.removeListener(_archiveChanged);
+    ExploreFocus.post.removeListener(_focusAsked);
     ++_poiRequestVersion;
     _friendPostsTimer?.cancel();
     _debounce?.cancel();

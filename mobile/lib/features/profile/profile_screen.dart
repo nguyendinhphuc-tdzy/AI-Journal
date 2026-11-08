@@ -16,6 +16,7 @@ import '../journal/data/api_ai_service.dart';
 import '../home/data/home_scene_settings.dart';
 import '../sound/app_sound.dart';
 import '../auth/presentation/auth_gate.dart';
+import '../notifications/push_controller.dart';
 import '../sound/data/sound_settings.dart';
 import 'data/writing_preferences.dart';
 import 'widgets/setting_editor.dart';
@@ -408,11 +409,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           icon: const Icon(Icons.logout),
           label: const Text(ProfileScreen.signOutLabel),
           onPressed: () async {
-            final auth = AuthScope.maybeOf(context);
-            final guest = GuestScope.maybeOf(context);
+            // Read once, without depending on them: signing out tears the
+            // whole signed-in tree down, so `context` is not used after it.
+            final auth = context.getInheritedWidgetOfExactType<AuthScope>()?.auth;
+            final guest = context.getInheritedWidgetOfExactType<GuestScope>();
+            final push =
+                context.getInheritedWidgetOfExactType<PushScope>()?.controller;
+            final navigator = Navigator.of(context);
+            final messenger = ScaffoldMessenger.of(context);
             try {
               if (auth != null) {
+                // This installation stops getting the account's pushes.
+                await push?.beforeSignOut();
+                // AuthGate swaps in the sign-in screen by itself.
                 await auth.signOut();
+                return;
               } else if (guest != null) {
                 // A guest's data goes for good: say so first. The
                 // dialog shows its own failure and "Thử lại".
@@ -427,12 +438,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ));
                 if (!left) return;
               }
-              if (mounted) {
-                Navigator.of(context).popUntil((route) => route.isFirst);
-              }
+              if (mounted) navigator.popUntil((route) => route.isFirst);
             } catch (_) {
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   const SnackBar(content: Text('Không thể đăng xuất. Thử lại.')),
                 );
               }

@@ -183,6 +183,20 @@ class ApiClient {
     }
   }
 
+  /// DELETE with a JSON body (e.g. `DELETE /devices {token}`); 200 or 204.
+  Future<void> deleteJson(
+    String path,
+    Map<String, dynamic> body, {
+    bool requireAuth = false,
+  }) async {
+    final response = await _send(path, requireAuth: requireAuth, jsonBody: true,
+        send: (uri, headers) =>
+            _client.delete(uri, headers: headers, body: jsonEncode(body)));
+    if (response.statusCode != 200 && response.statusCode != 204) {
+      throw ApiException(response.statusCode);
+    }
+  }
+
   Map<String, dynamic> _decode(http.Response response) {
     _ensureSuccess(response);
     final decoded = jsonDecode(response.body);
