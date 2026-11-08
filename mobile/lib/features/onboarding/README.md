@@ -320,16 +320,23 @@ motion: no gust, no stagger, 120 ms fade.
   tối." (and what was set), "Thử lại" or "Tiếp tục" (records only what was
   scheduled). Any edit clears the message.
 - One notification text: "Một chút thời gian dành cho nhật ký của bạn".
-- `ReminderService` (`features/reminders/data/reminder_service.dart`). The
-  project has no notification plugin yet, so the app uses
+- `ReminderService` (`features/reminders/data/reminder_service.dart`).
+  `defaultReminderService()` (`local_reminder_service.dart`) picks the real
+  `LocalReminderService` on Android: flutter_local_notifications, daily at
+  the slot's wall-clock time in the device's time zone (flutter_timezone),
+  inexact (`inexactAllowWhileIdle`, so no exact-alarm permission; it may be
+  a few minutes late while the phone sleeps), rescheduled by the plugin
+  after a reboot or an app update. Permission is Android 13+
+  POST_NOTIFICATIONS; "never asked" is told apart from "refused" by a kept
+  flag (`reminders.permissionAsked`). "Mở cài đặt" opens the app's
+  notification settings. Elsewhere (tests, desktop) the app uses
   `SimulatedReminderService`: no system prompt is shown or faked and no
   notification will appear; after saving, a snack bar says it is simulated.
   Try each branch on a device with
-  `--dart-define=REMINDER_SIM=denied|refuse|unavailable|fail-morning|fail-evening|fail-all`.
-  A real implementation (e.g. flutter_local_notifications with time zone
-  support, plus an app-settings opener) needs `pubspec.yaml` and platform
-  setup (Android POST_NOTIFICATIONS / exact alarms, iOS authorization); pass
-  it as `OnboardingFlow.reminders`.
+  `--dart-define=REMINDER_SIM=denied|refuse|unavailable|fail-morning|fail-evening|fail-all`
+  (any value switches to the stand-in). iOS is not set up.
+- Hồ sơ → "Nhắc nhở mỗi ngày" opens this same screen from what is saved
+  ("08:00 · 21:00", or "Tắt"); Back and "Để sau" change nothing.
 - Background: the shared onboarding background (`AppColors.background`),
   like every other step; the yellow of "Nudaeng remind.png" clashed with
   Primary and flashed between OB09 and OB10. The artwork is

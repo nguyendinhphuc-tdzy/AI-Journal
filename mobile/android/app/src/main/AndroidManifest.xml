@@ -8,6 +8,8 @@
     <!-- Push notifications (messages, friends, moments): asked after sign-in
          on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Daily reminders (OB10) are scheduled again after a reboot. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
         android:label="ai_diary"
         android:allowBackup="false"
@@ -134,6 +136,21 @@
         </activity-alias>
         <!-- Push notifications shown by the system: a one-colour icon and
              the app's teal. -->
+        <!-- Daily reminders (flutter_local_notifications): shown at their
+             time, and scheduled again after a reboot or an app update. -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_notify" />

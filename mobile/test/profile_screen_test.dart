@@ -40,10 +40,12 @@ void main() {
     await tester.scrollUntilVisible(find.text('Biểu tượng ứng dụng'), 100,
         scrollable: scrollable);
     expect(find.text('Đã chọn không dùng AI'), findsNothing);
+    // Daily reminders: what OB10 set.
+    expect(find.text('Nhắc nhở mỗi ngày', skipOffstage: false), findsOneWidget);
+    expect(find.text('07:30 · 21:15', skipOffstage: false), findsOneWidget);
     // Settings that open nothing yet are not listed.
     for (final gone in [
       'Gói Nudaeng Plus',
-      'Nhắc nhở mỗi ngày',
       'Ngôn ngữ',
       'Bảo mật',
       'Thông tin',

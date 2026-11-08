@@ -264,7 +264,7 @@ do not implement production enrollment, entry persistence, or task associations.
   turns off and says so. Saving joins the answers with a blank line, as the
   journal editor does; a task draft keeps them all.
 - J03 says when the daily reminders are set, or that they can be set in
-  Hồ sơ (reminders are still simulated, see Hồ sơ).
+  Hồ sơ ("Nhắc nhở mỗi ngày").
 
 ## User-requested mock content
 

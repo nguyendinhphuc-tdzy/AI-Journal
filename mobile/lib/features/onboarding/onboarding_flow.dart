@@ -4,6 +4,7 @@ import '../journal/data/journal_entry.dart';
 import '../journal/data/reflection_service.dart';
 import '../journal/journal_scope.dart';
 import '../reminders/data/reminder_service.dart';
+import '../reminders/data/local_reminder_service.dart';
 import 'data/data_policy.dart';
 import 'data/journal_goal.dart';
 import 'data/journaling_experience.dart';
@@ -112,7 +113,7 @@ class _OnboardingFlowState extends State<OnboardingFlow>
       ReminderChoice.draftFrom(widget.store.reminders);
 
   late final ReminderService _reminders =
-      widget.reminders ?? SimulatedReminderService.fromEnvironment();
+      widget.reminders ?? defaultReminderService();
 
   /// AI reflection on the first entry; asked only after a save, AI on.
   late final FirstReflection _reflection = FirstReflection(

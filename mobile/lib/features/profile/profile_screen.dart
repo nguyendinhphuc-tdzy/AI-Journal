@@ -17,6 +17,9 @@ import '../home/data/home_scene_settings.dart';
 import '../sound/app_sound.dart';
 import '../auth/presentation/auth_gate.dart';
 import '../notifications/push_controller.dart';
+import '../onboarding/presentation/onboarding_reminder_screen.dart';
+import '../reminders/data/local_reminder_service.dart';
+import '../reminders/data/reminder_service.dart';
 import '../sound/data/sound_settings.dart';
 import 'data/writing_preferences.dart';
 import 'widgets/setting_editor.dart';
@@ -25,10 +28,23 @@ class ProfileScreen extends StatefulWidget {
   const ProfileScreen({
     super.key,
     this.appIcons = const PlatformAppIconSwitcher(),
+    this.reminders,
   });
 
   /// The home-screen icon (Android launcher aliases).
   final AppIconSwitcher appIcons;
+
+  /// Daily reminders; the device's own when not given.
+  final ReminderService? reminders;
+
+  /// "Nhắc nhở mỗi ngày": what is set ("08:00 · 21:00"), or off.
+  static String remindersValue(Map<ReminderSlot, ReminderTime> reminders) =>
+      reminders.isEmpty
+          ? 'Tắt'
+          : [
+              for (final slot in ReminderSlot.values)
+                if (reminders[slot] case final time?) time.label
+            ].join(' · ');
 
   static const accountTitle = 'Tài khoản';
   static const signOutLabel = 'Đăng xuất';
@@ -73,6 +89,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   AppIcon _icon = AppIcon.standard;
   bool _changingIcon = false;
   late Future<OnboardingStore> _onboarding;
+  late final ReminderService _reminders =
+      widget.reminders ?? defaultReminderService();
   late Future<WritingPreferences> _preferences;
   late Future<HomeSceneSettings> _scene;
   late Future<SoundSettings> _sound;
@@ -148,6 +166,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// "Nhắc nhở mỗi ngày": OB10's screen again, from what is saved. Saving
+  /// asks for permission there and schedules (or cancels) for real; only
+  /// what the OS accepted is kept. Back or "Để sau" changes nothing.
+  Future<void> _editReminders(OnboardingStore store) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (route) => OnboardingReminderScreen(
+          service: _reminders,
+          initialDraft: ReminderChoice.draftFrom(store.reminders),
+          onChanged: (_) {},
+          onBack: () => Navigator.pop(route, false),
+          onSkip: () => Navigator.pop(route, false),
+          onDone: (scheduled) async {
+            await store.saveReminders(scheduled);
+            if (route.mounted) Navigator.pop(route, true);
+          },
+        ),
+      ),
+    );
+    // (The screen itself says when reminders are only simulated.)
+    if (mounted && saved == true) setState(() {});
+  }
+
   Future<void> _edit(String item) async {
     if (_editing) return;
     _editing = true;
@@ -164,6 +205,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       double Function(String)? previewSize;
       ValueChanged<String>? onPreview;
       Future<void> Function(String) save;
+      if (item == 'daily reminders') {
+        await _editReminders(store);
+        return;
+      }
       switch (item) {
         case 'what do friends call you?':
           initial = store.nickname ?? '';
@@ -248,10 +293,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               'Rung nhẹ khi lưu cài đặt, đổi nền, suy ngẫm sâu hơn và hoàn thành nhật ký trên thiết bị hỗ trợ.';
           save = (value) => prefs.saveHaptic(value == 'on');
         default:
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(item == 'daily reminders'
-                  ? 'Lịch nhắc hiện chỉ là mô phỏng, chưa phát thông báo thật.'
-                  : 'Tính năng này chưa được hỗ trợ trong phiên bản hiện tại.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  'Tính năng này chưa được hỗ trợ trong phiên bản hiện tại.')));
           return;
       }
       final changed = await showAppSheet<bool>(context,
@@ -331,14 +375,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
         }
         final store = snapshot.data;
         final loading = store == null;
-        // Only settings that open something; the rest (Plus, reminders,
-        // language) come back once they work. "Phản hồi AI" only where there
-        // is AI: a signed-in account.
+        // Only settings that open something; the rest (Plus, language) come
+        // back once they work. "Phản hồi AI" only where there is AI: a
+        // signed-in account.
         return _buildSettingsGroup('Cài đặt chung', [
           'what do friends call you?',
           'pick your inspirations path',
+          'daily reminders',
           if (AiRemoteScope.maybeOf(context) != null) 'ai replies',
         ], values: {
+          'daily reminders': loading
+              ? 'Đang tải…'
+              : ProfileScreen.remindersValue(store.reminders),
           'what do friends call you?': loading
               ? 'Đang tải…'
               : (store.nickname?.trim().isNotEmpty == true
