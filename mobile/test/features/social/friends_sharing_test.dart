@@ -289,7 +289,10 @@ void main() {
       },
     ], calls);
     addTearDown(api.close);
-    final sharing = RemoteFriendsSharing(api, readPhoto: (_) async => _jpeg);
+    // Before the server's expiry (2026-10-31 07:00 UTC), whatever today is.
+    final sharing = RemoteFriendsSharing(api,
+        readPhoto: (_) async => _jpeg,
+        clock: () => DateTime.utc(2026, 10, 30, 8));
     await _openShare(tester, sharing);
     expect(calls.single, 'GET /friends');
     expect(find.byKey(const ValueKey('share-to-u1')), findsOneWidget);

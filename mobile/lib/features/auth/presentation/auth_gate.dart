@@ -22,6 +22,13 @@ import '../../social/data/friends_sharing.dart';
 import '../../social/data/my_shares.dart';
 import '../../messages/data/messages_repository.dart';
 import '../../messages/messages_scope.dart';
+import '../../messages/presentation/chat_screen.dart';
+import '../../explore/data/explore_focus.dart';
+import '../../notifications/data/device_registration.dart';
+import '../../notifications/data/push_platform.dart';
+import '../../notifications/data/push_target.dart';
+import '../../notifications/push_controller.dart';
+import '../../social/presentation/friend_space_screen.dart';
 import '../../journal/data/api_ai_service.dart';
 import '../../journal/data/remote_journal_repository.dart';
 import '../../onboarding/data/onboarding_scope.dart';
@@ -258,6 +265,79 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
       : MessagesController(
           RemoteMessagesRepository(_api, myId: widget.userId));
 
+  /// The signed-in app's navigator and messenger: a tapped notification
+  /// opens its screen, one that comes while the app is open is said.
+  final _navigator = GlobalKey<NavigatorState>();
+  final _messenger = GlobalKey<ScaffoldMessengerState>();
+
+  /// Push notifications; signed-in accounts only.
+  late final PushController? _push = _api == null
+      ? null
+      : PushController(
+          platform: const FirebasePushPlatform(),
+          registration: DeviceRegistration(_api),
+          onOpen: _openTarget,
+          onForeground: _foregroundTarget,
+        );
+
+  /// Where a tapped notification leads; the screen fetches again with this
+  /// session (the push itself grants nothing).
+  Future<void> _openTarget(PushTarget target) async {
+    final navigator = _navigator.currentState;
+    // Under the navigator, so screens opened from here find it.
+    final context = navigator?.overlay?.context;
+    if (navigator == null || context == null) return;
+    navigator.popUntil((route) => route.isFirst);
+    switch (target) {
+      case OpenFriends():
+        await openFriendSpace(context);
+      case OpenMoment(:final shareId):
+        ExploreFocus.post.value = shareId;
+      case OpenMessages():
+        _messages?.refresh();
+      case OpenChat(:final conversationId):
+        final messages = _messages;
+        if (messages == null) return;
+        try {
+          final list = await messages.repository.conversations();
+          final conversation =
+              list.where((c) => c.id == conversationId).firstOrNull;
+          if (conversation == null || !mounted) return;
+          await navigator.push(MaterialPageRoute<void>(
+              builder: (_) => ChatScreen(
+                  repository: messages.repository,
+                  conversation: conversation,
+                  onSeen: messages.seen,
+                  onIncoming: messages.chime)));
+        } catch (_) {
+          // Offline: the Tin nhắn tab shows it once back.
+        }
+    }
+  }
+
+  /// One came while the app is open: messages count (and chime) at once;
+  /// friends and moments say so, with a way there.
+  void _foregroundTarget(PushTarget target) {
+    if (target is OpenChat || target is OpenMessages) {
+      _messages?.refresh();
+      return;
+    }
+    final text = switch (target) {
+      OpenFriends() => PushText.friends,
+      OpenMoment() => PushText.moment,
+      _ => null,
+    };
+    if (text == null) return;
+    _messenger.currentState
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(text),
+        action: SnackBarAction(
+            label: PushText.show, onPressed: () => _openTarget(target)),
+      ));
+  }
+
   /// A10's audience and posts: the account's friends on the app. Guests
   /// have none.
   late final RemoteFriendsSharing? _friendsSharing = _api == null
@@ -326,6 +406,7 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
 
   @override
   void dispose() {
+    _push?.dispose();
     _messages?.dispose();
     _api?.close();
     super.dispose();
@@ -349,7 +430,14 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           }
 
           final data = snapshot.data!;
+          // Signed in and ready: notifications start (once).
+          if (_push case final push?) {
+            WidgetsBinding.instance
+                .addPostFrameCallback((_) => push.start());
+          }
           final app = MaterialApp(
+            navigatorKey: _navigator,
+            scaffoldMessengerKey: _messenger,
             title: 'Nhật ký AI',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light,
@@ -413,9 +501,13 @@ class _LocalSessionHomeState extends State<_LocalSessionHome> {
           final withMessages = messages == null
               ? withStreak
               : MessagesScope(controller: messages, child: withStreak);
-          return _ai == null
+          final push = _push;
+          final withPush = push == null
               ? withMessages
-              : AiRemoteScope(service: _ai, child: withMessages);
+              : PushScope(controller: push, child: withMessages);
+          return _ai == null
+              ? withPush
+              : AiRemoteScope(service: _ai, child: withPush);
         },
       );
 }
