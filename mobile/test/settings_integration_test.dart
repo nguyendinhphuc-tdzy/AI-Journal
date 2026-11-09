@@ -3,7 +3,6 @@ import 'package:ai_diary/features/profile/data/writing_preferences.dart';
 import 'package:ai_diary/features/profile/widgets/setting_editor.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/data/journal_goal.dart';
-import 'package:ai_diary/features/onboarding/data/journaling_experience.dart';
 import 'package:ai_diary/features/journal/data/journal_repository.dart';
 import 'package:ai_diary/features/journal/presentation/write_journal_screen.dart';
 import 'package:ai_diary/features/journal/presentation/ai_reflection_screen.dart';
@@ -19,11 +18,8 @@ void main() {
   Future<void> openSetting(WidgetTester tester, String name) async {
     const keys = {
       'Bạn bè gọi bạn là gì?': 'what do friends call you?',
-      'Nền giấy': 'paper',
       'Cỡ chữ': 'text size',
-      'AI Chiêm nghiệm': 'ai reflections',
       'Chọn con đường truyền cảm hứng': 'pick your inspirations path',
-      'Trải nghiệm viết nhật ký': 'journaling experience',
       'Rung phản hồi': 'haptic',
     };
     final setting = find.byKey(ValueKey('setting-item-${keys[name] ?? name}'));
@@ -40,11 +36,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> pick(WidgetTester tester, String label) async {
+    await tester.tap(find.descendant(
+        of: find.byType(SettingEditor), matching: find.text(label)));
+    await tester.pumpAndSettle();
+  }
+
   Future<void> select(WidgetTester tester, String label) async {
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(label).last);
-    await tester.pumpAndSettle();
+    await pick(tester, label);
     await tester.tap(find.text('Lưu'));
     await tester.pumpAndSettle();
   }
@@ -74,43 +73,44 @@ void main() {
   });
 
   testWidgets(
-      'Paper and text size selections reach the journal and palette persists',
+      'Text size reaches the journal; paper is switched inside the entry',
       (tester) async {
     await tester.pumpWidget(const AiDiaryApp());
     await tester.pumpAndSettle();
     await tester.tap(find.bySemanticsLabel('Ảnh đại diện hồ sơ'));
     await tester.pumpAndSettle();
-    await openSetting(tester, 'Nền giấy');
-    await select(tester, 'Nền trắng');
+    expect(find.byKey(const ValueKey('setting-item-paper')), findsNothing);
     await openSetting(tester, 'Cỡ chữ');
     await select(tester, '24 px');
     await tester.tap(find.byTooltip('Đóng'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cùng suy ngẫm ➔'));
+    await tester.ensureVisible(find.text('Viết nhật ký'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
     expect(
         tester.widget<TextField>(find.byType(TextField)).style!.fontSize, 24);
-    expect((await WritingPreferences.open()).paper, isFalse);
+    expect((await WritingPreferences.open()).paper, JournalPaper.doPaper);
     await tester.tap(find.byTooltip('Đổi nền nhật ký'));
     await tester.pumpAndSettle();
-    expect((await WritingPreferences.open()).paper, isTrue);
+    await tester.tap(find.text('Giấy cũ'));
+    await tester.pumpAndSettle();
+    expect((await WritingPreferences.open()).paper, JournalPaper.aged);
   });
 
-  testWidgets('AI disabled in settings saves entry without opening reflection',
+  testWidgets(
+      'AI declined in onboarding saves entry without opening reflection',
       (tester) async {
+    await (await OnboardingStore.open()).saveAiChoice(enabled: false);
     final journals = InMemoryJournalRepository();
     await tester.pumpWidget(AiDiaryApp(journals: journals));
     await tester.pumpAndSettle();
-    await tester.tap(find.bySemanticsLabel('Ảnh đại diện hồ sơ'));
+    await tester.ensureVisible(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
-    await openSetting(tester, 'AI Chiêm nghiệm');
-    await select(tester, 'Không dùng AI');
-    await tester.tap(find.byTooltip('Đóng'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Cùng suy ngẫm ➔'));
+    await tester.tap(find.text('Viết nhật ký'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Today I feel peaceful.');
-    await tester.tap(find.text('Hoàn tất'));
+    await tester.tap(find.text('Lưu nhật ký'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Xác nhận'));
     await tester.pumpAndSettle();
@@ -119,30 +119,34 @@ void main() {
     expect(find.byType(WriteJournalScreen), findsNothing);
   });
 
-  testWidgets('Choices persist and cancelling preserves AI preference',
+  testWidgets('Choices persist and cancelling keeps the saved one',
       (tester) async {
     final store = await OnboardingStore.open();
-    await store.saveAiChoice(enabled: false);
+    await store.saveGoal(JournalGoal.sortThoughts);
     await tester.pumpWidget(const MaterialApp(home: ProfileScreen()));
     await tester.pumpAndSettle();
     await openSetting(tester, 'Chọn con đường truyền cảm hứng');
-    await select(tester, JournalGoal.recordDailyLife.label);
-    await openSetting(tester, 'Trải nghiệm viết nhật ký');
-    await select(tester, JournalingExperience.regular.label);
-    await openSetting(tester, 'AI Chiêm nghiệm');
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Dùng phản hồi AI mô phỏng').last);
-    await tester.pumpAndSettle();
+    // The saved choice is marked; another one is only marked once tapped.
+    final saved =
+        find.byKey(ValueKey('setting-option-${JournalGoal.sortThoughts.name}'));
+    final other = find
+        .byKey(ValueKey('setting-option-${JournalGoal.recordDailyLife.name}'));
+    expect(tester.getSemantics(saved), isSemantics(isSelected: true));
+    await pick(tester, JournalGoal.recordDailyLife.label);
+    expect(tester.getSemantics(other), isSemantics(isSelected: true));
+    expect(tester.getSemantics(saved), isSemantics(isSelected: false));
     await tester.tap(find.text('Hủy'));
     await tester.pumpAndSettle();
-    expect(store.aiEnabled, isFalse);
-    await openSetting(tester, 'AI Chiêm nghiệm');
-    await select(tester, 'Dùng phản hồi AI mô phỏng');
-    final reopened = await OnboardingStore.open();
-    expect(reopened.aiEnabled, isTrue);
-    expect(reopened.goal, JournalGoal.recordDailyLife);
-    expect(reopened.experience, JournalingExperience.regular);
+    expect((await OnboardingStore.open()).goal, JournalGoal.sortThoughts);
+    await openSetting(tester, 'Chọn con đường truyền cảm hứng');
+    await select(tester, JournalGoal.recordDailyLife.label);
+    expect((await OnboardingStore.open()).goal, JournalGoal.recordDailyLife);
+    expect(
+        tester
+            .widget<Text>(find.byKey(
+                const ValueKey('setting-value-pick your inspirations path')))
+            .data,
+        JournalGoal.recordDailyLife.label);
     await openSetting(tester, 'Rung phản hồi');
     await select(tester, 'Bật');
     expect((await WritingPreferences.open()).haptic, isTrue);

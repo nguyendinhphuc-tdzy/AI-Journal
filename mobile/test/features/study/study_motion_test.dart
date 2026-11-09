@@ -30,7 +30,8 @@ double entranceOpacity(WidgetTester tester) => tester
     .opacity;
 
 void main() {
-  testWidgets('S01 enters once in 280 ms, usable at once, and waits for its tab',
+  testWidgets(
+      'S01 enters once in 280 ms, usable at once, and waits for its tab',
       (tester) async {
     await pumpStudy(tester, tickers: false);
     await tester.pump(const Duration(seconds: 1));
@@ -40,7 +41,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 16));
     expect(entranceOpacity(tester), inExclusiveRange(0, 1));
     // Controls work mid-entrance; nothing waits for the animation.
-    await tester.tap(find.byTooltip('Giới thiệu Study'));
+    await tester.tap(find.byTooltip('Giới thiệu Học tập'));
     await tester.pump(const Duration(milliseconds: 300));
     expect(entranceOpacity(tester), 1);
     await tester.pumpAndSettle();
@@ -52,14 +53,13 @@ void main() {
     await pumpStudy(tester, reduced: true);
     await tester.pump();
     expect(entranceOpacity(tester), 1);
-    final card = find.text('Clear My Mind');
+    final card = find.text('Gỡ rối suy nghĩ');
     await tester.ensureVisible(card);
     final gesture = await tester.startGesture(tester.getCenter(card));
     await tester.pump(const Duration(milliseconds: 80));
     final scale = tester
-        .widget<Transform>(find
-            .ancestor(of: card, matching: find.byType(Transform))
-            .first)
+        .widget<Transform>(
+            find.ancestor(of: card, matching: find.byType(Transform)).first)
         .transform
         .entry(0, 0);
     expect(scale, 1);
@@ -70,7 +70,7 @@ void main() {
   testWidgets('Cards press to 0.98 in 80 ms and recover in 120 ms',
       (tester) async {
     await openStudy(tester, disableAnimations: false);
-    final card = find.text('Clear My Mind');
+    final card = find.text('Gỡ rối suy nghĩ');
     await tester.ensureVisible(card);
     await tester.pumpAndSettle();
     final transform = find.descendant(
@@ -93,36 +93,36 @@ void main() {
   testWidgets('Detail routes take 280 ms, or a 120 ms fade when reduced',
       (tester) async {
     await openStudy(tester, disableAnimations: false);
-    await tapText(tester, 'Clear My Mind');
-    final route = ModalRoute.of(tester.element(find.text('CÁC BƯỚC MẪU')))!;
+    await tapText(tester, 'Gỡ rối suy nghĩ');
+    final route = ModalRoute.of(tester.element(find.text('CÁCH THỰC HIỆN')))!;
     expect(route, isA<StudyRoute<void>>());
     expect(route.transitionDuration, const Duration(milliseconds: 280));
     expect(route.reverseTransitionDuration, route.transitionDuration);
 
     await openStudy(tester);
-    await tapText(tester, 'Clear My Mind');
+    await tapText(tester, 'Gỡ rối suy nghĩ');
     final reducedRoute =
-        ModalRoute.of(tester.element(find.text('CÁC BƯỚC MẪU')))!;
+        ModalRoute.of(tester.element(find.text('CÁCH THỰC HIỆN')))!;
     expect(reducedRoute.transitionDuration, StudyMotion.reducedFade);
   });
 
   testWidgets('Editor explains why its actions are disabled', (tester) async {
     await openStudy(tester);
     await joinChallenge(tester);
-    await tapText(tester, 'Viết nhiệm vụ này');
-    const reason = 'Viết vài dòng để dùng Go Deeper hoặc Hoàn tất.';
+    await tapText(tester, 'Bắt đầu viết');
+    const reason = 'Viết vài dòng để dùng các nút bên dưới.';
     expect(find.text(reason), findsOneWidget);
     expect(
         tester
             .widget<OutlinedButton>(
-                find.widgetWithText(OutlinedButton, 'Go Deeper'))
+                find.widgetWithText(OutlinedButton, 'Nhìn lại cùng bạn'))
             .onPressed,
         isNull);
-    final before = tester.getTopLeft(find.text('Hoàn tất'));
+    final before = tester.getTopLeft(find.text('Lưu nhật ký'));
     await tester.enterText(find.byType(TextField), 'Một buổi chiều yên.');
     await tester.pump();
     expect(find.text(reason), findsNothing);
     // The reserved line keeps the actions from jumping.
-    expect(tester.getTopLeft(find.text('Hoàn tất')), before);
+    expect(tester.getTopLeft(find.text('Lưu nhật ký')), before);
   });
 }

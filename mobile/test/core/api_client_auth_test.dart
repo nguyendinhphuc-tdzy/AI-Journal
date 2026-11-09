@@ -23,6 +23,81 @@ void main() {
     client.close();
   });
 
+  test('private GET refreshes once on 401 without repeating forever', () async {
+    var refreshes = 0;
+    final seen = <String?>[];
+    final client = ApiClient(
+      accessTokenProvider: () async => 'expired',
+      accessTokenRefresher: () async {
+        refreshes++;
+        return 'renewed';
+      },
+      client: MockClient((request) async {
+        seen.add(request.headers['authorization']);
+        return request.headers['authorization'] == 'Bearer renewed'
+            ? http.Response('{"ok":true}', 200)
+            : http.Response('{"detail":"expired"}', 401);
+      }),
+    );
+    expect((await client.getJson('/journals', requireAuth: true))['ok'], true);
+    expect(refreshes, 1);
+    expect(seen, ['Bearer expired', 'Bearer renewed']);
+    client.close();
+  });
+
+  test('401 after refresh fails closed and is not retried repeatedly', () async {
+    var requests = 0;
+    var refreshes = 0;
+    final client = ApiClient(
+      accessTokenProvider: () async => 'expired',
+      accessTokenRefresher: () async {
+        refreshes++;
+        return 'still-expired';
+      },
+      client: MockClient((request) async {
+        requests++;
+        return http.Response('private backend details', 401);
+      }),
+    );
+    await expectLater(
+        client.postJson('/journals', {'content': 'Private'}, requireAuth: true),
+        throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 401)));
+    expect(requests, 2);
+    expect(refreshes, 1);
+    client.close();
+  });
+
+  test('timeout is bounded; a write is never retried', () async {
+    var calls = 0;
+    final client = ApiClient(
+      requestTimeout: const Duration(milliseconds: 5),
+      client: MockClient((request) async {
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        return http.Response('{"ok":true}', 200);
+      }),
+    );
+    await expectLater(
+      client.postJson('/journals', {'content': 'A private entry'}),
+      throwsA(isA<ApiTimeoutException>()),
+    );
+    expect(calls, 1);
+    client.close();
+  });
+
+  test('AI requests use a separate longer inference timeout', () async {
+    final client = ApiClient(
+      requestTimeout: const Duration(milliseconds: 5),
+      aiRequestTimeout: const Duration(milliseconds: 120),
+      client: MockClient((request) async {
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        return http.Response('{"ok":true}', 200);
+      }),
+    );
+    expect((await client.postJson('/ai/reflection', {'content': 'note'}))['ok'], true);
+    client.close();
+  });
+
   test('does not log backend response body in an exception', () async {
     final client = ApiClient(client: MockClient(
       (_) async => http.Response('a private journal body', 401),
@@ -47,5 +122,29 @@ void main() {
     );
     await client.getJson('/prompts/daily');
     client.close();
+  });
+
+  test('requests that run the AI model get the AI timeout', () async {
+    final client = ApiClient(
+      accessTokenProvider: () async => 'jwt',
+      requestTimeout: const Duration(milliseconds: 100),
+      aiRequestTimeout: const Duration(seconds: 2),
+      client: MockClient((request) async {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        return http.Response('{}', 200,
+            headers: const {'content-type': 'application/json'});
+      }),
+    );
+    addTearDown(client.close);
+    // Slower than a plain request may be, quicker than the AI may be.
+    await client.postJson('/journals/7/analysis', {}, requireAuth: true);
+    await client.getJson('/insights/week?start=2026-10-26&generate_summary=true',
+        requireAuth: true);
+    await expectLater(
+        client.getJson('/insights/week?start=2026-10-26&generate_summary=false',
+            requireAuth: true),
+        throwsA(isA<ApiTimeoutException>()));
+    await expectLater(client.getJson('/journals/7', requireAuth: true),
+        throwsA(isA<ApiTimeoutException>()));
   });
 }

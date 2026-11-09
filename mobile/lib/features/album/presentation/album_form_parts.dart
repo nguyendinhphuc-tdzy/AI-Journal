@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../data/album_theme.dart';
 import 'album_cover.dart';
 
@@ -179,26 +182,18 @@ class AlbumLockCard extends StatelessWidget {
   const AlbumLockCard({
     super.key,
     required this.title,
-    required this.supported,
     required this.value,
     required this.enabled,
     required this.onChanged,
     required this.help,
-    required this.unsupportedTitle,
-    required this.unsupportedHelp,
     this.currentlyLocked,
   });
 
   final String title;
-
-  /// Null while checking.
-  final bool? supported;
   final bool value;
   final bool enabled;
   final ValueChanged<bool> onChanged;
   final String help;
-  final String unsupportedTitle;
-  final String unsupportedHelp;
 
   /// The saved state (A03); null hides the status line.
   final bool? currentlyLocked;
@@ -210,7 +205,6 @@ class AlbumLockCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final unsupported = supported == false;
     final current = currentlyLocked;
     return AlbumFormSection(
       child: Column(
@@ -221,19 +215,13 @@ class AlbumLockCard extends StatelessWidget {
             title: Text(title, style: AlbumFormText.section),
             subtitle: Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: unsupported
-                  ? Text(unsupportedTitle, style: AlbumFormText.bodyStrong)
-                  : Text(help, style: AlbumFormText.body),
+              child: Text(help, style: AlbumFormText.body),
             ),
-            value: value && supported == true,
-            onChanged: supported == true && enabled ? onChanged : null,
+            value: value,
+            onChanged: enabled ? onChanged : null,
             activeTrackColor: AppColors.primaryAction,
             activeThumbColor: AppColors.surface,
           ),
-          if (unsupported) ...[
-            Text(unsupportedHelp, style: AlbumFormText.body),
-            const SizedBox(height: AppSpacing.sm),
-          ],
           if (current != null) ...[
             const SizedBox(height: AppSpacing.xs),
             Align(
@@ -317,8 +305,9 @@ class AlbumFormMessage extends StatelessWidget {
       );
 }
 
-/// Full-width primary action: 56 high, pill, a spinner in place of the label
-/// while [busy] (same size, taps ignored by the caller).
+/// Full-width primary action: the app's [AppPrimaryButton] (56 high, pill,
+/// a spinner in place of the label while [busy], same size; taps ignored by
+/// the caller).
 class AlbumPrimaryButton extends StatelessWidget {
   const AlbumPrimaryButton({
     super.key,
@@ -332,25 +321,73 @@ class AlbumPrimaryButton extends StatelessWidget {
   final bool busy;
 
   @override
-  Widget build(BuildContext context) => FilledButton(
-        onPressed: onPressed,
-        style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(56),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-          textStyle: AlbumFormText.button,
-        ),
-        child: busy
-            ? Semantics(
-                label: label,
-                child: const SizedBox.square(
-                  dimension: 22,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2.4, color: AppColors.surface),
+  Widget build(BuildContext context) =>
+      AppPrimaryButton(label: label, onPressed: onPressed, busy: busy);
+}
+
+/// One action in an album's sheet (a memory's options, its photo's): an
+/// icon and its label on Background, 56 high, as Home's actions. Deleting
+/// in the delete colour. Without [onTap] it is shown off, with [note]
+/// saying why.
+class AlbumSheetAction extends StatelessWidget {
+  const AlbumSheetAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.note,
+    this.color = AppColors.primaryAction,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final String? note;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final off = onTap == null;
+    final tint = off
+        ? AppColors.textSecondary
+        : color == AppColors.primaryAction
+            ? AppColors.textPrimary
+            : color;
+    final note = this.note;
+    return Material(
+      color: AppColors.background,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(AppRadius.input))),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md, vertical: 10),
+            child: Row(children: [
+              Icon(icon, color: off ? AppColors.textSecondary : color),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(label, style: AppText.body.copyWith(color: tint)),
+                    if (note != null) ...[
+                      const SizedBox(height: 2),
+                      Text(note, style: AlbumFormText.note),
+                    ],
+                  ],
                 ),
-              )
-            : Text(label),
-      );
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 abstract final class AlbumFormText {

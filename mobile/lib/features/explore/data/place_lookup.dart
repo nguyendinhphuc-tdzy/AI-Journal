@@ -1,4 +1,6 @@
 import 'explore_places_repository.dart';
+import '../../../core/network/api_client.dart';
+import 'package:flutter/widgets.dart';
 
 /// How a place was chosen in E05.
 enum PlaceSource { search, pin, device }
@@ -14,6 +16,7 @@ class PlaceCandidate {
     required this.longitude,
     required this.source,
     this.sample = false,
+    this.category,
   });
 
   /// The search provider's id, when there is one.
@@ -26,6 +29,7 @@ class PlaceCandidate {
 
   /// A demo place from the mock search, not a real address.
   final bool sample;
+  final String? category;
 
   bool get named => (name ?? '').trim().isNotEmpty;
 
@@ -40,6 +44,7 @@ class PlaceCandidate {
         longitude: longitude,
         source: source,
         sample: sample,
+        category: category,
       );
 }
 
@@ -82,6 +87,131 @@ class MockPlaceLookup implements PlaceLookup {
   @override
   Future<PlaceCandidate?> nameAt(double latitude, double longitude) =>
       Future.error(const PlaceLookupUnavailable());
+}
+
+/// Real authenticated FastAPI place search and reverse lookup.
+class RemotePlaceLookup implements PlaceLookup {
+  const RemotePlaceLookup(this.client);
+  final ApiClient client;
+
+  PlaceCandidate _candidate(Map<String, dynamic> raw,
+      PlaceSource source) {
+    final lat = raw['latitude'];
+    final lon = raw['longitude'];
+    final label = raw['label'];
+    if (lat is! num || lon is! num || !lat.isFinite || !lon.isFinite ||
+        lat < -90 || lat > 90 || lon < -180 || lon > 180 ||
+        label is! String || label.trim().isEmpty) {
+      throw const FormatException('Invalid place lookup data');
+    }
+    return PlaceCandidate(
+      id: raw['external_place_id'] is String
+          ? raw['external_place_id'] as String : null,
+      name: label,
+      address: raw['formatted_address'] is String
+          ? raw['formatted_address'] as String : null,
+      latitude: lat.toDouble(),
+      longitude: lon.toDouble(),
+      source: source,
+    );
+  }
+
+  @override
+  Future<List<PlaceCandidate>> search(String query) async {
+    final normalized = query.trim();
+    if (normalized.length < 2) return const [];
+    try {
+      final result = await client.getJson(
+        '/geo/search?q=${Uri.encodeQueryComponent(normalized)}',
+        requireAuth: true,
+      );
+      final items = result['items'];
+      if (items is! List) throw const FormatException('Invalid place results');
+      return items.map((raw) {
+        if (raw is! Map<String, dynamic>) {
+          throw const FormatException('Invalid place result');
+        }
+        return _candidate(raw, PlaceSource.search);
+      }).toList();
+    } catch (_) {
+      throw const PlaceLookupUnavailable();
+    }
+  }
+
+  /// Real OSM-backed POIs near the visible map center. Never call Geoapify
+  /// from the mobile client; the FastAPI adapter owns the provider key.
+  Future<List<PlaceCandidate>> nearby(double latitude, double longitude,
+      {int radius = 1500, String category = 'all', String? name}) async {
+    if (!latitude.isFinite || !longitude.isFinite ||
+        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw const PlaceLookupUnavailable();
+    }
+    final encoded = name == null || name.trim().length < 2
+        ? ''
+        : '&q=${Uri.encodeQueryComponent(name.trim())}';
+    try {
+      final payload = await client.getJson(
+        '/geo/places?lat=$latitude&lon=$longitude&radius=$radius&category=$category&limit=25$encoded',
+        requireAuth: true,
+      );
+      final items = payload['items'];
+      if (items is! List) throw const FormatException('Invalid POIs');
+      return [
+        for (final value in items)
+          if (value is Map<String, dynamic>)
+            _poiCandidate(value)
+          else
+            throw const FormatException('Invalid POI')
+      ];
+    } catch (_) {
+      throw const PlaceLookupUnavailable();
+    }
+  }
+
+  PlaceCandidate _poiCandidate(Map<String, dynamic> raw) {
+    final value = _candidate(raw, PlaceSource.search);
+    final categories = raw['categories'];
+    final category = categories is List && categories.isNotEmpty &&
+            categories.first is String ? categories.first as String : null;
+    return PlaceCandidate(
+      id: value.id,
+      name: value.name, address: value.address,
+      latitude: value.latitude, longitude: value.longitude,
+      source: PlaceSource.search, category: category,
+    );
+  }
+
+  @override
+  Future<PlaceCandidate?> nameAt(double latitude, double longitude) async {
+    if (!latitude.isFinite || !longitude.isFinite ||
+        latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw const PlaceLookupUnavailable();
+    }
+    try {
+      final raw = await client.getOptionalJson(
+        '/geo/reverse?lat=$latitude&lon=$longitude',
+        requireAuth: true,
+      );
+      if (raw == null) return null;
+      return _candidate(raw, PlaceSource.pin);
+    } catch (_) {
+      throw const PlaceLookupUnavailable();
+    }
+  }
+}
+
+/// Provided only for an authenticated cloud session. Guest stays on mock.
+class PlaceLookupScope extends InheritedWidget {
+  const PlaceLookupScope({super.key, required this.lookup,
+      required super.child});
+  final PlaceLookup lookup;
+
+  static PlaceLookup? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<PlaceLookupScope>()?.lookup;
+
+  @override
+  bool updateShouldNotify(PlaceLookupScope oldWidget) =>
+      oldWidget.lookup != lookup;
 }
 
 /// The device's location, asked only when the user taps "Vị trí của tôi".

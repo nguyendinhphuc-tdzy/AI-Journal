@@ -11,7 +11,8 @@ class _FakeAuth implements AuthService {
   String? lastPhone;
   String? lastOtp;
   int signupCalls = 0;
-  int facebookCalls = 0;
+  int googleCalls = 0;
+  int otpRequests = 0;
 
   @override
   String? get currentUserId => null;
@@ -30,15 +31,14 @@ class _FakeAuth implements AuthService {
   @override
   Future<void> requestPhoneOtp(String phone) async {
     lastPhone = phone;
+    otpRequests++;
   }
   @override
   Future<void> verifyPhoneOtp(String phone, String otp) async {
     lastOtp = otp;
   }
   @override
-  Future<void> signInGoogle() async {}
-  @override
-  Future<void> signInFacebook() async { facebookCalls++; }
+  Future<void> signInGoogle() async { googleCalls++; }
   @override
   Future<void> signOut() async {}
 }
@@ -75,7 +75,9 @@ void main() {
       (tester) async {
     final auth = _FakeAuth();
     addTearDown(auth.controller.close);
-    await tester.pumpWidget(MaterialApp(home: AuthScreen(auth: auth)));
+    await tester.pumpWidget(MaterialApp(
+      home: AuthScreen(auth: auth, phoneOtpEnabled: true),
+    ));
     await tester.tap(find.text('Điện thoại'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '+84901234567');
@@ -91,29 +93,92 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.lastOtp, '123456');
   });
-  testWidgets('Facebook button is absent until OAuth is enabled',
+  testWidgets('No Facebook sign-in; Google is absent until OAuth is enabled',
       (tester) async {
     final auth = _FakeAuth();
     addTearDown(auth.controller.close);
     await tester.pumpWidget(MaterialApp(home: AuthScreen(auth: auth)));
-    expect(find.text('Tiếp tục bằng Facebook'), findsNothing);
-    expect(auth.facebookCalls, 0);
+    expect(find.textContaining('Facebook'), findsNothing);
+    expect(find.text('Tiếp tục bằng Google'), findsNothing);
+    expect(auth.googleCalls, 0);
   });
 
-  testWidgets('Facebook button invokes the AuthService once when enabled',
+  testWidgets('Google button invokes the AuthService once when enabled',
       (tester) async {
     final auth = _FakeAuth();
     addTearDown(auth.controller.close);
     await tester.pumpWidget(MaterialApp(
-      home: AuthScreen(auth: auth, facebookOAuthEnabled: true),
+      home: AuthScreen(auth: auth, googleOAuthEnabled: true),
     ));
-    final facebookButton = find.text('Tiếp tục bằng Facebook');
-    expect(facebookButton, findsOneWidget);
-    await tester.ensureVisible(facebookButton);
+    expect(find.textContaining('Facebook'), findsNothing);
+    final googleButton = find.text('Tiếp tục bằng Google');
+    expect(googleButton, findsOneWidget);
+    await tester.ensureVisible(googleButton);
     await tester.pumpAndSettle();
-    await tester.tap(facebookButton);
-    await tester.pumpAndSettle();
-    expect(auth.facebookCalls, 1);
+    await tester.tap(googleButton);
+    // The screen now waits up to 2 minutes for the OAuth callback, with a
+    // spinner (it never settles meanwhile): one frame shows the call.
+    await tester.pump();
+    expect(auth.googleCalls, 1);
+    expect(find.text('Dừng chờ đăng nhập'), findsOneWidget);
+    // Let that wait run out, so no timer outlives the test.
+    await tester.pump(const Duration(minutes: 2, seconds: 1));
+    await tester.pump();
+    expect(auth.googleCalls, 1, reason: 'called once');
   });
+
+  testWidgets('Phone OTP is hidden when no SMS provider is configured',
+      (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(home: AuthScreen(auth: auth)));
+    expect(find.text('Điện thoại'), findsNothing);
+    expect(find.text('Gửi mã SMS'), findsNothing);
+    expect(auth.otpRequests, 0);
+  });
+
+  testWidgets('Resend SMS is rate limited on the client', (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(
+      home: AuthScreen(auth: auth, phoneOtpEnabled: true,
+          startWithPhone: true),
+    ));
+    await tester.enterText(find.byType(TextField).first, '+84901234567');
+    await tester.ensureVisible(find.text('Gửi mã SMS'));
+    await tester.tap(find.text('Gửi mã SMS'));
+    await tester.pumpAndSettle();
+    expect(auth.otpRequests, 1);
+    final resend = find.text('Gửi lại mã OTP');
+    await tester.ensureVisible(resend);
+    await tester.tap(resend);
+    await tester.pumpAndSettle();
+    expect(auth.otpRequests, 1);
+    expect(find.textContaining('giây trước khi yêu cầu mã mới'),
+        findsOneWidget);
+  });
+
+  testWidgets('Cancel Google wait hides spinner and shows an error',
+      (tester) async {
+    final auth = _FakeAuth();
+    addTearDown(auth.controller.close);
+    await tester.pumpWidget(MaterialApp(
+      home: AuthScreen(auth: auth, googleOAuthEnabled: true),
+    ));
+    final google = find.text('Tiếp tục bằng Google');
+    await tester.ensureVisible(google);
+    await tester.tap(google);
+    await tester.pump();
+    expect(find.text('Dừng chờ đăng nhập'), findsOneWidget);
+
+    await tester.tap(find.text('Dừng chờ đăng nhập'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
+
+    expect(find.text('Dừng chờ đăng nhập'), findsNothing);
+    expect(find.textContaining('Đã dừng chờ'), findsOneWidget);
+    expect(find.text('Tiếp tục bằng Google'), findsOneWidget);
+  });
+
 
 }

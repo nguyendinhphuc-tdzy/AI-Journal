@@ -21,15 +21,20 @@ class FeatureCard {
 /// OB05: what the user can do in the app. Three short, read-only cards in
 /// one outline icon set; nothing advances on its own (no timer, no
 /// carousel). "Xem cách hoạt động" → OB06; Back → OB04.
+///
+/// The AI card says what is true for this user: on for an account
+/// ([aiAvailable]), after signing in for a guest.
 class OnboardingFeaturesScreen extends StatelessWidget {
   const OnboardingFeaturesScreen({
     super.key,
     required this.onBack,
     required this.onContinue,
+    this.aiAvailable = true,
   });
 
   final VoidCallback onBack;
   final VoidCallback onContinue;
+  final bool aiAvailable;
 
   static const title = 'Bạn có thể bắt đầu từ vài dòng.';
   static const continueLabel = 'Xem cách hoạt động';
@@ -46,8 +51,8 @@ class OnboardingFeaturesScreen extends StatelessWidget {
     ),
     FeatureCard(
       Icons.chat_bubble_outline_rounded,
-      'Phản hồi AI khi bạn chọn',
-      'Xem một góc nhìn gợi mở từ nội dung bạn gửi để phản hồi.',
+      'Phản hồi AI cho nhật ký',
+      'Một góc nhìn gợi mở và những câu hỏi giúp bạn hiểu mình hơn.',
       available: BuildFeatures.aiReflection,
     ),
     FeatureCard(
@@ -57,6 +62,14 @@ class OnboardingFeaturesScreen extends StatelessWidget {
       available: BuildFeatures.album,
     ),
   ];
+
+  /// The AI card for a guest: no AI until signing in.
+  static const guestAiCard = FeatureCard(
+    Icons.chat_bubble_outline_rounded,
+    'Phản hồi AI khi đăng nhập',
+    'Đăng nhập để nhận góc nhìn gợi mở và câu hỏi từ AI cho nhật ký.',
+    available: BuildFeatures.aiReflection,
+  );
 
   /// Only when both modules are in the build.
   static const showMore = BuildFeatures.study && BuildFeatures.places;
@@ -70,7 +83,7 @@ class OnboardingFeaturesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final shown = [
       for (final card in cards)
-        if (card.available) card
+        if (card.available) aiAvailable || card != cards[1] ? card : guestAiCard
     ];
     return OnboardingStepScaffold(
       step: OnboardingStep.features,

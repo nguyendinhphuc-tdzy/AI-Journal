@@ -9,6 +9,7 @@ import 'features/auth/presentation/auth_gate.dart';
 import 'features/album/album_scope.dart';
 import 'features/album/data/album_repository.dart';
 import 'features/journal/data/api_ai_service.dart';
+import 'features/sound/app_sound.dart';
 import 'features/journal/data/journal_repository.dart';
 import 'features/journal/journal_scope.dart';
 import 'features/onboarding/data/onboarding_scope.dart';
@@ -41,6 +42,11 @@ Future<void> main() async {
       url: AppConfig.supabaseUrl,
       publishableKey: AppConfig.supabasePublishableKey,
     );
+    // For emulator demos: explicitly require a fresh sign-in on every app start.
+    // Supabase session persistence is otherwise intentional by default.
+    if (const bool.fromEnvironment('FORCE_LOGIN_ON_START')) {
+      await Supabase.instance.client.auth.signOut();
+    }
     runApp(AiDiaryApp(
       auth: SupabaseAuthService(Supabase.instance.client),
     ));
@@ -88,6 +94,13 @@ class AiDiaryApp extends StatefulWidget {
 }
 
 class _AiDiaryAppState extends State<AiDiaryApp> {
+  @override
+  void initState() {
+    super.initState();
+    // New sound UI from PR29 must start in AuthGate as well as local demo.
+    AppSound.instance.start();
+  }
+
   late final JournalRepository _journals =
       widget.journals ?? InMemoryJournalRepository();
   late final AlbumRepository _albums =
@@ -113,6 +126,7 @@ class _AiDiaryAppState extends State<AiDiaryApp> {
           debugShowCheckedModeBanner: false,
           title: appName,
           theme: AppTheme.light,
+          scrollBehavior: const AppScrollBehavior(),
           home: onboarding == null || onboarding.completed
               ? const AppShell()
               : OnboardingFlow(

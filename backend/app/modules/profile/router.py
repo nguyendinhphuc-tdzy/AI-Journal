@@ -1,5 +1,5 @@
 """Current account profile backed by Supabase Auth identity."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,8 +34,10 @@ def _ensure_profile(db: Session, identity: AuthenticatedUser) -> UserProfile:
 def _response(profile: UserProfile, identity: AuthenticatedUser) -> ProfileRead:
     return ProfileRead(
         user_id=profile.user_id,
+        discoverable=profile.discoverable,
         email=identity.email,
         display_name=profile.display_name,
+        username=profile.username,
         timezone=profile.timezone,
         created_at=profile.created_at,
     )
@@ -61,6 +63,11 @@ def update_my_profile(
         if field == "timezone" and value is None:
             continue  # timezone cannot become NULL
         setattr(profile, field, value)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # The unique index resolves concurrent registrations atomically.
+        raise HTTPException(status_code=409, detail="Username is already taken") from exc
     db.refresh(profile)
     return _response(profile, user)

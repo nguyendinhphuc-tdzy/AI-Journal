@@ -1,6 +1,6 @@
 """Backend API tests use temporary SQLite, NEVER the shared Supabase DB."""
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 import os
 import tempfile
 
@@ -45,29 +45,107 @@ def test_migration_applied():
     with engine.connect() as conn:
         revision = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         tables = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
-    assert revision == "20261018_06"
+    assert revision == "20261030_22"
     assert "journal_entries" in tables
     assert "user_profiles" in tables
     assert "journal_action_days" in tables
     assert "saved_places" in tables
     assert "place_notes" in tables
     assert "journal_places" in tables
+    assert "albums" in tables
+    assert "album_memories" in tables
+    assert "journal_analyses" in tables
+    assert "saved_quotes" in tables
+    assert "weekly_insights" in tables
+    assert {"conversations", "messages", "conversation_reads", "message_hides", "device_tokens"}.issubset(tables)
 
 
-def test_public_mock_ai_preserved():
-    deeper = client.post(
-        "/api/v1/ai/go-deeper",
-        json={"content": "I felt peaceful today."},
+def test_ai_requires_authentication_in_all_provider_modes(monkeypatch):
+    from app.core.config import Settings
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    # An invalid Bearer token is 401 when the verifier is configured.
+    # Without SUPABASE_URL, a configuration failure intentionally returns 503.
+    monkeypatch.setattr(
+        "app.core.auth.get_settings",
+        lambda: Settings(database_url="sqlite://", supabase_url="https://test-ref.supabase.co"),
     )
-    assert deeper.status_code == 200
-    assert deeper.json()["question"]
+    app.dependency_overrides.clear()
+    invoked = []
+    def provider_spy():
+        invoked.append(True)
+        return MockAIProvider()
 
-    reflection = client.post(
-        "/api/v1/ai/reflection",
-        json={"content": "I finished my task.", "mood": "relieved"},
-    )
-    assert reflection.status_code == 200
-    assert reflection.json()["emotion"] == "relieved"
+    app.dependency_overrides[get_ai_provider] = provider_spy
+    try:
+        for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
+            for headers in ({}, {"Authorization": "Bearer not-a-jwt"}):
+                response = client.post(
+                    path, json={"content": "private entry"}, headers=headers
+                )
+                assert response.status_code == 401
+                assert response.headers.get("www-authenticate") == "Bearer"
+        # Authorization must be rejected before any model provider is invoked.
+        assert not invoked
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_authenticated_ai_and_bounded_request_content():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    user = AuthenticatedUser(user_id=uuid4(), email="test@example.com")
+    app.dependency_overrides[get_current_user] = lambda: user
+    # The developer may set AI_PROVIDER=ollama in backend/.env.
+    # Tests must not make requests to their actual Ollama instance.
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        deeper = client.post(
+            "/api/v1/ai/go-deeper", json={"content": "I felt peaceful today."}
+        )
+        assert deeper.status_code == 200
+        assert deeper.json()["question"]
+
+        reflection = client.post(
+            "/api/v1/ai/reflection",
+            json={"content": "I finished my task.", "mood": "relieved"},
+        )
+        assert reflection.status_code == 200
+        assert reflection.json()["emotion"] == "relieved"
+
+        for path in ("/api/v1/ai/go-deeper", "/api/v1/ai/reflection"):
+            assert client.post(path, json={"content": " "}).status_code == 422
+            assert client.post(path, json={"content": "x" * 8001}).status_code == 422
+            assert client.post(path, json={"content": "ok", "mood": "m" * 65}).status_code == 422
+            assert client.post(path, json={"content": "x" * 8000}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ai_per_user_rate_limit_does_not_affect_another_account():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    a = AuthenticatedUser(user_id=uuid4(), email="quota-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="quota-b@example.com")
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        for _ in range(12):
+            assert client.post("/api/v1/ai/go-deeper", json={
+                "content": "A short journal entry"
+            }).status_code == 200
+        blocked = client.post("/api/v1/ai/go-deeper", json={
+            "content": "One request too many"
+        })
+        assert blocked.status_code == 429
+        assert "journal entry" not in blocked.text
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post("/api/v1/ai/go-deeper", json={
+            "content": "Private second account"
+        }).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_journal_crud_requires_authentication():
@@ -215,6 +293,18 @@ def test_me_creates_and_updates_owned_profiles():
         invalid_tz = client.patch("/api/v1/me", json={"timezone": "Fake/Timezone"})
         assert invalid_tz.status_code == 422
 
+        # Null must be rejected with a client error rather than a database
+        # integrity error (500); omitting discoverable remains valid.
+        assert client.patch("/api/v1/me", json={"discoverable": None}).status_code == 422
+        enabled = client.patch("/api/v1/me", json={"discoverable": True})
+        assert enabled.status_code == 200
+        assert enabled.json()["discoverable"] is True
+        assert client.patch("/api/v1/me", json={"discoverable": None}).status_code == 422
+        assert client.get("/api/v1/me").json()["discoverable"] is True
+        disabled = client.patch("/api/v1/me", json={"discoverable": False})
+        assert disabled.status_code == 200
+        assert disabled.json()["discoverable"] is False
+
         invalid_owner = client.patch(
             "/api/v1/me", json={"user_id": str(second.user_id)}
         )
@@ -359,6 +449,7 @@ def test_journal_and_streak_roll_back_together(monkeypatch):
     """A journal save that fails after its streak insert must credit nothing."""
     import pytest
     from sqlalchemy import select
+    from uuid import UUID
     from app.core.database import SessionLocal
     from app.models.journal import JournalEntry
     from app.models.journal_action_day import JournalActionDay
@@ -904,5 +995,1337 @@ def test_notes_and_journal_place_links_do_not_complete_streak(monkeypatch):
         assert after["today_completed"] is False
         assert after["current_streak"] == 1
         assert after["activity_dates"] == ["2026-10-18"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pr17_album_and_memory_require_authentication():
+    app.dependency_overrides.clear()
+    for endpoint in ("/api/v1/albums", "/api/v1/albums/00000000-0000-0000-0000-000000000001"):
+        assert client.get(endpoint).status_code == 401
+    assert client.post("/api/v1/albums", json={"name": "Private"}).status_code == 401
+
+
+def test_pr17_album_memory_owner_isolation_and_e05_place():
+    from sqlalchemy import select
+    from app.core.database import SessionLocal
+    from app.models.album import AlbumMemory
+
+    a = AuthenticatedUser(user_id=uuid4(), email="album-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="album-b@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        created = client.post("/api/v1/albums", json={
+            "name": "  A special day  ", "theme_id": "classic",
+            "locked": True, "hide_name_when_locked": True,
+        })
+        assert created.status_code == 201, created.text
+        album = created.json()
+        aid = album["id"]
+        assert album["name"] == "A special day"
+        assert album["memory_count"] == 0
+        assert "user_id" not in album
+
+        invalid = client.post("/api/v1/albums", json={
+            "name": "A", "user_id": str(b.user_id),
+        })
+        assert invalid.status_code == 422
+        assert client.post("/api/v1/albums", json={"name": " "}).status_code == 422
+
+        place = {
+            "label": "Coffee place", "latitude": 10.8231,
+            "longitude": 106.6297, "named": True,
+            "address": "Ho Chi Minh City", "place_id": "sample-id",
+        }
+        memory = client.post(f"/api/v1/albums/{aid}/memories", json={
+            "title": "Morning", "note": "A memory from today",
+            "display_date": "2026-10-25", "place": place,
+        })
+        assert memory.status_code == 201, memory.text
+        mid = memory.json()["id"]
+        assert memory.json()["place"]["label"] == "Coffee place"
+        assert "user_id" not in memory.json()
+        assert client.get(f"/api/v1/albums/{aid}").json()["memory_count"] == 1
+        assert len(client.get(f"/api/v1/albums/{aid}/memories").json()) == 1
+
+        # PR17 local file paths are NOT a remote asset: never accept them.
+        assert client.post(f"/api/v1/albums/{aid}/memories", json={
+            "photoPath": "/data/user/0/app/secret.jpg", "note": "hi",
+            "display_date": "2026-10-25",
+        }).status_code == 422
+        assert client.post(f"/api/v1/albums/{aid}/memories", json={
+            "note": " ", "display_date": "2026-10-25",
+        }).status_code == 422
+        assert client.patch(f"/api/v1/albums/{aid}/memories/{mid}",
+            json={"note": "  "}).status_code == 422
+        assert client.patch(f"/api/v1/albums/{aid}",
+            json={"name": None}).status_code == 422
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/albums").json() == []
+        assert client.get(f"/api/v1/albums/{aid}").status_code == 404
+        assert client.patch(f"/api/v1/albums/{aid}",
+            json={"name": "stolen"}).status_code == 404
+        assert client.delete(f"/api/v1/albums/{aid}").status_code == 404
+        assert client.get(f"/api/v1/albums/{aid}/memories").status_code == 404
+        assert client.get(f"/api/v1/albums/{aid}/memories/{mid}").status_code == 404
+        assert client.delete(f"/api/v1/albums/{aid}/memories/{mid}").status_code == 404
+        assert client.post(f"/api/v1/albums/{aid}/memories", json={
+            "note": "steal", "display_date": "2026-10-25",
+        }).status_code == 404
+
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.patch(f"/api/v1/albums/{aid}/memories/{mid}", json={
+            "note": "Updated note", "place": None,
+        }).json()["note"] == "Updated note"
+        assert client.get(f"/api/v1/albums/{aid}/memories/{mid}").json()["place"] is None
+        assert client.delete(f"/api/v1/albums/{aid}").status_code == 204
+        assert client.get(f"/api/v1/albums/{aid}").status_code == 404
+        with SessionLocal() as session:
+            assert session.scalar(
+                select(AlbumMemory).where(AlbumMemory.id == UUID(mid))
+            ) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_album_and_memory_offset_pagination_remains_owner_scoped():
+    a = AuthenticatedUser(user_id=uuid4(), email="paged@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="other@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        ids = []
+        for index in range(4):
+            result = client.post("/api/v1/albums", json={"name": f"Album {index}"})
+            assert result.status_code == 201, result.text
+            ids.append(result.json()["id"])
+        first = client.get("/api/v1/albums?limit=2&offset=0")
+        second = client.get("/api/v1/albums?limit=2&offset=2")
+        assert first.status_code == second.status_code == 200
+        assert len(first.json()) == len(second.json()) == 2
+        assert set(x["id"] for x in first.json()).isdisjoint(
+            x["id"] for x in second.json()
+        )
+        assert client.get("/api/v1/albums?offset=-1").status_code == 422
+        assert client.get("/api/v1/albums?offset=100001").status_code == 422
+
+        aid = ids[0]
+        for index in range(5):
+            result = client.post(f"/api/v1/albums/{aid}/memories", json={
+                "note": f"Entry {index}", "display_date": "2026-10-29",
+            })
+            assert result.status_code == 201
+        page1 = client.get(f"/api/v1/albums/{aid}/memories?limit=3&offset=0")
+        page2 = client.get(f"/api/v1/albums/{aid}/memories?limit=3&offset=3")
+        assert len(page1.json()) == 3
+        assert len(page2.json()) == 2
+        assert set(x["id"] for x in page1.json()).isdisjoint(
+            x["id"] for x in page2.json()
+        )
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/albums?limit=2&offset=0").json() == []
+        assert client.get(f"/api/v1/albums/{aid}/memories?offset=2").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_guided_journal_roundtrip_version_and_owner_isolation():
+    """Structured guided fields survive server JSON serialization and updates."""
+    alice = AuthenticatedUser(user_id=uuid4(), email="alice@example.test")
+    bob = AuthenticatedUser(user_id=uuid4(), email="bob@example.test")
+    first_guided = {
+        "id": "onboarding_first_entry",
+        "version": 1,
+        "fields": {"cause": "trời mát", "hope": "nghỉ ngơi"},
+    }
+    app.dependency_overrides[get_current_user] = lambda: alice
+    try:
+        created = client.post("/api/v1/journals", json={
+            "content": "Một ngày yên bình",
+            "mood": "calm",
+            "guided": first_guided,
+        })
+        assert created.status_code == 201, created.text
+        data = created.json()
+        assert data["body_version"] == 1
+        assert data["guided"] == first_guided
+        assert data["mood"] == "calm"
+        ident = data["id"]
+        assert client.get(f"/api/v1/journals/{ident}").json()["guided"] == first_guided
+        assert client.get("/api/v1/journals").json()["items"][0]["guided"] == first_guided
+
+        # A no-op edit and title change must not invalidate AI body version.
+        unchanged = client.put(f"/api/v1/journals/{ident}", json={
+            "content": data["content"], "mood": "calm", "guided": first_guided,
+        })
+        assert unchanged.status_code == 200
+        assert unchanged.json()["body_version"] == 1
+        title_only = client.put(f"/api/v1/journals/{ident}", json={
+            "title": "New title"
+        })
+        assert title_only.json()["body_version"] == 1
+
+        # Mood is part of Flutter JournalContent and changes the bodyVersion.
+        changed = client.put(f"/api/v1/journals/{ident}", json={"mood": "happy"})
+        assert changed.json()["body_version"] == 2
+        guided_update = dict(first_guided, fields={"cause": "đã hoàn thành"})
+        changed = client.put(f"/api/v1/journals/{ident}", json={
+            "guided": guided_update
+        })
+        assert changed.json()["body_version"] == 3
+        changed = client.put(f"/api/v1/journals/{ident}", json={
+            "content": "Nội dung mới"
+        })
+        assert changed.json()["body_version"] == 4
+        assert changed.json()["guided"] == guided_update
+
+        # No client-controlled version, owner ID or arbitrary guided keys.
+        assert client.put(f"/api/v1/journals/{ident}", json={
+            "body_version": 99
+        }).status_code == 422
+        assert client.post("/api/v1/journals", json={
+            "content": "x",
+            "guided": {"id": "abc", "version": 1, "fields": {}, "extra": "bad"}
+        }).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: bob
+    try:
+        assert client.get(f"/api/v1/journals/{ident}").status_code == 404
+        assert client.put(f"/api/v1/journals/{ident}", json={
+            "guided": first_guided
+        }).status_code == 404
+        assert client.get("/api/v1/journals").json()["items"] == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_study_journal_source_roundtrip_and_rejects_invalid_metadata():
+    """Study attribution survives cloud fetch/list/update without client-owned IDs."""
+    alice = AuthenticatedUser(user_id=uuid4(), email="study-source@example.test")
+    source = {
+        "kind": "challenge",
+        "id": "gratitude",
+        "label": "Challenge · Nhiệm vụ 2",
+        "task": 1,
+    }
+    app.dependency_overrides[get_current_user] = lambda: alice
+    try:
+        response = client.post("/api/v1/journals", json={
+            "content": "Tôi đã hoàn thành một nhiệm vụ", "source": source,
+        })
+        assert response.status_code == 201, response.text
+        journal = response.json()
+        journal_id = journal["id"]
+        assert journal["body_version"] == 1
+        assert journal["source"] == source
+        assert client.get(f"/api/v1/journals/{journal_id}").json()["source"] == source
+        assert any(item["source"] == source for item in
+                   client.get("/api/v1/journals").json()["items"])
+        unchanged = client.put(f"/api/v1/journals/{journal_id}", json={
+            "source": source,
+        })
+        assert unchanged.status_code == 200
+        assert unchanged.json()["body_version"] == 1
+        cleared = client.put(f"/api/v1/journals/{journal_id}", json={
+            "source": None,
+        })
+        assert cleared.status_code == 200
+        assert cleared.json()["body_version"] == 2
+        assert cleared.json()["source"] is None
+        assert client.post("/api/v1/journals", json={
+            "content": "x", "source": dict(source, kind="arbitrary"),
+        }).status_code == 422
+        assert client.put(f"/api/v1/journals/{journal_id}", json={
+            "source": dict(source, extra="not permitted"),
+        }).status_code == 422
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_private_memory_photo_owner_boundary_and_storage_proxy(monkeypatch):
+    """JWT owner check precedes every Storage API request."""
+    import httpx
+    from app.modules.albums import photos_router
+
+    owner = AuthenticatedUser(user_id=uuid4(), email="photo-a@example.com")
+    other = AuthenticatedUser(user_id=uuid4(), email="photo-b@example.com")
+    calls = []
+
+    def fake_storage(method, path, token, **kwargs):
+        calls.append((method, path, token))
+        if method == "GET":
+            return httpx.Response(200, content=b"\x89PNG\r\n\x1a\nphoto",
+                                  headers={"content-type": "image/png"})
+        return httpx.Response(201 if method == "POST" else 200, json={})
+
+    monkeypatch.setattr(photos_router, "_storage_request", fake_storage)
+    app.dependency_overrides[get_current_user] = lambda: owner
+    album_id = memory_id = None
+    try:
+        album = client.post("/api/v1/albums", json={"name": "Private photos"})
+        assert album.status_code == 201
+        album_id = album.json()["id"]
+        memory = client.post(f"/api/v1/albums/{album_id}/memories", json={
+            "note": "Private photo",
+            "display_date": "2026-10-28",
+        })
+        assert memory.status_code == 201
+        assert memory.json()["photo_available"] is False
+        assert "photo_path" not in memory.json()
+        memory_id = memory.json()["id"]
+        url = f"/api/v1/albums/{album_id}/memories/{memory_id}/photo"
+        headers = {"Authorization": "Bearer valid-test-token"}
+        bad = client.put(url, content=b"<svg>", headers={
+            **headers, "Content-Type": "image/png",
+        })
+        assert bad.status_code == 415
+        assert calls == []
+        image = b"\x89PNG\r\n\x1a\nphoto"
+        uploaded = client.put(url, content=image, headers={
+            **headers, "Content-Type": "image/png",
+        })
+        assert uploaded.status_code == 200, uploaded.text
+        assert calls[-1][0] == "POST"
+        assert calls[-1][2] == "Bearer valid-test-token"
+        info = client.get(f"/api/v1/albums/{album_id}/memories/{memory_id}")
+        assert info.status_code == 200
+        assert info.json()["photo_available"] is True
+        assert "photo_path" not in info.json()
+        listed = client.get(f"/api/v1/albums/{album_id}/memories")
+        assert listed.status_code == 200
+        assert listed.json()[0]["photo_available"] is True
+        assert "photo_path" not in listed.json()[0]
+        response = client.get(url, headers=headers)
+        assert response.status_code == 200
+        assert response.content == image
+    finally:
+        app.dependency_overrides.clear()
+
+    # Other user must see 404 and must not trigger a Storage call.
+    prior = len(calls)
+    app.dependency_overrides[get_current_user] = lambda: other
+    try:
+        for method in ("GET", "PUT", "DELETE"):
+            response = client.request(method, url, headers={
+                "Authorization": "Bearer other-test-token",
+                "Content-Type": "image/png",
+            }, content=image if method == "PUT" else None)
+            assert response.status_code == 404
+        assert len(calls) == prior
+    finally:
+        app.dependency_overrides.clear()
+
+    app.dependency_overrides[get_current_user] = lambda: owner
+    try:
+        removed = client.delete(f"/api/v1/albums/{album_id}/memories/{memory_id}",
+                                headers={"Authorization": "Bearer valid-test-token"})
+        assert removed.status_code == 204
+        assert calls[-1][0] == "DELETE"
+        assert client.get(url, headers={"Authorization": "Bearer valid-test-token"}).status_code == 404
+        assert client.delete(f"/api/v1/albums/{album_id}").status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_private_friend_request_accept_and_remove():
+    """A can request B; only B can accept, and C cannot act on their pair."""
+    a = AuthenticatedUser(user_id=uuid4(), email="friends-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="friends-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="friends-c@example.com")
+    app.dependency_overrides.clear()
+    assert client.get("/api/v1/friends").status_code == 401
+    assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 401
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(a.user_id)
+        }).status_code == 422
+        response = client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        })
+        assert response.status_code == 201, response.text
+        assert response.json() == {
+            "user_id": str(b.user_id), "status": "pending", "direction": "outgoing"
+        }
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        }).status_code == 409
+        assert client.post(f"/api/v1/friends/{b.user_id}/accept").status_code == 409
+        assert len(client.get("/api/v1/friends").json()) == 1
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get("/api/v1/friends").json() == []
+        assert client.post(f"/api/v1/friends/{b.user_id}/accept").status_code == 404
+        assert client.delete(f"/api/v1/friends/{b.user_id}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: b
+        incoming = client.get("/api/v1/friends").json()
+        assert incoming[0]["direction"] == "incoming"
+        accept = client.post(f"/api/v1/friends/{a.user_id}/accept")
+        assert accept.status_code == 200
+        assert accept.json()["status"] == "accepted"
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 409
+        assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
+        assert client.get("/api/v1/friends").json() == []
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.get("/api/v1/friends").json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_friend_discovery_opt_in_and_block_privacy():
+    from app.core.database import SessionLocal
+    from app.models.user_profile import UserProfile
+    a = AuthenticatedUser(user_id=uuid4(), email="discover-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="discover-b@example.com")
+    with SessionLocal() as db:
+        db.add(UserProfile(user_id=b.user_id, display_name="Lan Anh", discoverable=False))
+        db.commit()
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.get("/api/v1/friends/discover", params={"q": "Lan"}).json() == []
+        with SessionLocal() as db:
+            db.get(UserProfile, b.user_id).discoverable = True
+            db.commit()
+        res = client.get("/api/v1/friends/discover", params={"q": "Lan"})
+        assert res.status_code == 200
+        assert res.json() == [{"user_id": str(b.user_id), "display_name": "Lan Anh"}]
+        assert client.post("/api/v1/friends/blocks", json={
+            "user_id": str(b.user_id)
+        }).status_code == 204
+        assert client.get("/api/v1/friends/discover", params={"q": "Lan"}).json() == []
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        }).status_code == 404
+        assert client.delete(f"/api/v1/friends/blocks/{b.user_id}").status_code == 204
+        assert len(client.get("/api/v1/friends/discover", params={"q": "Lan"}).json()) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_friends_only_memory_shares_revoke_expire_and_unfriend():
+    from datetime import datetime, timedelta, timezone
+    from app.core.database import SessionLocal
+    from app.models.memory_share import MemoryShare
+    a = AuthenticatedUser(user_id=uuid4(), email="share-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="share-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="share-c@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        album = client.post("/api/v1/albums", json={"name": "Share test"})
+        assert album.status_code == 201, album.text
+        album_id = album.json()["id"]
+        memory = client.post(f"/api/v1/albums/{album_id}/memories", json={
+            "note": "A private day", "display_date": "2026-10-28",
+        })
+        assert memory.status_code == 201, memory.text
+        memory_id = memory.json()["id"]
+        # No share to non-friends, no share without explicit recipients.
+        assert client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)], "text": "A public caption", "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}
+        }).status_code == 422
+        assert client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [], "text": "Caption", "place": {"label": "Park", "latitude": 10, "longitude": 106}
+        }).status_code == 422
+        assert client.post("/api/v1/friends/requests", json={
+            "user_id": str(b.user_id)
+        }).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        share = client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)], "text": "A public caption", "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}
+        })
+        assert share.status_code == 201, share.text
+        sid = share.json()["id"]
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 200
+        assert any(row["id"] == sid for row in client.get("/api/v1/memory-shares/mine", params={"memory_id": memory_id}).json())
+        app.dependency_overrides[get_current_user] = lambda: b
+        view = client.get(f"/api/v1/memory-shares/{sid}")
+        assert view.status_code == 200, view.text
+        assert view.json()["text"] == "A public caption"
+        assert "note" not in view.json()
+        assert "A private day" not in view.text
+        received = client.get("/api/v1/memory-shares/received")
+        assert received.status_code == 200 and any(row["share_id"] == sid for row in received.json())
+        assert "photo_path" not in view.json()
+        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        with SessionLocal() as db:
+            item = db.get(MemoryShare, UUID(sid))
+            item.created_at = datetime.now(timezone.utc) - timedelta(hours=25)
+            item.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+            db.commit()
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        new_share = client.post("/api/v1/memory-shares", json={
+            "memory_id": memory_id, "recipient_ids": [str(b.user_id)], "text": "A public caption", "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}
+        })
+        assert new_share.status_code == 201, new_share.text
+        sid2 = new_share.json()["id"]
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 200
+        assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/memory-shares/{sid2}").status_code == 204
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_community_disabled_by_default_and_moderation():
+    from app.core.config import Settings, get_settings
+    a = AuthenticatedUser(user_id=uuid4(), email="community-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="community-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="community-c@example.com")
+    app.dependency_overrides.clear()
+    app.dependency_overrides[get_current_user] = lambda: a
+    try:
+        assert client.get("/api/v1/community/feed").status_code == 503
+        app.dependency_overrides[get_settings] = lambda: Settings(
+            database_url="sqlite://", community_feed_enabled=True,
+            community_moderator_ids=str(b.user_id))
+        post = client.post("/api/v1/community/posts", json={"body": "Hôm nay tôi thấy rất vui vì điều nhỏ bé."})
+        assert post.status_code == 201, post.text
+        pid = post.json()["id"]
+        assert post.json()["status"] == "pending"
+        assert client.get("/api/v1/community/feed").json() == []
+        assert client.get("/api/v1/community/moderation/pending").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert len(client.get("/api/v1/community/moderation/pending").json()) >= 1
+        approved = client.post(f"/api/v1/community/moderation/{pid}/approve")
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "approved"
+        assert any(row["id"] == pid for row in client.get("/api/v1/community/feed").json())
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.post(f"/api/v1/community/posts/{pid}/reports", json={
+            "reason": "Nội dung cần kiểm tra"
+        }).status_code == 204
+        assert client.get("/api/v1/community/moderation/reports").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: b
+        reports = client.get("/api/v1/community/moderation/reports")
+        assert reports.status_code == 200 and any(x["post_id"] == pid for x in reports.json())
+        assert client.post(f"/api/v1/community/moderation/{pid}/hide").status_code == 200
+        assert client.get("/api/v1/community/feed").json() == []
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/community/posts/{pid}").status_code == 204
+        assert client.get("/api/v1/community/feed").json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+
+def test_reflection_response_exposes_normalized_groups_and_scores():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+    current = AuthenticatedUser(user_id=uuid4(), email="mood-schema@example.com")
+    app.dependency_overrides[get_current_user] = lambda: current
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        score = client.post("/api/v1/ai/reflection", json={
+            "content": "Today was calm", "mood": "Bình yên",
+        })
+        assert score.status_code == 200, score.text
+        payload = score.json()
+        assert payload["emotion"] == "Bình yên"
+        assert payload["mood_group"] == "calm"
+        assert payload["mood_score"] == 80
+        assert payload["quote"] is None
+        assert payload["topics"] == []
+        unknown = client.post("/api/v1/ai/reflection", json={
+            "content": "A day without a named emotion",
+            "mood": "unclassified",
+        })
+        assert unknown.status_code == 200
+        assert unknown.json()["mood_group"] is None
+        assert unknown.json()["mood_score"] is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ai_emotions_match_flutter_scale_without_fabricating_unknown():
+    from app.modules.ai.emotions import classify_emotion
+
+    assert classify_emotion("Buồn chán") == ("sad", 25)
+    assert classify_emotion("Bình yên") == ("calm", 80)
+    assert classify_emotion("Không vui") == (None, None)
+    assert classify_emotion("Nặng nề nhưng tìm thấy sự dịu nhẹ") == ("mixed", 60)
+    assert classify_emotion("Không rõ cảm xúc gì") == (None, None)
+
+
+def test_analysis_routes_auth_and_saved_journal_version_lifecycle():
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+    a = AuthenticatedUser(user_id=uuid4(), email="analyze-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="analyze-b@example.com")
+    app.dependency_overrides.clear()
+    try:
+        for path in ("/api/v1/saved-quotes", "/api/v1/insights/week?start=2026-10-26",
+                     "/api/v1/journals/1/analysis"):
+            assert client.get(path).status_code == 401
+        assert client.post("/api/v1/journals/1/analysis").status_code == 401
+        app.dependency_overrides[get_current_user] = lambda: a
+        app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+        saved = client.post("/api/v1/journals", json={
+            "title": "Memory", "content": "My diary from yesterday",
+            "mood": "Bình yên",
+        })
+        assert saved.status_code == 201, saved.text
+        jid = saved.json()["id"]
+        absent = client.get(f"/api/v1/journals/{jid}/analysis")
+        assert absent.status_code == 404
+        created = client.post(f"/api/v1/journals/{jid}/analysis")
+        assert created.status_code == 200, created.text
+        payload = created.json()
+        assert payload["analysis"]["emotion"] == "Bình yên"
+        assert payload["analysis"]["mood_group"] == "calm"
+        assert payload["analysis"]["mood_score"] == 80
+        assert payload["body_version"] == 1 and payload["stale"] is False
+        # An accidental repeat must not re-infer and must not duplicate rows.
+        assert client.post(f"/api/v1/journals/{jid}/analysis").json()["id"] == payload["id"]
+        listing = client.get("/api/v1/journals?include=analysis")
+        assert listing.status_code == 200, listing.text
+        entry = next(x for x in listing.json()["items"] if x["id"] == jid)
+        assert entry["analysis"]["id"] == payload["id"]
+        assert client.get("/api/v1/journals?include=anything").status_code == 422
+        feedback = client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "up"
+        })
+        assert feedback.status_code == 200 and feedback.json()["feedback"] == "up"
+        assert client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "invalid"
+        }).status_code == 422
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/journals/{jid}/analysis").status_code == 404
+        assert client.post(f"/api/v1/journals/{jid}/analysis").status_code == 404
+        assert client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "down"
+        }).status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        edit = client.put(f"/api/v1/journals/{jid}", json={"content": "Updated diary"})
+        assert edit.status_code == 200 and edit.json()["body_version"] == 2
+        old = client.get(f"/api/v1/journals/{jid}/analysis")
+        assert old.json()["stale"] is True
+        assert client.put(f"/api/v1/journals/{jid}/analysis/feedback", json={
+            "rating": "down"
+        }).status_code == 409
+        new = client.post(f"/api/v1/journals/{jid}/analysis")
+        assert new.status_code == 200, new.text
+        assert new.json()["body_version"] == 2
+        assert new.json()["feedback"] is None
+        assert client.delete(f"/api/v1/journals/{jid}").status_code == 204
+        assert client.get(f"/api/v1/journals/{jid}/analysis").status_code == 404
+        from sqlalchemy import select
+        from app.core.database import SessionLocal
+        from app.models.journal_analysis import JournalAnalysis
+        with SessionLocal() as db:
+            assert db.scalar(select(JournalAnalysis).where(
+                JournalAnalysis.journal_id == jid,
+            )) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_quotes_are_scoped_and_weekly_chart_uses_real_analysis_only():
+    from datetime import timedelta, datetime
+    from zoneinfo import ZoneInfo
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+    a = AuthenticatedUser(user_id=uuid4(), email="insights-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="insights-b@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    app.dependency_overrides[get_ai_provider] = lambda: MockAIProvider()
+    try:
+        bad = client.post("/api/v1/saved-quotes", json={
+            "text": "  ", "author": "Someone"
+        })
+        assert bad.status_code == 422
+        q = client.post("/api/v1/saved-quotes", json={
+            "text": "A verified quote from the client's catalog",
+            "author": "Example author",
+        })
+        assert q.status_code == 201, q.text
+        qid = q.json()["id"]
+        assert client.post("/api/v1/saved-quotes", json={
+            "text": "A verified quote from the client's catalog",
+            "author": "Example author",
+        }).status_code == 201
+        own = client.get("/api/v1/saved-quotes")
+        assert own.status_code == 200
+        assert len([x for x in own.json()["items"] if x["id"] == qid]) == 1
+
+        journal = client.post("/api/v1/journals", json={
+            "content": "This week I felt peaceful.", "mood": "Bình yên",
+        })
+        jid = journal.json()["id"]
+        from_date = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+        monday = from_date - timedelta(days=from_date.weekday())
+        url = f"/api/v1/insights/week?start={monday.isoformat()}"
+        assert client.get(url).status_code == 200
+        week_before = client.get(url).json()
+        assert week_before["summary"] is None
+        assert sum(d["analyzed_count"] for d in week_before["days"]) == 0
+        assert client.post(f"/api/v1/journals/{jid}/analysis").status_code == 200
+        week = client.get(url)
+        assert week.status_code == 200, week.text
+        body = week.json()
+        assert sum(d["analyzed_count"] for d in body["days"]) == 1
+        assert body["top_emotions"] == [{"mood_group": "calm", "count": 1}]
+        assert any(d["score"] == 80 for d in body["days"])
+        assert body["summary"] is None and body["summary_status"] == "not_requested"
+        no_fake = client.get(url + "&generate_summary=true")
+        assert no_fake.status_code == 200
+        assert no_fake.json()["summary"] is None
+        assert no_fake.json()["summary_status"] == "unavailable"
+        assert client.get("/api/v1/insights/week?start=2026-10-27").status_code == 422
+
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/saved-quotes").json()["items"] == []
+        assert sum(d["analyzed_count"] for d in client.get(url).json()["days"]) == 0
+        assert client.delete(f"/api/v1/saved-quotes/{qid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/saved-quotes/{qid}").status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+
+
+def test_weekly_narrative_caches_and_invalidates_with_journal_updates(monkeypatch):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from app.modules.ai.service import MockAIProvider, get_ai_provider
+
+    class NarrativeAI(MockAIProvider):
+        calls = 0
+
+        def summarize_week(self, aggregate_json: str) -> str:
+            self.calls += 1
+            assert "This is raw journal text" not in aggregate_json
+            return "Tuần này bạn có những khoảnh khắc bình yên."
+
+    user = AuthenticatedUser(user_id=uuid4(), email="narrative@example.com")
+    provider = NarrativeAI()
+    # Insights selects the provider lazily so chart GET doesn't fail if
+    # Ollama is absent; override that lazy lookup for this isolated test.
+    monkeypatch.setattr("app.modules.insights.router.get_ai_provider",
+                        lambda: provider)
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_ai_provider] = lambda: provider
+    try:
+        diary = client.post("/api/v1/journals", json={
+            "content": "This is raw journal text",
+            "mood": "Bình yên",
+        }).json()
+        assert client.post(f"/api/v1/journals/{diary['id']}/analysis").status_code == 200
+        now = datetime.now(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+        monday = now - timedelta(days=now.weekday())
+        url = f"/api/v1/insights/week?start={monday}"
+        assert client.get(url).json()["summary_status"] == "not_requested"
+        result = client.get(url + "&generate_summary=true")
+        assert result.status_code == 200, result.text
+        assert result.json()["summary_status"] == "ready"
+        assert "bạn" in result.json()["summary"]
+        assert provider.calls == 1
+
+        cached = client.get(url)
+        assert cached.status_code == 200
+        assert cached.json()["summary_status"] == "ready"
+        assert provider.calls == 1
+        # A journal edit invalidates the narrative and its prior analysis.
+        assert client.put(f"/api/v1/journals/{diary['id']}",
+                          json={"content": "Now it changed"}).status_code == 200
+        after = client.get(url)
+        assert after.status_code == 200
+        assert after.json()["summary"] is None
+        assert after.json()["summary_status"] == "no_data"
+        assert provider.calls == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_username_discovery_privacy_and_friendship_roundtrip():
+    """A username is globally unique; search is opt-in; friends are real users."""
+    from app.core.database import SessionLocal
+    from app.models.user_profile import UserProfile
+
+    alice = AuthenticatedUser(user_id=uuid4(), email="u-alice@example.test")
+    bob = AuthenticatedUser(user_id=uuid4(), email="u-bob@example.test")
+    outsider = AuthenticatedUser(user_id=uuid4(), email="u-third@example.test")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: alice
+        a = client.patch("/api/v1/me", json={
+            "display_name": "Vy Tường", "username": "@VyTuong",
+        })
+        assert a.status_code == 200, a.text
+        assert a.json()["username"] == "vytuong"
+        assert a.json()["discoverable"] is False
+        assert client.get("/api/v1/friends/discover", params={"q": "vyt"}).json() == []
+
+        app.dependency_overrides[get_current_user] = lambda: bob
+        b = client.patch("/api/v1/me", json={"display_name": "Người B",
+                                              "username": "another_b"})
+        assert b.status_code == 200, b.text
+        duplicate = client.patch("/api/v1/me", json={"username": "VYTUONG"})
+        assert duplicate.status_code == 409, duplicate.text
+        # Failed writes never overwrite the old username.
+        assert client.get("/api/v1/me").json()["username"] == "another_b"
+        assert client.patch("/api/v1/me",
+                            json={"username": "no spaces"}).status_code == 422
+        assert client.patch("/api/v1/me",
+                            json={"username": "ok"}).status_code == 422
+        assert client.patch("/api/v1/me",
+                            json={"discoverable": True}).status_code == 200
+
+        app.dependency_overrides[get_current_user] = lambda: alice
+        assert client.get("/api/v1/friends/discover", params={"q": "another"}).json()[0]["username"] == "another_b"
+        # The requester is not discoverable until explicitly enabled.
+        app.dependency_overrides[get_current_user] = lambda: bob
+        assert client.get("/api/v1/friends/discover", params={"q": "@vytuong"}).json() == []
+        app.dependency_overrides[get_current_user] = lambda: alice
+        assert client.patch("/api/v1/me", json={"discoverable": True}).status_code == 200
+
+        app.dependency_overrides[get_current_user] = lambda: bob
+        found = client.get("/api/v1/friends/discover", params={"q": "@vyt"})
+        assert found.status_code == 200, found.text
+        assert found.json()[0]["user_id"] == str(alice.user_id)
+        assert found.json()[0]["display_name"] == "Vy Tường"
+        assert "email" not in found.json()[0]
+        invite = client.post("/api/v1/friends/requests", json={"user_id": str(alice.user_id)})
+        assert invite.status_code == 201, invite.text
+
+        app.dependency_overrides[get_current_user] = lambda: alice
+        inbox = client.get("/api/v1/friends")
+        assert inbox.status_code == 200
+        row = next(x for x in inbox.json() if x["user_id"] == str(bob.user_id))
+        assert row["status"] == "pending"
+        assert row["direction"] == "incoming"
+        assert row["username"] == "another_b"
+        assert client.post(f"/api/v1/friends/{bob.user_id}/accept").status_code == 200
+
+        app.dependency_overrides[get_current_user] = lambda: bob
+        result = client.get("/api/v1/friends").json()
+        assert any(x["status"] == "accepted" and
+                   x["user_id"] == str(alice.user_id) for x in result)
+        assert client.delete(f"/api/v1/friends/{alice.user_id}").status_code == 204
+
+        app.dependency_overrides[get_current_user] = lambda: outsider
+        assert client.get("/api/v1/friends").json() == []
+        # Disable discovery but keep the owner's private profile intact.
+        app.dependency_overrides[get_current_user] = lambda: alice
+        assert client.patch("/api/v1/me", json={"discoverable": False}).status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: bob
+        assert client.get("/api/v1/friends/discover", params={"q": "Vy Tường"}).json() == []
+        with SessionLocal() as db:
+            assert db.get(UserProfile, alice.user_id).username == "vytuong"
+    finally:
+        app.dependency_overrides.clear()
+
+def test_memory_sharing_local_snapshot_and_private_data_never_exposed():
+    from app.core.database import SessionLocal
+    from app.models.memory_share import MemoryShare
+    a = AuthenticatedUser(user_id=uuid4(), email="local-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="local-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="local-c@example.com")
+    place = {"label": "Café", "latitude": 10.77, "longitude": 106.69}
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        body = {"recipient_ids": [str(b.user_id)], "title": "Shared", "text": "Visible text", "place": place}
+        assert client.post("/api/v1/memory-shares", json={**body, "recipient_ids": [str(c.user_id)]}).status_code == 422
+        assert client.post("/api/v1/memory-shares", json={**body, "recipient_ids": [str(b.user_id)] * 2}).status_code == 422
+        assert client.post("/api/v1/memory-shares", json={**body, "text": "x" * 301}).status_code == 422
+        first = client.post("/api/v1/memory-shares", json=body)
+        assert first.status_code == 201, first.text
+        sid = first.json()["id"]
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        assert client.get("/api/v1/memory-shares/received").json() == []
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid}").json()["text"] == "Visible text"
+        app.dependency_overrides[get_current_user] = lambda: a
+        second = client.post("/api/v1/memory-shares", json={**body, "text": "Updated", "replacing": sid})
+        assert second.status_code == 201, second.text
+        sid2 = second.json()["id"]
+        assert client.get(f"/api/v1/memory-shares/{sid}").status_code == 404
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid2}").json()["text"] == "Updated"
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/blocks", json={"user_id": str(b.user_id)}).status_code == 204
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(f"/api/v1/memory-shares/{sid2}").status_code == 404
+        assert client.get("/api/v1/memory-shares/received").json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_message_conversations_acl_unread_idempotency_place_and_share():
+    """CI-only SQLite users: no live auth or shared project data."""
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
+    from app.core.database import SessionLocal
+    from app.models.message import Message
+    from app.models.memory_share import MemoryShare
+
+    a = AuthenticatedUser(user_id=uuid4(), email="chat-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="chat-b@example.com")
+    intruder = AuthenticatedUser(user_id=uuid4(), email="chat-c@example.com")
+    try:
+        app.dependency_overrides.clear()
+        assert client.get("/api/v1/conversations").status_code == 401
+        assert client.get("/api/v1/messages/unread-count").status_code == 401
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)}).status_code == 403
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        opened = client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)})
+        assert opened.status_code == 200, opened.text
+        cid = opened.json()["id"]
+        assert opened.json()["can_send"]
+        assert client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)}).json()["id"] == cid
+        text_body = {"client_id": "test-client-abc-123", "text": "Xin chào"}
+        sent = client.post(f"/api/v1/conversations/{cid}/messages", json=text_body)
+        assert sent.status_code == 200, sent.text
+        msg_id = sent.json()["id"]
+        assert sent.json()["kind"] == "text"
+        assert client.post(f"/api/v1/conversations/{cid}/messages", json=text_body).json()["id"] == msg_id
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+                           json={**text_body, "text": "Changed"}).status_code == 409
+        app.dependency_overrides[get_current_user] = lambda: intruder
+        assert client.get(f"/api/v1/conversations/{cid}/messages").status_code == 404
+        assert client.post(f"/api/v1/conversations/{cid}/messages", json=text_body).status_code == 404
+        assert client.post(f"/api/v1/conversations/{cid}/read",
+                           json={"message_id": msg_id}).status_code == 404
+        assert client.get("/api/v1/conversations").json() == []
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/messages/unread-count").json() == {"count": 1}
+        page = client.get(f"/api/v1/conversations/{cid}/messages")
+        assert page.status_code == 200 and len(page.json()["items"]) == 1
+        assert client.get(f"/api/v1/conversations/{cid}/messages",
+                          params={"after": msg_id}).json()["items"] == []
+        seen = client.post(f"/api/v1/conversations/{cid}/read", json={"message_id": msg_id})
+        assert seen.status_code == 200 and seen.json()["unread_count"] == 0
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 0
+        # An old mark-read never regresses the cursor.
+        app.dependency_overrides[get_current_user] = lambda: a
+        second = client.post(f"/api/v1/conversations/{cid}/messages",
+                             json={"client_id": "test-client-def-456", "text": "Again"})
+        assert second.status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 1
+        client.post(f"/api/v1/conversations/{cid}/read", json={"message_id": msg_id})
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 1
+        app.dependency_overrides[get_current_user] = lambda: a
+        place = {"name": "Park", "latitude": 10.8, "longitude": 106.7}
+        shared_place = client.post("/api/v1/place-shares",
+                   json={"recipient_ids": [str(b.user_id)], "place": place})
+        assert shared_place.status_code == 201, shared_place.text
+        assert shared_place.json()["conversation_ids"] == [cid]
+        assert client.post("/api/v1/place-shares",
+                   json={"recipient_ids": [str(b.user_id), str(b.user_id)],
+                         "place": place}).status_code == 422
+        assert client.post("/api/v1/place-shares",
+                   json={"recipient_ids": [str(intruder.user_id)],
+                         "place": place}).status_code == 422
+        memory = client.post("/api/v1/memory-shares", json={
+            "recipient_ids": [str(b.user_id)], "text": "Public caption",
+            "place": {"label": "Park", "latitude": 10.8, "longitude": 106.7}})
+        assert memory.status_code == 201, memory.text
+        share_id = memory.json()["id"]
+        app.dependency_overrides[get_current_user] = lambda: b
+        # Moments are not chat messages: the conversation is unchanged.
+        messages = client.get(f"/api/v1/conversations/{cid}/messages").json()["items"]
+        assert len(messages) == 3
+        assert all(m["kind"] != "memory_share" for m in messages)
+        assert client.get("/api/v1/conversations").json()[0]["last_message"]["kind"] == "place"
+        assert any(r["share_id"] == share_id for r in client.get("/api/v1/memory-shares/received").json())
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/memory-shares/{share_id}").status_code == 204
+        app.dependency_overrides[get_current_user] = lambda: b
+        # Unfriending preserves history but blocks sends and opening new chats.
+        assert client.delete(f"/api/v1/friends/{a.user_id}").status_code == 204
+        listing = client.get("/api/v1/conversations").json()
+        assert len(listing) == 1 and listing[0]["can_send"] is False
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+                           json={"client_id": "new-after-unfriend", "text": "Denied"}).status_code == 403
+        assert client.post("/api/v1/conversations", json={"friend_id": str(a.user_id)}).status_code == 403
+        assert client.get(f"/api/v1/conversations/{cid}/messages").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_messages_rate_limit_per_sender():
+    a = AuthenticatedUser(user_id=uuid4(), email="rate-chat-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="rate-chat-b@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests",
+                           json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        cid = client.post("/api/v1/conversations",
+                          json={"friend_id": str(b.user_id)}).json()["id"]
+        for idx in range(30):
+            sent = client.post(f"/api/v1/conversations/{cid}/messages",
+                json={"client_id": f"rate-{idx}", "text": "Hello"})
+            assert sent.status_code == 200, sent.text
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+            json={"client_id": "rate-31", "text": "Excess"}).status_code == 429
+        # Retries remain idempotent even when the sender is at the limit.
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+            json={"client_id": "rate-0", "text": "Hello"}).status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/conversations/{cid}/messages",
+            json={"client_id": "b-message", "text": "Separate quota"}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_share_photo_owner_uploads_recipients_see_revoke_clears():
+    from app.core.database import SessionLocal
+    from app.models.memory_share import MemoryShare
+    a = AuthenticatedUser(user_id=uuid4(), email="photo-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="photo-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="photo-c@example.com")
+    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 2048
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        share = client.post("/api/v1/memory-shares", json={
+            "recipient_ids": [str(b.user_id)], "title": "Buồn ngủ", "text": "Học bài",
+            "place": {"label": "UEH", "latitude": 10.78, "longitude": 106.69},
+        })
+        assert share.status_code == 201, share.text
+        sid = share.json()["id"]
+        url = f"/api/v1/memory-shares/{sid}/photo"
+        assert client.get(f"/api/v1/memory-shares/{sid}").json()["has_photo"] is False
+        assert client.get(url).status_code == 404
+        # Only real images, at most 3 MB.
+        assert client.put(url, content=b"not an image", headers={"content-type": "image/jpeg"}).status_code == 415
+        assert client.put(url, content=jpeg, headers={"content-type": "text/plain"}).status_code == 415
+        big = b"\xff\xd8\xff\xe0" + b"0" * (3 * 1024 * 1024)
+        assert client.put(url, content=big, headers={"content-type": "image/jpeg"}).status_code == 413
+        assert client.put(url, content=jpeg, headers={"content-type": "image/jpeg"}).status_code == 204
+        # A recipient may not upload; strangers see nothing.
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.put(url, content=jpeg, headers={"content-type": "image/jpeg"}).status_code == 404
+        received = client.get("/api/v1/memory-shares/received").json()
+        assert [r["has_photo"] for r in received if r["share_id"] == sid] == [True]
+        photo = client.get(url)
+        assert photo.status_code == 200
+        assert photo.content == jpeg
+        assert photo.headers["content-type"] == "image/jpeg"
+        assert photo.headers["cache-control"] == "private, no-store"
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.get(url).status_code == 404
+        # Revoked: gone for the recipient, and the bytes are deleted.
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.delete(f"/api/v1/memory-shares/{sid}").status_code == 204
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.get(url).status_code == 404
+        with SessionLocal() as db:
+            item = db.get(MemoryShare, UUID(sid))
+            assert item.photo is None and item.photo_type is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_geo_places_requires_auth_and_validates_bounds_and_key():
+    from app.core.config import Settings, get_settings
+    from app.modules.geo.router import get_geo_client
+    import httpx
+
+    app.dependency_overrides.clear()
+    # Missing bearer token must never create a provider request.
+    response = client.get("/api/v1/geo/places?lat=10.77&lon=106.7")
+    assert response.status_code in (401, 503)
+
+    a = AuthenticatedUser(user_id=uuid4(), email="places-poi@example.com")
+    app.dependency_overrides[get_current_user] = lambda: a
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        database_url="sqlite://", geoapify_api_key="server-test-key")
+
+    called = []
+    def upstream(request):
+        called.append(request.url.path)
+        return httpx.Response(200, json={"features": [{
+            "properties": {"name": "Phở Việt", "place_id": "vn-restaurant-1",
+                           "formatted": "Quận 1, TP.HCM",
+                           "categories": ["catering.restaurant"]},
+            "geometry": {"coordinates": [106.7, 10.77], "type": "Point"}
+        }]})
+    async def provider():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+            yield http
+    app.dependency_overrides[get_geo_client] = provider
+    try:
+        base = "/api/v1/geo/places?lat=10.77&lon=106.7"
+        assert client.get(base + "&radius=5001").status_code == 422
+        assert client.get(base + "&category=raw-invalid").status_code == 422
+        assert client.get(base + "&limit=41").status_code == 422
+        assert client.get(base + "&q=x").status_code == 422
+        data = client.get(base + "&category=food&q=Ph%E1%BB%9F")
+        assert data.status_code == 200, data.text
+        assert data.json()["items"][0]["label"] == "Phở Việt"
+        assert data.json()["items"][0]["latitude"] == 10.77
+        assert called == ["/v2/places"]
+        # Cache hit must not trigger an additional costly upstream request.
+        assert client.get(base + "&category=food&q=Ph%E1%BB%9F").status_code == 200
+        assert len(called) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+"""FCM devices and business events are tested without Firebase or live Supabase."""
+from uuid import uuid4, UUID
+from hashlib import sha256
+import importlib
+import httpx
+from app.core.database import SessionLocal
+from app.models.device_token import DeviceToken
+
+
+def test_device_registration_is_owner_scoped_and_rotatable():
+    token_a = "FCM_TOKEN_A_" + "a" * 40
+    token_b = "FCM_TOKEN_B_" + "b" * 40
+    owner = AuthenticatedUser(user_id=uuid4(), email="device1@test.local")
+    other = AuthenticatedUser(user_id=uuid4(), email="device2@test.local")
+    route = "/api/v1/devices"
+    try:
+        app.dependency_overrides.clear()
+        assert client.post(route, json={
+            "token": token_a, "installation_id": "android-test-001",
+            "platform": "android"}).status_code == 401
+        app.dependency_overrides[get_current_user] = lambda: owner
+        assert client.post(route, json={"token": "short",
+            "installation_id": "android-test-001", "platform": "android"}).status_code == 422
+        payload = {"token": token_a, "installation_id": "android-test-001",
+                   "platform": "android"}
+        assert client.post(route, json=payload).json() == {"registered": True}
+        assert client.post(route, json=payload).status_code == 200
+        with SessionLocal() as db:
+            row = db.get(DeviceToken, sha256(token_a.encode()).hexdigest())
+            assert row is not None and row.user_id == owner.user_id
+            assert row.token == token_a
+        # Same installation, rotated FCM token: old one is removed.
+        assert client.post(route, json={**payload, "token": token_b}).status_code == 200
+        with SessionLocal() as db:
+            assert db.get(DeviceToken, sha256(token_a.encode()).hexdigest()) is None
+            assert db.get(DeviceToken, sha256(token_b.encode()).hexdigest()) is not None
+        # New account on same emulator must not keep sending to prior account.
+        app.dependency_overrides[get_current_user] = lambda: other
+        assert client.post(route, json={**payload, "token": token_b}).status_code == 200
+        with SessionLocal() as db:
+            assert db.get(DeviceToken, sha256(token_b.encode()).hexdigest()).user_id == other.user_id
+        app.dependency_overrides[get_current_user] = lambda: owner
+        assert client.request("DELETE", route, json={"token": token_b}).status_code == 204
+        with SessionLocal() as db:
+            assert db.get(DeviceToken, sha256(token_b.encode()).hexdigest()) is not None
+        app.dependency_overrides[get_current_user] = lambda: other
+        assert client.request("DELETE", route, json={"token": token_b}).status_code == 204
+        assert client.request("DELETE", route, json={"token": token_b}).status_code == 204
+        with SessionLocal() as db:
+            assert db.get(DeviceToken, sha256(token_b.encode()).hexdigest()) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_fcm_payload_only_safe_metadata_and_invalid_token_detection():
+    from app.modules.devices.push import fcm_payload, send_fcm
+    actual = fcm_payload("fcm-secret", "message", {"conversation_id": "uuid-conversation"})
+    assert actual["message"]["notification"]["body"] == "Bạn có tin nhắn mới"
+    assert actual["message"]["android"]["notification"]["visibility"] == "PRIVATE"
+    assert "message_text" not in actual["message"]["data"]
+    assert "note" not in str(actual)
+    sent = []
+    def fake(req):
+        assert req.url.host == "fcm.googleapis.com"
+        assert req.url.path == "/v1/projects/fcm-project/messages:send"
+        assert req.headers["Authorization"] == "Bearer fake-oauth"
+        sent.append(req.read().decode())
+        return httpx.Response(200, json={"name": "projects/fcm-project/messages/1"})
+    with httpx.Client(transport=httpx.MockTransport(fake)) as c:
+        assert send_fcm(c, "fcm-project", "fake-oauth", "fcm-secret",
+                        "message", {"conversation_id": "uuid-conversation"}) is False
+    assert len(sent) == 1 and "private journal" not in sent[0]
+    with httpx.Client(transport=httpx.MockTransport(
+        lambda req: httpx.Response(404, json={
+          "error": {"status": "UNREGISTERED"}}))) as c:
+        assert send_fcm(c, "fcm-project", "fake-oauth", "fcm-secret",
+                        "message", {}) is True
+    with httpx.Client(transport=httpx.MockTransport(
+        lambda req: httpx.Response(404, json={"error": {
+          "status": "NOT_FOUND", "details": [{
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "UNREGISTERED"}]}}))) as c:
+        assert send_fcm(c, "fcm-project", "fake-oauth", "fcm-secret",
+                        "message", {}) is True
+    with httpx.Client(transport=httpx.MockTransport(
+        lambda req: httpx.Response(404, json={
+          "error": {"status": "NOT_FOUND"}}))) as c:
+        assert send_fcm(c, "fcm-project", "fake-oauth", "fcm-secret",
+                        "message", {}) is False
+
+
+def test_push_emitted_once_after_successful_business_commit(monkeypatch):
+    friendmod = importlib.import_module("app.modules.friends.router")
+    chatmod = importlib.import_module("app.modules.messages.router")
+    sharemod = importlib.import_module("app.modules.shares.router")
+    events = []
+    def capture(uid, kind, data):
+        events.append((uid, kind, data))
+    monkeypatch.setattr(friendmod, "send_push_to_user", capture)
+    monkeypatch.setattr(chatmod, "send_push_to_user", capture)
+    monkeypatch.setattr(sharemod, "send_push_to_user", capture)
+    a = AuthenticatedUser(user_id=uuid4(), email="push-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="push-b@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests",
+                           json={"user_id": str(b.user_id)}).status_code == 201
+        assert events == [(b.user_id, "friend_request", {"sender_id": str(a.user_id)})]
+        assert client.post("/api/v1/friends/requests",
+                           json={"user_id": str(b.user_id)}).status_code == 409
+        assert len(events) == 1
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        assert events[-1] == (a.user_id, "friend_accepted",
+                              {"friend_id": str(b.user_id)})
+        app.dependency_overrides[get_current_user] = lambda: a
+        cid = client.post("/api/v1/conversations",
+                          json={"friend_id": str(b.user_id)}).json()["id"]
+        body = {"client_id": "push-client-id-01", "text": "SUPER SECRET DIARY"}
+        sent = client.post(f"/api/v1/conversations/{cid}/messages", json=body)
+        assert sent.status_code == 200, sent.text
+        assert events[-1] == (b.user_id, "message", {"conversation_id": cid})
+        before = len(events)
+        assert client.post(f"/api/v1/conversations/{cid}/messages", json=body).status_code == 200
+        assert len(events) == before
+        place = {"name": "Địa điểm riêng", "latitude": 10.77, "longitude": 106.7}
+        assert client.post("/api/v1/place-shares", json={
+            "recipient_ids": [str(b.user_id)], "place": place}).status_code == 201
+        assert events[-1] == (b.user_id, "message", {"conversation_id": cid})
+        shared = client.post("/api/v1/memory-shares", json={
+            "recipient_ids": [str(b.user_id)],
+            "text": "PRIVATE MEMORY CAPTION",
+            "place": {"label": "Quận 1", "latitude": 10.77, "longitude": 106.7}})
+        assert shared.status_code == 201, shared.text
+        assert events[-1] == (b.user_id, "memory_share",
+                              {"share_id": shared.json()["id"]})
+        # The push payload must never contain diary text, raw GPS or photos.
+        assert "PRIVATE" not in str(events)
+        assert "10.77" not in str(events)
+        assert len(events) == 5
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_messages_recall_for_both_hide_or_clear_for_one():
+    from app.core.database import SessionLocal
+    from app.models.message import Message
+    a = AuthenticatedUser(user_id=uuid4(), email="del-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="del-b@example.com")
+    c = AuthenticatedUser(user_id=uuid4(), email="del-c@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests", json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        cid = client.post("/api/v1/conversations", json={"friend_id": str(b.user_id)}).json()["id"]
+        # Opened but never written in: not listed.
+        assert client.get("/api/v1/conversations").json() == []
+        sent = [client.post(f"/api/v1/conversations/{cid}/messages",
+                            json={"client_id": f"k{i}", "text": f"Tin {i}"}).json()
+                for i in range(3)]
+        # A 24-hour moment is not in the chat (on the map instead).
+        assert client.post("/api/v1/memory-shares", json={
+            "recipient_ids": [str(b.user_id)], "text": "Khoảnh khắc",
+            "place": {"label": "UEH", "latitude": 10.78, "longitude": 106.69}}).status_code == 201
+        url = f"/api/v1/conversations/{cid}/messages"
+
+        # Recall: only the sender; content gone for both.
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"{url}/{sent[0]['id']}/recall").status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: a
+        recalled = client.post(f"{url}/{sent[0]['id']}/recall")
+        assert recalled.status_code == 200
+        assert recalled.json()["recalled"] is True and recalled.json()["text"] is None
+        with SessionLocal() as db:
+            assert db.get(Message, UUID(sent[0]["id"])).text is None, "erased"
+        app.dependency_overrides[get_current_user] = lambda: b
+        items = client.get(url).json()["items"]
+        assert [m["text"] for m in items] == [None, "Tin 1", "Tin 2"]
+        assert items[0]["recalled"] is True
+        assert all(m["kind"] != "memory_share" for m in items)
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 2
+
+        # Hide one for B only.
+        assert client.delete(f"{url}/{sent[1]['id']}").status_code == 204
+        assert [m["text"] for m in client.get(url).json()["items"]] == [None, "Tin 2"]
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert len(client.get(url).json()["items"]) == 3, "A still has it"
+
+        # Strangers cannot touch the chat.
+        app.dependency_overrides[get_current_user] = lambda: c
+        assert client.delete(f"/api/v1/conversations/{cid}").status_code == 404
+        assert client.delete(f"{url}/{sent[2]['id']}").status_code == 404
+
+        # Clear the whole chat for B: gone and read; A keeps it.
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.delete(f"/api/v1/conversations/{cid}").status_code == 204
+        assert client.get(url).json()["items"] == []
+        assert client.get("/api/v1/conversations").json() == []
+        assert client.get("/api/v1/messages/unread-count").json()["count"] == 0
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert len(client.get(url).json()["items"]) == 3
+        # A new message brings it back for B, from there on.
+        client.post(url, json={"client_id": "k9", "text": "Còn đó không?"})
+        app.dependency_overrides[get_current_user] = lambda: b
+        listing = client.get("/api/v1/conversations").json()
+        assert len(listing) == 1 and listing[0]["last_message"]["text"] == "Còn đó không?"
+        assert [m["text"] for m in client.get(url).json()["items"]] == ["Còn đó không?"]
+        assert listing[0]["unread_count"] == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_share_rate_limit_five_moments_per_minute():
+    """Shared moments no longer create chat messages; they need their own quota."""
+    from sqlalchemy import func, select
+    from app.models.memory_share import MemoryShare
+    from app.core.database import SessionLocal
+    a = AuthenticatedUser(user_id=uuid4(), email="share-limit-a@example.com")
+    b = AuthenticatedUser(user_id=uuid4(), email="share-limit-b@example.com")
+    try:
+        app.dependency_overrides[get_current_user] = lambda: a
+        assert client.post("/api/v1/friends/requests",
+                           json={"user_id": str(b.user_id)}).status_code == 201
+        app.dependency_overrides[get_current_user] = lambda: b
+        assert client.post(f"/api/v1/friends/{a.user_id}/accept").status_code == 200
+        app.dependency_overrides[get_current_user] = lambda: a
+        payload = {
+            "recipient_ids": [str(b.user_id)],
+            "text": "Khoảnh khắc có hạn mức",
+            "place": {"label": "Hồ Chí Minh", "latitude": 10.77, "longitude": 106.7},
+        }
+        for _ in range(5):
+            resp = client.post("/api/v1/memory-shares", json=payload)
+            assert resp.status_code == 201, resp.text
+        blocked = client.post("/api/v1/memory-shares", json=payload)
+        assert blocked.status_code == 429, blocked.text
+        with SessionLocal() as db:
+            assert db.scalar(select(func.count()).select_from(MemoryShare).where(
+                MemoryShare.owner_id == a.user_id)) == 5
     finally:
         app.dependency_overrides.clear()

@@ -25,6 +25,10 @@ class AlbumSettingsScreen extends StatefulWidget {
   static const revokeLabel = 'Thu hồi bài chia sẻ và khóa album';
   static const saved = 'Đã lưu thay đổi.';
   static const savedLocked = 'Đã lưu thay đổi. Album đã khóa.';
+  static const lockHelp =
+      'Album được khóa bằng mật khẩu 4 số của riêng album này. Bật khóa sẽ '
+      'hỏi bạn đặt mật khẩu; tắt khóa cần mật khẩu hiện tại. Thay đổi áp dụng '
+      'khi bạn lưu.';
 
   @override
   State<AlbumSettingsScreen> createState() => _AlbumSettingsScreenState();
@@ -36,8 +40,12 @@ class _AlbumSettingsScreenState extends State<AlbumSettingsScreen> {
   late final _draft = AlbumSettingsDraft.session
       .putIfAbsent(widget.album.id, () => AlbumSettingsDraft(widget.album));
   late final _name = TextEditingController(text: _draft.name);
-  bool? _supported;
-  bool _checkingSupport = false;
+
+  /// The PIN chosen when the lock was turned on here; kept on save.
+  String? _newPin;
+
+  /// The saved lock's PIN was entered here, so it may be turned off.
+  bool _unlockConfirmed = false;
   bool _busy = false;
   bool _retry = false;
   String? _message;
@@ -74,15 +82,32 @@ class _AlbumSettingsScreenState extends State<AlbumSettingsScreen> {
 
   void _remember() => AlbumSettingsDraft.session[widget.album.id] = _draft;
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_checkingSupport) return;
-    _checkingSupport = true;
-    AlbumScope.authOf(context).isSupported().then((value) {
-      if (mounted) setState(() => _supported = value);
-    }, onError: (Object _) {
-      if (mounted) setState(() => _supported = false);
+  static const _offReason = 'Nhập mật khẩu hiện tại để tắt khóa album.';
+
+  /// Turning the lock on asks for a new PIN right away; turning a saved
+  /// lock off asks for its PIN. Both apply on "Lưu thay đổi".
+  Future<void> _toggleLock(bool value) async {
+    final auth = AlbumScope.authOf(context);
+    if (value) {
+      final pin = await auth.choosePin(context);
+      if (!mounted || pin == null) return;
+      setState(() {
+        _newPin = pin;
+        _draft.locked = true;
+        _remember();
+      });
+      return;
+    }
+    if (_saved.locked && !_unlockConfirmed) {
+      final result =
+          await auth.verify(context, widget.album.id, reason: _offReason);
+      if (!mounted || result != AlbumAuthResult.success) return;
+      _unlockConfirmed = true;
+    }
+    setState(() {
+      _newPin = null;
+      _draft.locked = false;
+      _remember();
     });
   }
 
@@ -122,21 +147,29 @@ class _AlbumSettingsScreenState extends State<AlbumSettingsScreen> {
       if (current == null) {
         throw const AlbumSettingsFailure('Album không còn tồn tại.');
       }
+      if (!mounted) return;
+      // A lock change needs its PIN: a new one to lock (asked again if
+      // this draft came back without it), the saved one to unlock.
       var authenticatedChange = false;
       if (current.locked != _draft.locked) {
-        final result = await auth.authenticate(_draft.locked
-            ? 'Xác thực để bật khóa album'
-            : 'Xác thực để tắt khóa album');
-        if (!mounted) return;
-        if (result != AlbumAuthResult.success) {
-          throw AlbumSettingsFailure(switch (result) {
-            AlbumAuthResult.canceled => 'Đã hủy xác thực. Chưa lưu thay đổi.',
-            AlbumAuthResult.notSetUp =>
-              'Hãy thiết lập khóa màn hình trong cài đặt thiết bị.',
-            AlbumAuthResult.notSupported =>
-              'Thiết bị chưa hỗ trợ xác thực. Chưa đổi khóa.',
-            _ => 'Xác thực chưa thành công. Chưa lưu thay đổi. Hãy thử lại.',
-          });
+        if (_draft.locked) {
+          final pin = _newPin ?? await auth.choosePin(context);
+          if (!mounted) return;
+          if (pin == null) {
+            throw const AlbumSettingsFailure(
+                'Chưa đặt mật khẩu. Chưa lưu thay đổi.');
+          }
+          _newPin = pin;
+        } else if (!_unlockConfirmed) {
+          final result =
+              await auth.verify(context, current.id, reason: _offReason);
+          if (!mounted) return;
+          if (result != AlbumAuthResult.success) {
+            throw AlbumSettingsFailure(result == AlbumAuthResult.canceled
+                ? 'Đã hủy. Chưa lưu thay đổi.'
+                : 'Chưa kiểm tra được mật khẩu. Chưa lưu thay đổi.');
+          }
+          _unlockConfirmed = true;
         }
         authenticatedChange = true;
       }
@@ -152,6 +185,11 @@ class _AlbumSettingsScreenState extends State<AlbumSettingsScreen> {
       if (!mayCommit()) {
         throw const AlbumSettingsFailure('Hãy xác thực lại trước khi lưu.');
       }
+      // The PIN is kept before the album locks, so a locked album always
+      // has one; a failed save leaves an unused PIN, replaced next time.
+      if (_draft.locked && !current.locked) {
+        await auth.setPin(current.id, _newPin);
+      }
       Album result;
       try {
         result = await writer.save(current.id, _draft,
@@ -164,6 +202,10 @@ class _AlbumSettingsScreenState extends State<AlbumSettingsScreen> {
       if (!mounted) return;
       if (result.locked && authenticatedChange && mayCommit()) {
         _session.unlock(result.id);
+      }
+      if (current.locked && !result.locked) {
+        // Best effort: an unlocked album never asks for it again.
+        await auth.setPin(result.id, null).catchError((Object _) {});
       }
       AlbumSettingsDraft.session.remove(result.id);
       _saved = result;
@@ -270,21 +312,10 @@ class _AlbumSettingsScreenState extends State<AlbumSettingsScreen> {
                         const SizedBox(height: 12),
                         AlbumLockCard(
                           title: 'Khóa album',
-                          supported: _supported,
                           value: _draft.locked,
                           enabled: !_busy,
-                          onChanged: (value) => setState(() {
-                            _draft.locked = value;
-                            _remember();
-                          }),
-                          help:
-                              'Album được khóa bằng mã PIN (hoặc vân tay, khuôn mặt) của máy. '
-                              'Bật hoặc tắt khóa cần xác nhận khi lưu.',
-                          unsupportedTitle: 'Tính năng khóa chưa được hỗ trợ',
-                          unsupportedHelp:
-                              'Thiết bị này chưa xác thực được bằng vân '
-                              'tay, khuôn mặt hoặc khóa màn hình, nên chưa đổi được '
-                              'khóa.',
+                          onChanged: _toggleLock,
+                          help: AlbumSettingsScreen.lockHelp,
                           currentlyLocked: _saved.locked,
                         ),
                         const SizedBox(height: AppSpacing.xl),

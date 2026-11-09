@@ -3,14 +3,17 @@ import 'package:flutter/material.dart';
 import '../features/album/data/memory_share.dart';
 import '../features/album/presentation/album_screen.dart';
 import '../features/album/presentation/share_memory_sheet.dart';
+import '../features/explore/data/explore_focus.dart';
 import '../features/explore/data/explore_highlight.dart';
 import '../features/explore/presentation/explore_screen.dart';
 import '../features/home/presentation/home_screen.dart';
+import '../features/messages/presentation/messages_screen.dart';
+import 'app_destinations.dart';
 import '../features/study/presentation/study_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key, this.initialIndex = 0})
-      : assert(initialIndex >= 0 && initialIndex < 4);
+      : assert(initialIndex >= 0 && initialIndex < 5);
 
   final int initialIndex;
 
@@ -21,6 +24,26 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late int _index = widget.initialIndex;
 
+  @override
+  void initState() {
+    super.initState();
+    ExploreFocus.post.addListener(_toExplore);
+    _toExplore();
+  }
+
+  @override
+  void dispose() {
+    ExploreFocus.post.removeListener(_toExplore);
+    super.dispose();
+  }
+
+  /// A moment asked for (a tapped notification): Khám phá shows it.
+  void _toExplore() {
+    if (ExploreFocus.post.value != null && _index != 3) {
+      setState(() => _index = 3);
+    }
+  }
+
   /// The post just shared from Album (A10), pointed out on the map.
   SharedMemoryPost? _post;
   ExploreHighlight? _shared;
@@ -30,6 +53,7 @@ class _AppShellState extends State<AppShell> {
         const StudyScreen(),
         AlbumScreen(onShare: _shareToExplore, onUnshare: _unshare),
         ExploreScreen(highlight: _shared),
+        const MessagesScreen(),
       ];
 
   /// A10 → E01: Explore with the new pin and its card open.
@@ -64,7 +88,10 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Tabs keep their own top inset, so a scene (Home) or backdrop (Album)
+      // can run up under the status bar.
       body: SafeArea(
+        top: false,
         child: IndexedStack(
           index: _index,
           children: [
@@ -76,16 +103,7 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined), label: 'Trang chủ'),
-          NavigationDestination(
-              icon: Icon(Icons.school_outlined), label: 'Học tập'),
-          NavigationDestination(
-              icon: Icon(Icons.photo_album_outlined), label: 'Kỷ niệm'),
-          NavigationDestination(
-              icon: Icon(Icons.map_outlined), label: 'Khám phá'),
-        ],
+        destinations: appDestinations,
       ),
     );
   }

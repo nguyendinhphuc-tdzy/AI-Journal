@@ -3,7 +3,9 @@ import 'dart:math' as math;
 
 import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/explore/data/place_lookup.dart';
+import 'package:ai_diary/features/explore/presentation/map_style.dart';
 import 'package:ai_diary/features/explore/presentation/place_picker_screen.dart';
+import 'package:ai_diary/features/explore/presentation/widgets/map_overlay_parts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
@@ -106,6 +108,25 @@ Future<void> _tapMap(WidgetTester tester, LatLng at) async {
 }
 
 void main() {
+  testWidgets('The same light map as Explore', (tester) async {
+    await _pump(tester);
+    expect(tester.widget<MapLibreMap>(find.byType(MapLibreMap)).styleString,
+        ExploreMapStyle.day);
+  });
+
+  testWidgets('Looks and works as Explore: zoom, its pin, its buttons',
+      (tester) async {
+    await _pump(tester);
+    expect(find.byType(MapCenterPin), findsOneWidget);
+    expect(find.byType(MapZoomButtons), findsOneWidget);
+    await tester.tap(find.byTooltip(MapZoomButtons.zoomInTooltip));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final map = tester.widget<MapLibreMap>(find.byType(MapLibreMap));
+    expect(map.zoomGesturesEnabled, isTrue);
+    expect(map.minMaxZoomPreference.maxZoom, 19);
+  });
+
   testWidgets('Map, search, centre pin and panel; nothing chosen yet',
       (tester) async {
     await _pump(tester);

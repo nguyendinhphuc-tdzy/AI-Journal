@@ -2,7 +2,7 @@ import 'package:ai_diary/core/theme/app_theme.dart';
 import 'package:ai_diary/features/onboarding/data/onboarding_store.dart';
 import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
 import 'package:ai_diary/features/onboarding/presentation/falling_petals.dart';
-import 'package:ai_diary/features/onboarding/presentation/onboarding_nickname_screen.dart';
+import 'package:ai_diary/features/onboarding/presentation/onboarding_sign_in_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_welcome_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_widgets.dart';
 import 'package:flutter/material.dart';
@@ -30,7 +30,9 @@ Future<OnboardingStore> _pump(WidgetTester tester,
 
 Finder get _start => find.text(OnboardingWelcomeScreen.startLabel);
 Finder get _ob01 => find.text(OnboardingWelcomeScreen.title);
-Finder get _ob02 => find.text(OnboardingNicknameScreen.title);
+
+/// What comes after OB01: the sign-in.
+Finder get _ob02 => find.text(OnboardingSignInScreen.title);
 
 /// Entrance opacity of the stagger item holding [text].
 double _entrance(WidgetTester tester, String text) {
@@ -45,11 +47,12 @@ double _entrance(WidgetTester tester, String text) {
 }
 
 void main() {
-  testWidgets('Wind first, then OB02; session saved at once', (tester) async {
+  testWidgets('Wind first, then the sign-in; session saved at once',
+      (tester) async {
     final store = await _pump(tester);
     await tester.tap(_start);
     await tester.pump();
-    expect(store.step, OnboardingStep.nickname, reason: 'saved on tap');
+    expect(store.step, OnboardingStep.signIn, reason: 'saved on tap');
 
     await tester.pump(const Duration(milliseconds: 250));
     expect(_ob01, findsOneWidget, reason: 'petals blow away on OB01 first');
@@ -63,23 +66,22 @@ void main() {
     expect(_ob01, findsNothing);
   });
 
-  testWidgets('OB02 parts appear one after another', (tester) async {
+  testWidgets('The sign-in parts appear one after another', (tester) async {
     await _pump(tester);
     await tester.tap(_start);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 560));
     expect(_ob02, findsOneWidget);
-    // OB02 has been up ~450 ms: the title (from 260 ms) is well under way,
-    // the helper (from 440 ms) only starting.
-    await tester.pump(const Duration(milliseconds: 450));
-    final title = _entrance(tester, OnboardingNicknameScreen.title);
-    final helper = _entrance(tester, OnboardingNicknameScreen.helper);
-    expect(title, greaterThan(helper), reason: 'title leads the helper');
-    expect(helper, lessThan(1));
+    // Up a moment: the title (order 1) leads the form's paper (order 3).
+    await tester.pump(const Duration(milliseconds: 200));
+    final title = _entrance(tester, OnboardingSignInScreen.title);
+    final form = _entrance(tester, OnboardingSignInScreen.later);
+    expect(title, greaterThan(form), reason: 'title leads the form');
+    expect(form, lessThan(1));
 
     await tester.pump(OnboardingStagger.total);
-    expect(_entrance(tester, OnboardingNicknameScreen.title), 1);
-    expect(_entrance(tester, OnboardingNicknameScreen.helper), 1);
+    expect(_entrance(tester, OnboardingSignInScreen.title), 1);
+    expect(_entrance(tester, OnboardingSignInScreen.later), 1);
   });
 
   testWidgets('Extra taps during the wind are ignored', (tester) async {
@@ -91,7 +93,7 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     expect(tester.takeException(), isNull);
     expect(_ob02, findsOneWidget);
-    expect(store.step, OnboardingStep.nickname);
+    expect(store.step, OnboardingStep.signIn);
   });
 
   testWidgets('Back during the wind stays on OB01, petals back',
@@ -138,6 +140,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 150));
     expect(find.byType(PetalGust), findsNothing);
     expect(_ob02, findsOneWidget);
-    expect(_entrance(tester, OnboardingNicknameScreen.title), 1);
+    expect(_entrance(tester, OnboardingSignInScreen.title), 1);
   });
 }

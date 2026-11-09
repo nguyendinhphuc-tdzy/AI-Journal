@@ -94,29 +94,60 @@ void main() {
     });
   });
 
-  testWidgets('Title, subtitle, create CTA', (tester) async {
-    await _pump(tester);
+  testWidgets('Title, subtitle, create CTA docked once there are albums',
+      (tester) async {
+    final albums = InMemoryAlbumRepository();
+    await _seed(albums, 'Đà Lạt');
+    await _pump(tester, repository: albums);
     expect(find.text(_A01.title), findsOneWidget);
     expect(find.text(_A01.subtitle), findsOneWidget);
     expect(find.text(_A01.createLabel), findsOneWidget);
+    expect(find.text(_A01.firstCreateLabel), findsNothing);
   });
 
-  testWidgets('No album: Nudaeng, explanation, create; no "add photo" copy',
+  testWidgets('No album: a first page, an invitation and its button together',
       (tester) async {
     await _pump(tester);
     expect(find.text(_A01.emptyTitle), findsOneWidget);
     expect(find.text(_A01.emptyBody), findsOneWidget);
     expect(find.textContaining('ảnh đầu tiên'), findsNothing);
-    expect(
-        find.byWidgetPredicate((w) =>
-            w is Image && (w.image as AssetImage).assetName == _A01.emptyAsset),
-        findsOneWidget);
+    expect(find.byWidgetPredicate((w) {
+      if (w is! Image) return false;
+      final image = w.image;
+      final asset = image is ResizeImage ? image.imageProvider : image;
+      return asset is AssetImage && asset.assetName == _A01.emptyAsset;
+    }), findsOneWidget);
+    // The button is with its words, not docked away from them.
+    expect(find.text(_A01.createLabel), findsNothing);
+    final body = tester.getRect(find.text(_A01.emptyBody));
+    final button = tester.getRect(find.text(_A01.firstCreateLabel));
+    expect(button.top - body.bottom, lessThan(80));
+    final title = tester.getRect(find.text(_A01.subtitle));
+    final page = tester.getRect(find.text(_A01.emptyTitle));
+    expect(page.top - title.bottom, lessThan(420), reason: 'not far apart');
   });
+
+  for (final (size, scale) in [
+    (const Size(360, 640), 1.0),
+    (const Size(390, 844), 1.6),
+    (const Size(800, 1280), 1.0),
+  ]) {
+    testWidgets('No album lays out at $size × $scale; button reachable',
+        (tester) async {
+      await _pump(tester, size: size, textScale: scale);
+      expect(tester.takeException(), isNull);
+      await tester.scrollUntilVisible(find.text(_A01.firstCreateLabel), 200,
+          scrollable: find.byType(Scrollable).first);
+      expect(find.text(_A01.firstCreateLabel).hitTestable(), findsOneWidget);
+    });
+  }
 
   testWidgets('Grid: two columns, names, memory counts, newest first',
       (tester) async {
     final albums = InMemoryAlbumRepository();
     await _seed(albums, 'Đà Lạt', memories: 3);
+    // The repository breaks equal timestamps by ID, not insertion order.
+    await tester.pump(const Duration(milliseconds: 25));
     await _seed(albums, 'Mùa thu');
     await _pump(tester, repository: albums);
 
@@ -259,10 +290,10 @@ void main() {
   });
 
   group('Creating', () {
-    testWidgets('new album appears, Nudaeng peeks once, shortcut to add',
+    testWidgets('new album appears with a glow, no mascot, shortcut to add',
         (tester) async {
       final albums = await _pump(tester);
-      await tester.tap(find.text(_A01.createLabel));
+      await tester.tap(find.text(_A01.firstCreateLabel));
       await _settle(tester);
       await tester.enterText(find.byType(TextField), '  Đà Lạt ');
       await tester.pump();
@@ -275,23 +306,29 @@ void main() {
       expect(await albums.albums(), hasLength(1), reason: 'one album');
       expect(find.text('Đà Lạt'), findsOneWidget);
       expect(find.text(_A01.created), findsOneWidget);
-      expect(find.byType(FrameSequence), findsOneWidget);
-      // Behind the cover: its head rises above the cover's top edge.
-      final peek = tester.getRect(find.byType(FrameSequence));
-      final tile = tester.getRect(_tile('Đà Lạt'));
-      expect(peek.top, lessThan(tile.top + 12));
+      // No Nudaeng over the grid; the new tile is outlined, then not.
+      expect(find.byType(FrameSequence), findsNothing);
+      final glow = find.byKey(const ValueKey('album-new-glow'));
+      expect(glow, findsOneWidget);
+      Color outline() {
+        final box = tester.widget<DecoratedBox>(find
+            .descendant(of: glow, matching: find.byType(DecoratedBox))
+            .first);
+        return ((box.decoration as BoxDecoration).border as Border).top.color;
+      }
 
-      await tester.pump(const Duration(seconds: 2));
-      expect(find.byType(FrameSequence), findsOneWidget,
-          reason: 'stays still after playing');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(outline().a, greaterThan(.9), reason: 'glowing');
+      await tester.pump(_A01.newGlow);
+      expect(outline().a, 0, reason: 'faded away');
 
       await tester.tap(find.text(_A01.addMemoryLabel));
       await _settle(tester);
       expect(find.text(AlbumStartScreen.title), findsOneWidget);
       await tester.pageBack();
       await _settle(tester);
-      expect(find.byType(FrameSequence), findsNothing,
-          reason: 'plays once, for the new album');
+      expect(find.byKey(const ValueKey('album-new-glow')), findsNothing,
+          reason: 'once, for the new album');
     });
   });
 

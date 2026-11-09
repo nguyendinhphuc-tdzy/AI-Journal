@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
-import '../../onboarding/presentation/frame_sequence.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../album_scope.dart';
 import '../data/album.dart';
 import '../data/album_repository.dart';
+import '../data/remote_album_repository.dart';
+import '../data/local_album_cloud_importer.dart';
 import '../data/album_unlocks.dart';
 import '../data/memory_share.dart';
 import 'album_backdrop.dart';
@@ -23,8 +25,14 @@ import 'album_routes.dart';
 ///   the album) and a long press open A03; a locked album asks A04 first.
 /// - A locked album shows a generic cover and no memory count; with
 ///   [Album.hideNameWhenLocked], "Album đã khóa" instead of its name.
-/// - After creating an album Nudaeng peeks from behind its cover once
-///   (1.6 s), then stays still until the user leaves the screen.
+/// - A new album fades in at the top with a soft teal glow (1.8 s) that
+///   fades away; no mascot over the grid.
+/// - No album yet: one group, close together and centred a little above the
+///   middle (it scrolls when space is short): the first page of a scrapbook
+///   (two small framed drawings, a sky and a flower, never anything like a
+///   user's photo; two strips of tape; Nudaeng hugging a photo in the
+///   corner), an invitation, and "Tạo album đầu tiên" right under it. The
+///   docked "Tạo album" is not shown then.
 class AlbumScreen extends StatefulWidget {
   const AlbumScreen({super.key, this.onShare, this.onUnshare});
 
@@ -35,12 +43,14 @@ class AlbumScreen extends StatefulWidget {
   /// Posts taken off the map in A11 or A12: the shell drops them from E01.
   final ValueChanged<ShareRemoval>? onUnshare;
 
-  static const title = 'Album';
+  /// The tab's name in the bottom navigation.
+  static const title = 'Kỷ niệm';
   static const subtitle = 'Giữ lại những điều bạn muốn nhớ.';
   static const createLabel = 'Tạo album';
-  static const emptyTitle = 'Chưa có album nào';
+  static const emptyTitle = 'Những điều nhỏ, đáng nhớ';
   static const emptyBody =
-      'Tạo một album để giữ ảnh và những dòng ghi chú bạn muốn nhớ.';
+      'Gom ảnh và vài dòng kể lại thành một cuốn album của bạn.';
+  static const firstCreateLabel = 'Tạo album đầu tiên';
   static const loadFailed = 'Chưa tải được album.';
   static const refreshFailed = 'Chưa cập nhật được danh sách album.';
   static const retryLabel = 'Thử lại';
@@ -51,19 +61,10 @@ class AlbumScreen extends StatefulWidget {
   static String countLabel(int count) => '$count kỷ niệm';
   static const created = 'Đã tạo album';
 
-  static final peekFrames = [
-    for (var i = 1; i <= 8; i++)
-      'assets/Deimage/album-peek-frame-${i.toString().padLeft(2, '0')}.png',
-  ];
-
-  /// Source pace: 8 × 200 ms = 1.6 s.
-  static final peekDurations = [
-    for (var i = 0; i < 8; i++) const Duration(milliseconds: 200),
-  ];
-
-  static const peekAspectRatio = 404 / 371;
+  /// How long a new album's glow lasts, fade-in included.
+  static const newGlow = Duration(milliseconds: 1800);
   static const backdropAsset = AlbumBackdrop.figureAsset;
-  static const emptyAsset = 'assets/Deimage/album-empty-nudaeng.png';
+  static const emptyAsset = 'assets/images/scrapbook/nudaeng-hugging-photo.png';
 
   @override
   State<AlbumScreen> createState() => _AlbumScreenState();
@@ -76,9 +77,10 @@ class _AlbumScreenState extends State<AlbumScreen> {
   var _loading = true;
   var _failed = false;
   var _creating = false;
+  var _importing = false;
 
-  /// The album just created: it fades in and Nudaeng peeks from its cover.
-  String? _peekId;
+  /// The album just created: it fades in with a glow.
+  String? _newId;
 
   AlbumUnlocks get _unlocks => AlbumUnlocks.instance;
 
@@ -149,9 +151,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
   bool _isLocked(Album album) => album.locked && !_unlocks.isUnlocked(album.id);
 
-  /// Leaving the library ends the peek: it plays once, for the new album.
+  /// Leaving the library ends the glow: it is for the new album, once.
   Future<void> _leave(Future<void> Function() route) async {
-    if (_peekId != null) setState(() => _peekId = null);
+    if (_newId != null) setState(() => _newId = null);
     await route();
   }
 
@@ -169,7 +171,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
     final album = await AlbumRoutes.create(context);
     _creating = false;
     if (album == null || !mounted) return;
-    setState(() => _peekId = album.id);
+    setState(() => _newId = album.id);
     // Newest first: the new album is the first tile.
     if (_scroll.hasClients) {
       _scroll.animateTo(0,
@@ -183,6 +185,8 @@ class _AlbumScreenState extends State<AlbumScreen> {
         margin: EdgeInsets.fromLTRB(AppSpacing.lg, 0, AppSpacing.lg,
             _Dock.heightOf(context) - AppSpacing.sm),
         content: const Text(AlbumScreen.created),
+        // Leaves on its own, as every snack bar, though it has an action.
+        persist: false,
         action: SnackBarAction(
           label: AlbumScreen.addMemoryLabel,
           onPressed: () {
@@ -192,62 +196,172 @@ class _AlbumScreenState extends State<AlbumScreen> {
       ));
   }
 
+  /// Explicit per-account copy only, never automatic background sync.
+  Future<void> _importLocal() async {
+    final source = _repository;
+    if (source is! CombinedAlbumRepository || _importing) return;
+    final candidates = await source.local.albums();
+    if (!mounted || candidates.isEmpty) return;
+    final selected = await showDialog<Album>(
+      context: context,
+      builder: (dialog) => SimpleDialog(
+        title: const Text('Chọn album trên máy để nhập'),
+        children: [
+          for (final album in candidates)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialog, album),
+              child: Text(album.name, maxLines: 2),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || selected == null) return;
+    final importer = LocalAlbumCloudImporter(
+        local: source.local, remote: source.remote);
+    int count;
+    try {
+      count = await importer.validate(selected);
+    } on StateError catch (error) {
+      if (mounted) {
+        _showImportMessage(error.message.toString());
+      }
+      return;
+    } catch (_) {
+      if (mounted) {
+        _showImportMessage('Album có ảnh không hợp lệ hoặc đã mất. '
+            'Không có dữ liệu nào được tải lên.');
+      }
+      return;
+    }
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Nhập album lên Cloud?'),
+        content: Text('Sao chép "${selected.name}" và $count kỷ niệm lên '
+            'tài khoản đang đăng nhập. Ảnh được gửi lên kho riêng tư. '
+            'Album và ảnh gốc trên máy vẫn được giữ nguyên. '
+            'Không chia sẻ cho bạn bè.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false),
+              child: const Text('Hủy')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Đồng ý nhập')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _importing = true);
+    try {
+      final imported = await importer.importAlbum(selected);
+      if (!mounted) return;
+      _showImportMessage('Đã nhập "${imported.name}" lên Cloud. '
+          'Bản trên máy vẫn được giữ nguyên.');
+      await _load();
+    } on StateError catch (error) {
+      if (mounted) _showImportMessage(error.message.toString());
+    } catch (_) {
+      if (mounted) {
+        _showImportMessage('Chưa nhập xong. Bản local vẫn còn. '
+            'Kiểm tra album cloud trước khi thử lại để tránh trùng.');
+      }
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
+  void _showImportMessage(String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final albums = _albums;
     final firstLoad = albums == null;
-    // The large background Nudaeng only while the grid is short, and never
-    // next to the peeking one.
-    final showFigure = albums != null &&
-        albums.isNotEmpty &&
-        albums.length <= 2 &&
-        _peekId == null;
+    // The large background Nudaeng only while the grid is short.
+    final showFigure =
+        albums != null && albums.isNotEmpty && albums.length <= 2;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Stack(
         fit: StackFit.expand,
         children: [
+          // The sky runs under the status bar; the library stays below it.
           AlbumBackdrop(showFigure: showFigure),
-          LayoutBuilder(
-            builder: (context, box) => CustomScrollView(
-              controller: _scroll,
-              slivers: [
-                const SliverToBoxAdapter(child: _Header()),
-                if (_failed && albums != null)
-                  SliverToBoxAdapter(
-                    child: _Notice(
-                        text: AlbumScreen.refreshFailed, onRetry: _load),
-                  ),
-                if (firstLoad && _loading)
-                  const _SkeletonGrid()
-                else if (firstLoad)
-                  SliverFillRemaining(
-                    hasScrollBody: false,
-                    child:
-                        _Notice(text: AlbumScreen.loadFailed, onRetry: _load),
-                  )
-                else if (albums.isEmpty)
-                  const SliverFillRemaining(
-                      hasScrollBody: false, child: _EmptyLibrary())
-                else
-                  _Grid(
-                    albums: albums,
-                    width: box.maxWidth,
-                    peekId: _peekId,
-                    onOpen: _open,
-                    onSettings: _settings,
-                  ),
-                SliverToBoxAdapter(
-                    child: SizedBox(height: _Dock.heightOf(context))),
-              ],
+          SafeArea(
+            bottom: false,
+            child: LayoutBuilder(
+              builder: (context, box) => CustomScrollView(
+                controller: _scroll,
+                slivers: [
+                  const SliverToBoxAdapter(child: _Header()),
+                  if (_repository is CombinedAlbumRepository &&
+                      albums != null &&
+                      albums.any((album) => album.id.startsWith('local-')))
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.lg),
+                        child: OutlinedButton.icon(
+                          onPressed: _importing ? null : _importLocal,
+                          icon: _importing
+                              ? const SizedBox(width: 18, height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.cloud_upload_outlined),
+                          label: Text(_importing
+                              ? 'Đang nhập album…'
+                              : 'Nhập album từ máy lên Cloud'),
+                        ),
+                      ),
+                    ),
+                  if (_failed && albums != null)
+                    SliverToBoxAdapter(
+                      child: _Notice(
+                          text: AlbumScreen.refreshFailed, onRetry: _load),
+                    ),
+                  if (firstLoad && _loading)
+                    const _SkeletonGrid()
+                  else if (firstLoad)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child:
+                          _Notice(text: AlbumScreen.loadFailed, onRetry: _load),
+                    )
+                  else if (albums.isEmpty)
+                    // As tall as it needs (scrolls when short), at least most
+                    // of the screen so it sits near the middle.
+                    SliverToBoxAdapter(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                            minHeight: math.max(0, box.maxHeight - 120)),
+                        child: _EmptyLibrary(onCreate: _create),
+                      ),
+                    )
+                  else
+                    _Grid(
+                      albums: albums,
+                      width: box.maxWidth,
+                      newId: _newId,
+                      onOpen: _open,
+                      onSettings: _settings,
+                    ),
+                  if (albums?.isEmpty != true)
+                    SliverToBoxAdapter(
+                        child: SizedBox(height: _Dock.heightOf(context))),
+                ],
+              ),
             ),
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _Dock(onCreate: _create),
-          ),
+          // Empty: the button is in the invitation, close to its words.
+          if (albums?.isEmpty != true)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _Dock(onCreate: _create),
+            ),
         ],
       ),
     );
@@ -257,21 +371,13 @@ class _AlbumScreenState extends State<AlbumScreen> {
 class _Header extends StatelessWidget {
   const _Header();
 
+  // Same header as the other tabs (title = tab name, line under it).
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg, AppSpacing.xl, AppSpacing.lg, AppSpacing.xl),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Semantics(
-              header: true,
-              child: const Text(AlbumScreen.title, style: _Text.title),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            const Text(AlbumScreen.subtitle, style: _Text.subtitle),
-          ],
-        ),
+  Widget build(BuildContext context) => const Padding(
+        padding: EdgeInsets.fromLTRB(
+            AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xl),
+        child: AppPageHeader(
+            title: AlbumScreen.title, subtitle: AlbumScreen.subtitle),
       );
 }
 
@@ -279,14 +385,14 @@ class _Grid extends StatelessWidget {
   const _Grid({
     required this.albums,
     required this.width,
-    required this.peekId,
+    required this.newId,
     required this.onOpen,
     required this.onSettings,
   });
 
   final List<Album> albums;
   final double width;
-  final String? peekId;
+  final String? newId;
   final ValueChanged<Album> onOpen;
   final ValueChanged<Album> onSettings;
 
@@ -315,7 +421,7 @@ class _Grid extends StatelessWidget {
                             width: tileWidth,
                             // Always shown as locked here, opened or not.
                             locked: albums[j].locked,
-                            peek: albums[j].id == peekId,
+                            isNew: albums[j].id == newId,
                             onOpen: () => onOpen(albums[j]),
                             onSettings: () => onSettings(albums[j]),
                           )
@@ -328,7 +434,6 @@ class _Grid extends StatelessWidget {
         ),
     ];
     return SliverPadding(
-      // Room above the first row for Nudaeng's head when it peeks.
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.lg, AppSpacing.sm, AppSpacing.lg, AppSpacing.md),
       sliver: SliverList.list(children: rows),
@@ -342,7 +447,7 @@ class _AlbumTile extends StatelessWidget {
     required this.album,
     required this.width,
     required this.locked,
-    required this.peek,
+    required this.isNew,
     required this.onOpen,
     required this.onSettings,
   });
@@ -350,7 +455,7 @@ class _AlbumTile extends StatelessWidget {
   final Album album;
   final double width;
   final bool locked;
-  final bool peek;
+  final bool isNew;
   final VoidCallback onOpen;
   final VoidCallback onSettings;
 
@@ -384,11 +489,7 @@ class _AlbumTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _CoverWithPeek(
-                  album: album,
-                  width: width - padding * 2,
-                  locked: locked,
-                  peek: peek),
+              AlbumCover(themeId: album.themeId, locked: locked),
               const SizedBox(height: AppSpacing.sm),
               Expanded(
                 child: Row(
@@ -452,103 +553,285 @@ class _AlbumTile extends StatelessWidget {
       ].join(', '),
       child: tile,
     );
-    if (!peek) return semantic;
-    // The new album fades into its place.
+    if (!isNew) return semantic;
+    // The new album fades into its place (200 ms) with a teal glow that
+    // holds, then fades away. Reduced motion: there at once, no glow.
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: MediaQuery.disableAnimationsOf(context)
           ? Duration.zero
-          : const Duration(milliseconds: 200),
-      builder: (context, opacity, child) =>
-          Opacity(opacity: opacity, child: child),
+          : AlbumScreen.newGlow,
+      builder: (context, t, child) {
+        final opacity = (t * 9).clamp(0.0, 1.0);
+        final glow =
+            1 - Curves.easeIn.transform(((t - .35) / .65).clamp(0.0, 1.0));
+        final shape = BorderRadius.circular(radius);
+        return Opacity(
+          opacity: opacity,
+          // The glow under the tile, its outline over it.
+          child: DecoratedBox(
+            key: const ValueKey('album-new-glow'),
+            decoration: BoxDecoration(borderRadius: shape, boxShadow: [
+              BoxShadow(
+                color: AppColors.primary.withValues(alpha: .35 * glow),
+                blurRadius: 18,
+              ),
+            ]),
+            child: DecoratedBox(
+              position: DecorationPosition.foreground,
+              decoration: BoxDecoration(
+                borderRadius: shape,
+                border: Border.all(
+                    color: AppColors.primaryAction.withValues(alpha: glow),
+                    width: 2),
+              ),
+              child: child,
+            ),
+          ),
+        );
+      },
       child: semantic,
     );
   }
 }
 
-/// The cover, with Nudaeng behind it on a new album: its head rises above
-/// the cover's top edge, the rest stays hidden behind the folder.
-class _CoverWithPeek extends StatelessWidget {
-  const _CoverWithPeek({
-    required this.album,
-    required this.width,
-    required this.locked,
-    required this.peek,
-  });
+/// No album yet: the first page of a scrapbook, an invitation and the
+/// button to start, as one group.
+class _EmptyLibrary extends StatelessWidget {
+  const _EmptyLibrary({required this.onCreate});
 
-  final Album album;
-
-  /// Cover width (known up front: the grid row measures intrinsic heights).
-  final double width;
-  final bool locked;
-  final bool peek;
+  final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) {
-    final cover = AlbumCover(themeId: album.themeId, locked: locked);
-    if (!peek) return cover;
-    final peekWidth = width * .56;
-    final peekHeight = peekWidth / AlbumScreen.peekAspectRatio;
-    // Eyes and nose show above the folder; the cut-off body stays behind.
-    final above = peekHeight * .58;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Positioned(
-          left: (width - peekWidth) / 2,
-          top: -above,
-          width: peekWidth,
-          height: peekHeight,
-          child: ExcludeSemantics(
-            child: FrameSequence(
-              frames: AlbumScreen.peekFrames,
-              durations: AlbumScreen.peekDurations,
+  Widget build(BuildContext context) => Align(
+        // A little above the middle: close to the title, never far apart.
+        alignment: const Alignment(0, -.35),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xl),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ExcludeSemantics(child: _FirstPage()),
+                const SizedBox(height: AppSpacing.xl),
+                const Text(AlbumScreen.emptyTitle,
+                    textAlign: TextAlign.center, style: _Text.invite),
+                const SizedBox(height: AppSpacing.sm),
+                const Text(AlbumScreen.emptyBody,
+                    textAlign: TextAlign.center, style: _Text.body),
+                const SizedBox(height: AppSpacing.lg),
+                _PressScale(
+                  child: AppPrimaryButton(
+                    label: AlbumScreen.firstCreateLabel,
+                    icon: Icons.add_rounded,
+                    onPressed: onCreate,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        cover,
-      ],
-    );
-  }
+      );
 }
 
-/// No album yet: Nudaeng holding an empty notebook over a sheet of paper.
-class _EmptyLibrary extends StatelessWidget {
-  const _EmptyLibrary();
+/// A sheet of ivory paper with two small framed drawings set off from each
+/// other, a strip of tape on each, and Nudaeng hugging a photo in the
+/// corner. Drawings only: nothing that could pass for the user's photos.
+class _FirstPage extends StatelessWidget {
+  const _FirstPage();
+
+  static const paper = Color(0xFFFBF8F1);
+  static const height = 196.0;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.md),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ExcludeSemantics(
-              child: SizedBox(
-                height: 150,
-                child: Image.asset(AlbumScreen.emptyAsset,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-              ),
-            ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(AppSpacing.lg),
+  Widget build(BuildContext context) => SizedBox(
+        width: 300,
+        height: height,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Positioned.fill(
+            child: DecoratedBox(
               decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.border),
+                color: paper,
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.textPrimary.withValues(alpha: .12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-              child: const Column(children: [
-                Text(AlbumScreen.emptyTitle,
-                    textAlign: TextAlign.center, style: _Text.section),
-                SizedBox(height: AppSpacing.sm),
-                Text(AlbumScreen.emptyBody,
-                    textAlign: TextAlign.center, style: _Text.body),
-              ]),
             ),
-          ],
-        ),
+          ),
+          const Positioned(
+            left: 28,
+            top: 22,
+            child: _Frame(
+                angle: -.07,
+                tape: 'assets/images/scrapbook/tape-mint.png',
+                painter: _SkyDrawing()),
+          ),
+          const Positioned(
+            left: 142,
+            top: 56,
+            child: _Frame(
+                angle: .06,
+                tape: 'assets/images/scrapbook/tape-cream-stripe.png',
+                painter: _FlowerDrawing()),
+          ),
+          Positioned(
+            right: -14,
+            bottom: -18,
+            child: Image.asset(AlbumScreen.emptyAsset,
+                width: 92,
+                cacheWidth: 300,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          ),
+        ]),
       );
+}
+
+/// A small white photo frame around a drawing, turned a little, with a strip
+/// of tape over its top edge.
+class _Frame extends StatelessWidget {
+  const _Frame(
+      {required this.angle, required this.tape, required this.painter});
+
+  final double angle;
+  final String tape;
+  final CustomPainter painter;
+
+  @override
+  Widget build(BuildContext context) => Transform.rotate(
+        angle: angle,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Container(
+            padding: const EdgeInsets.fromLTRB(6, 6, 6, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(3),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.textPrimary.withValues(alpha: .14),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: CustomPaint(size: const Size(104, 84), painter: painter),
+            ),
+          ),
+          Positioned(
+            top: -14,
+            left: 24,
+            child: Image.asset(tape, width: 70, cacheWidth: 240),
+          ),
+        ]),
+      );
+}
+
+/// A drawn sky: sun, a cloud and two soft hills.
+class _SkyDrawing extends CustomPainter {
+  const _SkyDrawing();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFCFE6EC), AppColors.primaryLight],
+        ).createShader(Offset.zero & size),
+    );
+    canvas.drawCircle(Offset(w * .76, h * .28), h * .13,
+        Paint()..color = const Color(0xFFF2C66D));
+    final cloud = Paint()..color = Colors.white.withValues(alpha: .95);
+    for (final (x, y, r) in [
+      (.26, .30, .09),
+      (.36, .26, .11),
+      (.46, .31, .08)
+    ]) {
+      canvas.drawCircle(Offset(w * x, h * y), h * r, cloud);
+    }
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, h * .78)
+        ..quadraticBezierTo(w * .3, h * .52, w * .62, h * .76)
+        ..lineTo(w * .62, h)
+        ..lineTo(0, h)
+        ..close(),
+      Paint()..color = AppColors.softAccent,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(w * .35, h)
+        ..quadraticBezierTo(w * .7, h * .5, w, h * .72)
+        ..lineTo(w, h)
+        ..close(),
+      Paint()..color = AppColors.primary.withValues(alpha: .75),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SkyDrawing old) => false;
+}
+
+/// A drawn flower on a stem with two leaves.
+class _FlowerDrawing extends CustomPainter {
+  const _FlowerDrawing();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    canvas.drawRect(
+        Offset.zero & size, Paint()..color = const Color(0xFFF6EFE2));
+    final green = Paint()
+      ..color = AppColors.positive
+      ..strokeWidth = 2.4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    final centre = Offset(w * .5, h * .36);
+    canvas.drawPath(
+        Path()
+          ..moveTo(w * .5, h)
+          ..quadraticBezierTo(w * .44, h * .66, centre.dx, centre.dy),
+        green);
+    final leaf = Paint()..color = AppColors.softAccent;
+    canvas.save();
+    canvas.translate(w * .46, h * .72);
+    canvas.rotate(-.6);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(-9, 0), width: 18, height: 8),
+        leaf);
+    canvas.restore();
+    canvas.save();
+    canvas.translate(w * .48, h * .6);
+    canvas.rotate(.5);
+    canvas.drawOval(
+        Rect.fromCenter(center: const Offset(9, 0), width: 18, height: 8),
+        leaf);
+    canvas.restore();
+    final petal = Paint()..color = const Color(0xFFE9B7B0);
+    for (var i = 0; i < 5; i++) {
+      final a = i * 2 * math.pi / 5 - math.pi / 2;
+      canvas.drawCircle(
+          centre + Offset(math.cos(a), math.sin(a)) * h * .12, h * .085, petal);
+    }
+    canvas.drawCircle(
+        centre, h * .07, Paint()..color = const Color(0xFFF2C66D));
+  }
+
+  @override
+  bool shouldRepaint(_FlowerDrawing old) => false;
 }
 
 /// A message on paper with "Thử lại".
@@ -725,22 +1008,9 @@ class _PressScaleState extends State<_PressScale> {
 }
 
 abstract final class _Text {
-  static const title = TextStyle(
+  static const invite = TextStyle(
     fontFamily: 'Nunito',
-    fontSize: 28,
-    fontWeight: FontWeight.w700,
-    height: 1.25,
-    color: AppColors.textPrimary,
-  );
-  static const subtitle = TextStyle(
-    fontFamily: 'BeVietnamPro',
-    fontSize: 16,
-    height: 1.5,
-    color: AppColors.textPrimary,
-  );
-  static const section = TextStyle(
-    fontFamily: 'Nunito',
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: FontWeight.w700,
     height: 1.3,
     color: AppColors.textPrimary,

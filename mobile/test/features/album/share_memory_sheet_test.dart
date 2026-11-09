@@ -438,6 +438,11 @@ void main() {
     await _open(tester);
     expect(_inSheet(find.text(_A10.audienceNone)), findsOneWidget);
     expect(_inSheet(find.text(_A10.noService)), findsOneWidget);
+    // Who will see it, shown ahead but not selectable.
+    final friends = find.widgetWithText(ListTile, _A10.friendsLabel);
+    expect(_inSheet(friends), findsOneWidget);
+    expect(tester.widget<ListTile>(friends).enabled, isFalse);
+    expect(_inSheet(find.text(_A10.soonLabel)), findsOneWidget);
     expect(_enabled(tester, _cta), isFalse);
   });
 

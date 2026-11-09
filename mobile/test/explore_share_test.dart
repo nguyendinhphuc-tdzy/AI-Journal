@@ -5,6 +5,7 @@ import 'package:ai_diary/features/album/presentation/album_routes.dart';
 import 'package:ai_diary/features/explore/presentation/explore_screen.dart';
 import 'dart:math' as math;
 import 'package:maplibre_gl/maplibre_gl.dart';
+import 'package:ai_diary/features/explore/presentation/widgets/map_overlay_parts.dart';
 import 'package:ai_diary/features/explore/presentation/widgets/nudaeng_map_marker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -64,27 +65,25 @@ void main() {
       expect(
           find.textContaining('Hồ Xuân Hương · Hết hạn lúc'), findsOneWidget);
       expect(find.byType(MapLibreMap), findsOneWidget);
-      await tester.tap(find.byTooltip('Đóng bài chia sẻ'));
+      await tester.tap(find.byTooltip(ExploreScreen.closePostTooltip));
       await tester.pumpAndSettle();
       expect(find.text('Chiều ở Đà Lạt'), findsNothing);
       // Taken off the map in Album (A12 or A11): E01 drops the pin.
       AlbumRoutes.unshared.value = const ShareRemoval(postId: 'post-1');
       await tester.pumpAndSettle();
       expect(AlbumRoutes.unshared.value, isNull);
-      expect(
-          tester.widget<ExploreScreen>(find.byType(ExploreScreen)).highlight,
+      expect(tester.widget<ExploreScreen>(find.byType(ExploreScreen)).highlight,
           isNull);
-      await tester.tap(find.byTooltip('Filter places'));
+      // A filter chip keeps those places; tapped again, every place is back.
+      final calm = find.widgetWithText(MapMoodChip, 'Thư giãn');
+      await tester.ensureVisible(calm);
+      await tester.tap(calm);
       await tester.pumpAndSettle();
-      await tester.tap(find.byWidgetPredicate((widget) =>
-          widget is CheckedPopupMenuItem<String> && widget.value == 'Yên tĩnh'));
+      expect(find.textContaining('Đang xem: Thư giãn · 1 địa điểm'),
+          findsOneWidget);
+      await tester.tap(calm);
       await tester.pumpAndSettle();
-      expect(find.textContaining('Đang xem: Yên tĩnh'), findsOneWidget);
-      await tester.tap(find.byTooltip('Filter places'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byWidgetPredicate((widget) =>
-          widget is CheckedPopupMenuItem<String> && widget.value == 'Tất cả'));
-      await tester.pumpAndSettle();
+      expect(find.textContaining('Đang xem:'), findsNothing);
       expect(find.byType(MapLibreMap), findsOneWidget);
       await tester.enterText(find.byType(TextField), 'Quiet');
       await tester.pump(const Duration(milliseconds: 400));
@@ -93,24 +92,24 @@ void main() {
       expect(find.text('Quiet corner'), findsOneWidget);
       await tester.tap(find.text('Quiet corner'));
       await tester.pumpAndSettle();
-      expect(find.text('Study Cafe · Demo only'), findsOneWidget);
+      expect(find.text('Study Cafe · ${ExploreScreen.sample}'), findsOneWidget);
       expect(tester.widget<TextField>(find.byType(TextField)).controller!.text,
           isEmpty);
-      await tester.tap(find.byTooltip('Close place details'));
+      await tester.tap(find.byTooltip(ExploreScreen.closePlaceTooltip));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'no matching place');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      expect(find.text('No places found'), findsOneWidget);
+      expect(find.text(ExploreScreen.noResults), findsOneWidget);
       await tester.enterText(find.byType(TextField), '');
       await tester.pump(const Duration(milliseconds: 400));
       tester.widget<MapLibreMap>(find.byType(MapLibreMap)).onMapLongClick!(
           const math.Point(10, 10), const LatLng(10.8, 106.6));
       await tester.pumpAndSettle();
-      expect(find.text('Temporary pin'), findsOneWidget);
-      await tester.tap(find.byTooltip('Remove temporary pin'));
+      expect(find.text(ExploreScreen.draftTitle), findsOneWidget);
+      await tester.tap(find.byTooltip(ExploreScreen.removeDraftTooltip));
       await tester.pumpAndSettle();
-      expect(find.text('Temporary pin'), findsNothing);
+      expect(find.text(ExploreScreen.draftTitle), findsNothing);
       expect(tester.takeException(), isNull);
     });
   }

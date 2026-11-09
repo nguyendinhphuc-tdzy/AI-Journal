@@ -16,6 +16,12 @@ class OnboardingScope extends InheritedWidget {
   static OnboardingStore? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<OnboardingScope>()?.store;
 
+  /// The current user's store without listening (so also from initState);
+  /// the device's unscoped one only where there is no scope (local demo).
+  static Future<OnboardingStore> storeOf(BuildContext context) async =>
+      context.getInheritedWidgetOfExactType<OnboardingScope>()?.store ??
+      await OnboardingStore.open();
+
   @override
   bool updateShouldNotify(OnboardingScope old) => old.store != store;
 }

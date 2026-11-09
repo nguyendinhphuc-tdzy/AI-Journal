@@ -6,7 +6,7 @@ import 'package:ai_diary/features/onboarding/presentation/frame_sequence.dart';
 import 'package:ai_diary/features/onboarding/presentation/nudaeng_chasing_cockroach.dart';
 import 'package:ai_diary/features/onboarding/presentation/nudaeng_cockroach_idle.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_nickname_screen.dart';
-import 'package:ai_diary/features/onboarding/presentation/onboarding_welcome_screen.dart';
+import 'package:ai_diary/features/onboarding/presentation/onboarding_sign_in_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -147,17 +147,20 @@ void main() {
     expect(store.nickname, 'a' * 30);
   });
 
-  testWidgets('Back returns to OB01 and keeps the text', (tester) async {
+  testWidgets('Back returns to the sign-in and keeps the text', (tester) async {
     final store = await _pump(tester);
     await tester.enterText(_field, 'Vy');
     await tester.pump();
     await tester.tap(find.byTooltip('Quay lại'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
-    expect(find.text(OnboardingWelcomeScreen.title), findsOneWidget);
-    expect(store.step, OnboardingStep.welcome);
+    expect(find.text(OnboardingSignInScreen.title), findsOneWidget);
+    expect(store.step, OnboardingStep.signIn);
 
-    await tester.tap(find.text(OnboardingWelcomeScreen.startLabel));
+    final later = find.text(OnboardingSignInScreen.later);
+    await tester.ensureVisible(later);
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.tap(later);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     expect(tester.widget<TextField>(_field).controller!.text, 'Vy');

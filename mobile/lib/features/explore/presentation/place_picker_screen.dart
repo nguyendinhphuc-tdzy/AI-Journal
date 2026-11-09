@@ -5,15 +5,23 @@ import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
+import '../../../core/widgets/app_ui.dart';
+import '../data/device_location.dart';
 import '../data/place_lookup.dart';
+import 'map_style.dart';
+import 'widgets/map_overlay_parts.dart';
 
 /// E05: choose and confirm a place, for a memory (A06) or a share (A10).
 ///
-/// - The map fills the screen (Explore's MapLibre style); search on a
-///   Surface at the top, a pin fixed at the centre, and a Surface panel with
-///   the candidate's name, address or coordinates and "Dùng địa điểm này".
-///   No Album scene behind, no mascot near the pin or search.
+/// - The map fills the screen and looks and works as Explore's: its style,
+///   its floating Surfaces (back, search, results, the panel), its centre
+///   pin (lifting while the map moves), "Phóng to" / "Thu nhỏ" and "Vị trí
+///   của tôi" on the right, the same zoom limits. The panel holds the
+///   candidate's name, address or coordinates and "Dùng địa điểm này". No
+///   Album scene behind, no mascot near the pin or search.
 /// - Pick by searching, by dragging the map under the pin, or by tapping a
 ///   point (the camera moves there). A pin without a name is looked up; a
 ///   failed lookup says so (it is not "no place") and the coordinates can
@@ -28,7 +36,7 @@ class PlacePickerScreen extends StatefulWidget {
     super.key,
     this.initial,
     this.lookup = const MockPlaceLookup(),
-    this.location = const NoDeviceLocation(),
+    this.location = const GeolocatorDeviceLocation(),
   });
 
   /// The place already chosen, shown as the candidate.
@@ -81,8 +89,6 @@ class PlacePickerScreen extends StatefulWidget {
 enum _Naming { idle, looking, failed, empty }
 
 class _PlacePickerScreenState extends State<PlacePickerScreen> {
-  static const _style = 'https://tiles.openfreemap.org/styles/liberty';
-
   MapLibreMapController? _map;
   Timer? _loadTimeout;
   var _generation = 0;
@@ -100,11 +106,18 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
   var _nameRequest = 0;
   final _name = TextEditingController();
 
+  /// The signed-in user's real search ([PlaceLookupScope]) when there is one.
+  PlaceLookup get _lookup =>
+      PlaceLookupScope.maybeOf(context) ?? widget.lookup;
+
   var _locating = false;
   String? _locationError;
 
   /// A finger is on the map: the camera stopping afterwards moves the pin.
   var _gesture = false;
+
+  /// The map is moving under the pin (it lifts).
+  var _moving = false;
   LatLng? _target;
 
   @override
@@ -174,10 +187,27 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     _moveCamera(coordinate);
   }
 
-  void _cameraMoved(CameraPosition position) => _target = position.target;
+  void _cameraMoved(CameraPosition position) {
+    _target = position.target;
+    if (_gesture && !_moving) setState(() => _moving = true);
+  }
+
+  Future<void> _zoomBy(CameraUpdate step) async {
+    final map = _map;
+    if (map == null) return;
+    try {
+      _reduced
+          ? await map.moveCamera(step)
+          : await map.animateCamera(step,
+              duration: const Duration(milliseconds: 250));
+    } catch (_) {
+      // The map is not ready yet: nothing to zoom.
+    }
+  }
 
   /// The map stopped after a drag: the place under the pin.
   void _cameraIdle() {
+    if (_moving) setState(() => _moving = false);
     final target = _target ?? _map?.cameraPosition?.target;
     if (!_gesture || target == null) return;
     _gesture = false;
@@ -206,7 +236,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     _Naming outcome;
     PlaceCandidate? named;
     try {
-      named = await widget.lookup.nameAt(at.latitude, at.longitude);
+      named = await _lookup.nameAt(at.latitude, at.longitude);
       outcome = named != null && named.named ? _Naming.idle : _Naming.empty;
     } catch (_) {
       outcome = _Naming.failed;
@@ -259,7 +289,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     final query = _search.text.trim();
     if (query.isEmpty) return;
     try {
-      final results = await widget.lookup.search(query);
+      final results = await _lookup.search(query);
       // An older response never replaces a newer query's.
       if (!mounted || run != _searchVersion) return;
       setState(() {
@@ -331,63 +361,55 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
           onPointerDown: (_) => _gesture = true,
           child: MapLibreMap(
             key: ValueKey(_generation),
-            styleString: _style,
+            // The same light map as Explore.
+            styleString: ExploreMapStyle.day,
             initialCameraPosition: CameraPosition(
                 target: initial == null
                     ? PlacePickerScreen.start
                     : LatLng(initial.latitude, initial.longitude),
                 zoom: initial == null ? 12 : 15),
             trackCameraPosition: true,
+            zoomGesturesEnabled: true,
+            minMaxZoomPreference: const MinMaxZoomPreference(4, 19),
             onMapCreated: _created,
             onStyleLoadedCallback: _styleLoaded,
             onMapClick: _tapped,
             onMapLongClick: _tapped,
             onCameraMove: _cameraMoved,
             onCameraIdle: _cameraIdle,
-            compassViewMargins: const math.Point(12, 140),
-            attributionButtonMargins: const math.Point(12, 8),
+            compassViewMargins: const math.Point(16, 140),
+            attributionButtonPosition: AttributionButtonPosition.topRight,
+            attributionButtonMargins: const math.Point(12, 140),
           ),
         ),
-        // The pin at the centre; above it nothing but the search and panel.
-        IgnorePointer(
-          child: Center(
-            child: Transform.translate(
-              offset: const Offset(0, -22),
-              child: _CenterPin(chosen: _candidate != null),
-            ),
-          ),
-        ),
+        // The pin at the centre, as when saving a place in Explore.
+        MapCenterPin(moving: _moving, faded: _candidate == null),
         SafeArea(
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md, 12, AppSpacing.md, AppSpacing.md),
             child: Column(children: [
               Row(children: [
-                Material(
-                  color: AppColors.surface,
-                  elevation: 2,
-                  shape: const CircleBorder(),
-                  child: IconButton(
-                    tooltip: PlacePickerScreen.backTooltip,
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back_rounded,
-                        color: AppColors.textPrimary),
-                  ),
+                MapCircleButton(
+                  tooltip: PlacePickerScreen.backTooltip,
+                  icon: Icons.arrow_back_rounded,
+                  onPressed: () => Navigator.of(context).maybePop(),
                 ),
-                const SizedBox(width: AppSpacing.sm),
+                const SizedBox(width: 12),
                 Expanded(
-                  child: Material(
-                    color: AppColors.surface,
-                    elevation: 2,
-                    borderRadius: BorderRadius.circular(16),
+                  child: MapFloatingSurface(
                     child: TextField(
                       controller: _search,
                       focusNode: _searchFocus,
                       onChanged: _queryChanged,
                       onSubmitted: (_) => _runSearch(),
                       textInputAction: TextInputAction.search,
+                      style: AppText.body,
                       decoration: InputDecoration(
                         hintText: PlacePickerScreen.searchHint,
-                        prefixIcon: const Icon(Icons.search_rounded),
+                        hintStyle: AppText.bodySecondary,
+                        prefixIcon: const Icon(Icons.search_rounded,
+                            color: AppColors.textSecondary),
                         suffixIcon: _search.text.isEmpty
                             ? null
                             : IconButton(
@@ -416,21 +438,27 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                 ),
                 const SizedBox(height: AppSpacing.sm),
               ],
-              if (widget.location.supported)
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                    child: FloatingActionButton.small(
-                      heroTag: null,
-                      tooltip: PlacePickerScreen.myLocation,
-                      backgroundColor: AppColors.surface,
-                      foregroundColor: AppColors.textPrimary,
-                      onPressed: _locating ? null : _locate,
-                      child: const Icon(Icons.my_location_rounded),
-                    ),
+              // As in Explore: zoom, then "Vị trí của tôi", on the right.
+              Align(
+                alignment: Alignment.centerRight,
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  MapZoomButtons(
+                    onZoomIn: () => _zoomBy(CameraUpdate.zoomIn()),
+                    onZoomOut: () => _zoomBy(CameraUpdate.zoomOut()),
                   ),
-                ),
+                  if (widget.location.supported) ...[
+                    const SizedBox(height: 12),
+                    MapCircleButton(
+                      tooltip: PlacePickerScreen.myLocation,
+                      icon: Icons.location_searching_rounded,
+                      color: AppColors.primaryAction,
+                      busy: _locating,
+                      onPressed: _locate,
+                    ),
+                  ],
+                ]),
+              ),
+              const SizedBox(height: 12),
               _panel(),
             ]),
           ),
@@ -439,11 +467,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
     );
   }
 
-  Widget _resultList(List<PlaceCandidate> results) => Material(
-        color: AppColors.surface,
-        elevation: 2,
-        borderRadius: BorderRadius.circular(16),
-        clipBehavior: Clip.antiAlias,
+  Widget _resultList(List<PlaceCandidate> results) => MapFloatingSurface(
         child: ListView(
           shrinkWrap: true,
           padding: EdgeInsets.zero,
@@ -462,7 +486,7 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
             for (final place in results)
               ListTile(
                 leading: const Icon(Icons.place_outlined,
-                    color: AppColors.textPrimary),
+                    color: AppColors.primaryAction),
                 title: Text(place.name ?? PlacePickerScreen.unnamed,
                     style: _Text.strong),
                 subtitle: Text(
@@ -479,10 +503,8 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
 
   Widget _panel() {
     final candidate = _candidate;
-    return Material(
-      color: AppColors.surface,
-      elevation: 3,
-      borderRadius: BorderRadius.circular(24),
+    return MapFloatingSurface(
+      radius: 24,
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
         child: AnimatedSize(
@@ -508,19 +530,13 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
                 _Notice(text: error),
               ],
               const SizedBox(height: 12),
-              FilledButton(
+              AppPrimaryButton(
+                label: PlacePickerScreen.confirmLabel,
+                icon: Icons.check_rounded,
+                compact: true,
                 onPressed: candidate == null || _naming == _Naming.looking
                     ? null
                     : _confirm,
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.primaryAction,
-                  foregroundColor: AppColors.surface,
-                  minimumSize: const Size.fromHeight(52),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(26)),
-                  textStyle: _Text.button,
-                ),
-                child: const Text(PlacePickerScreen.confirmLabel),
               ),
             ],
           ),
@@ -539,12 +555,19 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Icon(
-              candidate.source == PlaceSource.device
-                  ? Icons.my_location_rounded
-                  : Icons.place_rounded,
-              color: AppColors.primaryAction),
-          const SizedBox(width: AppSpacing.sm),
+          // As Explore's cards: the icon in a Primary Light circle.
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(
+                color: AppColors.primaryLight, shape: BoxShape.circle),
+            child: Icon(
+                candidate.source == PlaceSource.device
+                    ? Icons.my_location_rounded
+                    : Icons.place_outlined,
+                color: AppColors.primaryAction),
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -575,8 +598,17 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
             maxLength: PlacePickerScreen.nameMax,
             textCapitalization: TextCapitalization.sentences,
             textInputAction: TextInputAction.done,
-            decoration:
-                const InputDecoration(labelText: PlacePickerScreen.nameLabel),
+            style: AppText.body,
+            // As the name field when saving a place in Explore.
+            decoration: InputDecoration(
+              labelText: PlacePickerScreen.nameLabel,
+              labelStyle: AppText.bodySecondary,
+              filled: true,
+              fillColor: AppColors.surface,
+              border: _border(AppColors.border),
+              enabledBorder: _border(AppColors.border),
+              focusedBorder: _border(AppColors.primaryAction, width: 1.5),
+            ),
           ),
         ],
       ],
@@ -584,28 +616,11 @@ class _PlacePickerScreenState extends State<PlacePickerScreen> {
   }
 }
 
-/// Primary pin with an ink outline, drawn by Flutter (not a map symbol), so
-/// it always marks the centre. Faded until a place is chosen.
-class _CenterPin extends StatelessWidget {
-  const _CenterPin({required this.chosen});
-
-  final bool chosen;
-
-  @override
-  Widget build(BuildContext context) => AnimatedOpacity(
-        opacity: chosen ? 1 : .55,
-        duration: MediaQuery.disableAnimationsOf(context)
-            ? Duration.zero
-            : PlacePickerScreen.transition,
-        child: const SizedBox.square(
-          dimension: 48,
-          child: Stack(alignment: Alignment.center, children: [
-            Icon(Icons.location_on, size: 48, color: AppColors.textPrimary),
-            Icon(Icons.location_on, size: 40, color: AppColors.primaryAction),
-          ]),
-        ),
-      );
-}
+OutlineInputBorder _border(Color color, {double width = 1}) =>
+    OutlineInputBorder(
+      borderRadius: const BorderRadius.all(Radius.circular(AppRadius.input)),
+      borderSide: BorderSide(color: color, width: width),
+    );
 
 class _Working extends StatelessWidget {
   const _Working(this.text);
@@ -674,11 +689,5 @@ abstract final class _Text {
     fontSize: 13,
     height: 18 / 13,
     color: AppColors.textPrimary,
-  );
-  static const button = TextStyle(
-    fontFamily: 'BeVietnamPro',
-    fontSize: 16,
-    fontWeight: FontWeight.w600,
-    height: 1.5,
   );
 }

@@ -127,6 +127,34 @@ void main() {
     expect(find.text(_A08.lockedShare), findsOneWidget);
   });
 
+  testWidgets('More: an app sheet with edit, share and delete', (tester) async {
+    await _pump(tester);
+    await tester.tap(find.byTooltip(_A08.moreTooltip));
+    await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<String>), findsNothing);
+    expect(find.text(_A08.editLabel), findsOneWidget);
+    expect(find.text(_A08.deleteLabel), findsOneWidget);
+    final share = find.descendant(
+        of: find.byType(BottomSheet), matching: find.text(_A08.shareLabel));
+    expect(share, findsOneWidget);
+    await tester.tap(share);
+    await tester.pumpAndSettle();
+    expect(find.byType(ShareMemorySheet), findsOneWidget);
+  });
+
+  testWidgets('More in a locked album: share is off and says why',
+      (tester) async {
+    await _pump(tester, locked: true);
+    await tester.tap(find.byTooltip(_A08.moreTooltip));
+    await tester.pumpAndSettle();
+    expect(find.text(_A08.shareLabel), findsOneWidget);
+    expect(find.text(_A08.lockedShareShort), findsOneWidget);
+    await tester.tap(find.text(_A08.shareLabel));
+    await tester.pumpAndSettle();
+    expect(find.byType(ShareMemorySheet), findsNothing);
+    expect(find.text(_A08.editLabel), findsOneWidget, reason: 'still open');
+  });
+
   testWidgets('Long note scrolls; nothing overflows', (tester) async {
     await _pump(tester,
         size: const Size(360, 640),

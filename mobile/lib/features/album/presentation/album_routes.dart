@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -172,7 +174,7 @@ abstract final class AlbumRoutes {
     final deletion = _deletion(context);
     final deleted = await ConfirmDeleteDialog.show(
       context,
-      title: ConfirmDeleteDialog.memoryTitle,
+      title: ConfirmDeleteDialog.memoryQuestion,
       body: ConfirmDeleteDialog.memoryBody(
           title: memory.content.title, album: album),
       confirmLabel: ConfirmDeleteDialog.memoryTitle,
@@ -190,6 +192,7 @@ abstract final class AlbumRoutes {
   /// caller then leaves the album.
   static Future<bool> deleteAlbum(BuildContext context, Album album) async {
     final repository = AlbumScope.of(context);
+    final auth = AlbumScope.authOf(context);
     final deletion = _deletion(context);
     List<Memory> memories;
     try {
@@ -200,7 +203,7 @@ abstract final class AlbumRoutes {
     if (!context.mounted) return false;
     final deleted = await ConfirmDeleteDialog.show(
       context,
-      title: ConfirmDeleteDialog.albumTitle,
+      title: ConfirmDeleteDialog.albumQuestion,
       body: ConfirmDeleteDialog.albumBody(
           album, memories.isEmpty ? album.memoryCount : memories.length),
       confirmLabel: ConfirmDeleteDialog.albumTitle,
@@ -219,6 +222,8 @@ abstract final class AlbumRoutes {
     );
     if (!deleted) return false;
     AlbumSettingsDraft.session.remove(album.id);
+    // Its PIN goes with it (best effort).
+    unawaited(auth.setPin(album.id, null).catchError((Object _) {}));
     _forgetDraft(repository, MemoryEditorScreen.draftKey(album.id, null));
     for (final memory in memories) {
       MemoryShareDraft.discard(memory.id);

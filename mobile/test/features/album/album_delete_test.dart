@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ai_diary/core/theme/app_theme.dart';
+import 'package:ai_diary/core/widgets/app_delete_dialog.dart';
 import 'package:ai_diary/features/album/album_scope.dart';
 import 'package:ai_diary/features/album/data/album.dart';
 import 'package:ai_diary/features/album/data/album_deletion.dart';
@@ -200,17 +201,15 @@ void main() {
     expect(
         find.descendant(
             of: find.byType(ConfirmDeleteDialog),
-            matching: find.text(_A11.memoryTitle)),
-        findsNWidgets(2)); // Title and button.
+            matching: find.text(_A11.memoryQuestion)),
+        findsOneWidget);
     expect(find.text(_A11.memoryBody(title: 'Kỷ niệm 0', album: setup.album)),
         findsOneWidget);
     expect(find.textContaining('"Kỷ niệm 0"'), findsOneWidget);
     expect(find.textContaining(_A11.noUndo), findsOneWidget);
     final button = tester.widget<FilledButton>(_confirm(_A11.memoryTitle));
     final colour = button.style!.backgroundColor!.resolve({});
-    final scheme =
-        Theme.of(tester.element(_confirm(_A11.memoryTitle))).colorScheme;
-    expect(colour, scheme.error);
+    expect(colour, AppDeleteDialog.destructive);
     expect(find.text('Hoàn tác'), findsNothing);
 
     await tester.tap(find.text(_A11.cancelLabel));

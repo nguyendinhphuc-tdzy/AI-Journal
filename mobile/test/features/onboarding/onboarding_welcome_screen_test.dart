@@ -4,6 +4,7 @@ import 'package:ai_diary/features/onboarding/onboarding_flow.dart';
 import 'package:ai_diary/features/onboarding/presentation/falling_petals.dart';
 import 'package:ai_diary/features/onboarding/presentation/nudaeng_umbrella_blink.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_nickname_screen.dart';
+import 'package:ai_diary/features/onboarding/presentation/onboarding_sign_in_screen.dart';
 import 'package:ai_diary/features/onboarding/presentation/onboarding_welcome_screen.dart';
 import 'package:ai_diary/main.dart';
 import 'package:ai_diary/navigation/app_shell.dart';
@@ -174,8 +175,8 @@ void main() {
     await tester.tap(find.text(OnboardingWelcomeScreen.startLabel));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
-    expect(find.text(OnboardingNicknameScreen.title), findsOneWidget);
-    expect(store.step, OnboardingStep.nickname);
+    expect(find.text(OnboardingSignInScreen.title), findsOneWidget);
+    expect(store.step, OnboardingStep.signIn);
 
     await tester.tap(find.byTooltip('Quay lại'));
     await tester.pump();

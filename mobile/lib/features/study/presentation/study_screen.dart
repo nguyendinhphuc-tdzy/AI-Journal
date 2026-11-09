@@ -1,27 +1,51 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/widgets/app_ui.dart';
 import '../../../core/theme/app_radius.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_text.dart';
 import 'nudaeng_view.dart';
 import 'nudaeng_artwork.dart';
 import 'study_detail_layout.dart';
 import 'study_motion.dart';
 import 'study_theme.dart';
 import '../data/study_mock_data.dart';
+import '../data/study_progress.dart';
+import '../../journal/journal_scope.dart';
+import '../../journal/presentation/write_journal_screen.dart'
+    show JournalPaperView;
+import '../../onboarding/data/onboarding_scope.dart';
+import '../../profile/data/writing_preferences.dart';
+import '../../streak/streak_state.dart';
 
-/// Study stays local/mock until its API contract is finalized. This state is
-/// deliberately feature-scoped so navigation and progress work in the UI demo.
+/// Study's catalog is local until its API contract is finalized. Progress
+/// is kept on this device ([StudyProgressStore]) and what the user writes
+/// goes into the journal ([StudySession]).
 class StudyScreen extends StatelessWidget {
-  const StudyScreen({super.key});
+  const StudyScreen({super.key, this.progress});
+
+  /// Where the challenge, lessons read and drafts are kept; without it, the
+  /// signed-in or guest user's own store ([StudyProgressScope]), else the
+  /// device's (local demo).
+  final StudyProgressStore? progress;
 
   @override
-  Widget build(BuildContext context) =>
-      const StudyTheme(child: _StudyOverview());
+  Widget build(BuildContext context) => StudyTheme(
+        child: _StudyOverview(
+          progress: progress ??
+              StudyProgressScope.maybeOf(context)?.repository ??
+              const LocalStudyProgressStore(),
+        ),
+      );
 }
 
 class _StudyOverview extends StatefulWidget {
-  const _StudyOverview();
+  const _StudyOverview({required this.progress});
+
+  final StudyProgressStore progress;
 
   @override
   State<_StudyOverview> createState() => _StudyScreenState();
@@ -29,40 +53,104 @@ class _StudyOverview extends StatefulWidget {
 
 class _StudyScreenState extends State<_StudyOverview> {
   String _filter = 'Tất cả';
-  bool _joined = false;
-  bool _paused = false;
-  bool _left = false;
-  final Map<int, String> _drafts = {};
-  final Set<int> _doneTasks = <int>{};
-  final Set<int> _doneLessons = <int>{};
-  final StudyMockSession _session = StudyMockSession();
-  bool _caseRead = false;
+  final _progress = StudyProgress();
+  late final _session = StudySession(taskEntries: _progress.taskEntries)
+    ..onChanged = _keep;
+  Timer? _keepDrafts;
+
+  /// Something changed before the kept progress arrived: it is not applied
+  /// over the user's newer state.
+  var _changed = false;
+
+  bool get _joined => _progress.joined;
+  set _joined(bool value) => _progress.joined = value;
+  bool get _paused => _progress.paused;
+  set _paused(bool value) => _progress.paused = value;
+  bool get _left => _progress.left;
+  set _left(bool value) => _progress.left = value;
+  bool get _caseRead => _progress.caseRead;
+  set _caseRead(bool value) => _progress.caseRead = value;
+  Map<int, String> get _drafts => _progress.drafts;
+  Set<int> get _doneTasks => _progress.doneTasks;
+  Set<int> get _doneLessons => _progress.doneLessons;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _session.journals = JournalScope.of(context);
+  }
+
+  @override
+  void dispose() {
+    if (_keepDrafts?.isActive ?? false) _keep();
+    _keepDrafts?.cancel();
+    super.dispose();
+  }
+
+  /// The progress kept from before, then the task entries from the journal.
+  Future<void> _load() async {
+    StudyProgress? kept;
+    try {
+      kept = await widget.progress.load();
+    } catch (_) {
+      // Nothing kept can be read: this session starts fresh.
+      return;
+    }
+    if (kept == null || !mounted || _changed) return;
+    setState(() => _progress.replaceWith(kept!));
+    try {
+      await _session.load();
+    } catch (_) {
+      return;
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Keeps the progress on this device; if that fails it still holds for
+  /// this session.
+  void _keep() {
+    _changed = true;
+    _keepDrafts?.cancel();
+    unawaited(widget.progress.save(_progress).catchError((Object _) {}));
+  }
+
+  /// Drafts change with every letter: kept once typing pauses.
+  void _keepDraftsSoon() {
+    _changed = true;
+    _keepDrafts?.cancel();
+    _keepDrafts = Timer(const Duration(milliseconds: 600), _keep);
+  }
 
   static const _items = <_StudyItem>[
     _StudyItem(
-        'Skills',
-        'Khóa học',
-        'Viết điều biết ơn mỗi ngày',
-        'Một cách nhẹ nhàng để nhận ra điều đang nâng đỡ bạn.',
+        'Kỹ năng',
+        'Tập viết về những điều bạn biết ơn',
+        'Bắt đầu từ những điều nhỏ khiến ngày của bạn dễ chịu hơn.',
         '3 bài · 12 phút',
         course: true,
         practicePrompt: coursePracticePrompt,
         order: 3),
-    _StudyItem('Framework', 'Framework', 'Clear My Mind',
-        'Gỡ rối một suy nghĩ bằng vài bước viết chậm rãi.', 'Mẫu viết · 8 phút',
+    _StudyItem('Phương pháp', frameworkTitle,
+        'Viết ra điều đang khiến bạn băn khoăn để nhìn nhận rõ hơn.', '8 phút',
         framework: true, order: 2),
     _StudyItem(
-        'Case study',
         'Bài đọc',
-        'Nhìn lại những điều nhỏ đã làm được',
-        'Một bài đọc ngắn về cách ghi nhận tiến bộ của chính mình.',
-        'Bài đọc · 5 phút',
+        'Ghi nhận những việc bạn đã làm',
+        'Đừng chỉ nhìn những việc chưa xong. Hãy xem hôm nay bạn đã làm được '
+            'gì.',
+        '5 phút',
         order: 1),
   ];
 
   List<_StudyItem> get _visible {
     final result = _items
-        .where((item) => _filter == 'Tất cả' || item.category == _filter)
+        .where((item) => _filter == 'Tất cả' || item.type == _filter)
         .toList();
     // Newest first is the only order with real data behind it.
     result.sort((a, b) => b.order.compareTo(a.order));
@@ -86,22 +174,29 @@ class _StudyScreenState extends State<_StudyOverview> {
               initiallyRead: _caseRead,
               onRead: () {
                 setState(() => _caseRead = true);
+                _keep();
                 return false;
               })));
     }
   }
 
-  void _markRead(int lesson) => setState(() => _doneLessons.add(lesson));
+  void _markRead(int lesson) {
+    setState(() => _doneLessons.add(lesson));
+    _keep();
+  }
 
   void _openChallenge() {
     final detail = _studyRoute(
       builder: (_) => _ChallengeDetailScreen(
         joined: _joined,
         completed: _doneTasks.length == _prompts.length,
-        onJoin: () => setState(() {
-          _joined = true;
-          _paused = false;
-        }),
+        onJoin: () {
+          setState(() {
+            _joined = true;
+            _paused = false;
+          });
+          _keep();
+        },
         openProgress: _openProgress,
       ),
     );
@@ -137,18 +232,28 @@ class _StudyScreenState extends State<_StudyOverview> {
           drafts: _drafts,
           paused: _paused,
           left: _left,
-          onLeave: () => setState(() {
-            _left = true;
-            _paused = false;
-          }),
-          onPause: (value) => setState(() {
-            _paused = value;
-            _left = false;
-          }),
-          onComplete: (task) => setState(() {
-            _joined = true;
-            _doneTasks.add(task);
-          }),
+          onLeave: () {
+            setState(() {
+              _left = true;
+              _paused = false;
+            });
+            _keep();
+          },
+          onPause: (value) {
+            setState(() {
+              _paused = value;
+              _left = false;
+            });
+            _keep();
+          },
+          onComplete: (task) {
+            setState(() {
+              _joined = true;
+              _doneTasks.add(task);
+            });
+            _keep();
+          },
+          onDraftsChanged: _keepDraftsSoon,
         ),
       ),
     );
@@ -168,13 +273,9 @@ class _StudyScreenState extends State<_StudyOverview> {
           padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg, AppSpacing.md, AppSpacing.lg, AppSpacing.xxl),
           children: [
-            _TitleWithHelp(
-                title: 'Study',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
-                help: 'Học cách viết qua khóa học, framework và bài đọc ngắn. '
+            const AppPageHeader(
+                title: 'Học tập',
+                help: 'Học cách viết qua kỹ năng, phương pháp và bài đọc ngắn. '
                     'Khi muốn luyện đều, hãy thử một challenge nhỏ mỗi ngày.'),
             const SizedBox(height: AppSpacing.md),
             _ChallengeBanner(
@@ -196,12 +297,11 @@ class _StudyScreenState extends State<_StudyOverview> {
                   onTap: () => _openItem(_items.first)),
             ],
             const SizedBox(height: AppSpacing.xxl),
-            _TitleWithHelp(
-                title: 'Khám phá cách viết',
-                style: Theme.of(context).textTheme.titleLarge,
-                help: 'Khóa học gồm vài bài nối tiếp nhau. Framework là mẫu '
-                    'viết theo từng bước. Case study là một bài đọc ngắn để '
-                    'tham khảo.'),
+            const AppSectionHeader(
+                title: 'Gợi ý viết nhật ký',
+                help: 'Kỹ năng gồm vài bài nối tiếp nhau. Phương pháp dẫn bạn '
+                    'viết theo từng bước. Bài đọc là một bài ngắn để tham '
+                    'khảo.'),
             const SizedBox(height: AppSpacing.sm),
             _FilterChips(
                 selected: _filter,
@@ -256,7 +356,7 @@ class _ChallengeBanner extends StatelessWidget {
     final eyebrow = left
         ? 'Đã rời challenge'
         : active
-            ? 'Challenge của bạn'
+            ? 'Thử thách của bạn'
             : paused
                 ? 'Đã tạm dừng'
                 : 'Challenge gợi ý';
@@ -300,7 +400,7 @@ class _ChallengeBanner extends StatelessWidget {
                     ?.copyWith(fontSize: 18)),
             const SizedBox(height: 6),
             Text(enrolled
-                ? '$complete/${_prompts.length} nhiệm vụ đã hoàn thành'
+                ? 'Đã hoàn thành $complete/${_prompts.length} nhiệm vụ'
                 : 'Mỗi ngày, viết một điều biết ơn.'),
             const SizedBox(height: 6),
             if (enrolled)
@@ -355,64 +455,19 @@ class _ChallengeLoading extends StatelessWidget {
       );
 }
 
-/// Heading with a "?" that opens its description on demand, keeping the
-/// overview free of explanatory copy.
-class _TitleWithHelp extends StatelessWidget {
-  const _TitleWithHelp(
-      {required this.title, required this.style, required this.help});
-  final String title;
-  final TextStyle? style;
-  final String help;
-
-  void _show(BuildContext context) => showModalBottomSheet<void>(
-        context: context,
-        sheetAnimationStyle: StudyMotion.sheet(context),
-        backgroundColor: AppColors.surface,
-        barrierColor: Colors.black.withValues(alpha: .35),
-        shape: const RoundedRectangleBorder(
-            borderRadius:
-                BorderRadius.vertical(top: Radius.circular(AppRadius.modal))),
-        builder: (sheet) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xl, AppSpacing.xl, AppSpacing.xl, AppSpacing.md),
-            child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(help),
-                  const SizedBox(height: AppSpacing.xl),
-                  _PrimaryButton(
-                      label: 'Đã hiểu', onPressed: () => Navigator.pop(sheet)),
-                ]),
-          ),
-        ),
-      );
-
-  @override
-  Widget build(BuildContext context) => Row(children: [
-        Flexible(child: Text(title, style: style)),
-        IconButton(
-          tooltip: 'Giới thiệu $title',
-          onPressed: () => _show(context),
-          icon: const Icon(Icons.help_outline_rounded,
-              color: AppColors.textSecondary),
-        ),
-      ]);
-}
-
 /// Content-type pills that scroll sideways, replacing the filter dropdown.
 class _FilterChips extends StatelessWidget {
   const _FilterChips({required this.selected, required this.onSelected});
   final String selected;
   final ValueChanged<String> onSelected;
 
-  static const _options = ['Tất cả', 'Skills', 'Framework', 'Case study'];
+  static const _options = ['Tất cả', 'Kỹ năng', 'Phương pháp', 'Bài đọc'];
 
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
+        // Its own storage key: without one it took the page's scroll offset
+        // back on return and opened scrolled past "Tất cả".
+        key: const PageStorageKey<String>('study-filters'),
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
         child: Row(children: [
@@ -491,7 +546,7 @@ class _ContinueCard extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text('Viết điều biết ơn mỗi ngày',
+                    Text('Tập viết về những điều bạn biết ơn',
                         style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: AppSpacing.xs),
                     Text('Đã học $completed/3 bài', style: _meta(context)),
@@ -520,7 +575,7 @@ class _ContentCard extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(AppRadius.card),
-          // Title and short description only; type and length live in S02.
+          // Title, short description, and what it is and how long.
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.all(AppSpacing.lg),
@@ -545,6 +600,10 @@ class _ContentCard extends StatelessWidget {
                             .textTheme
                             .bodyMedium
                             ?.copyWith(color: AppColors.textSecondary)),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text('${item.type} · ${item.meta}',
+                        style: _meta(context)
+                            .copyWith(color: AppColors.primaryAction)),
                   ]);
             }),
           ),
@@ -576,7 +635,7 @@ class _CourseScreen extends StatefulWidget {
       required this.read,
       required this.onRead});
   final _StudyItem item;
-  final StudyMockSession session;
+  final StudySession session;
   final Set<int> read;
   final ValueChanged<int> onRead;
 
@@ -618,7 +677,7 @@ class _CourseScreenState extends State<_CourseScreen> {
     final index = List.generate(_lessons.length, (i) => i)
         .firstWhere((i) => !read.contains(i), orElse: () => 0);
     return Scaffold(
-      appBar: AppBar(title: const Text('Khóa học')),
+      appBar: AppBar(title: const Text('Kỹ năng')),
       body: SafeArea(
           child: Stack(children: [
         ListView(
@@ -627,7 +686,7 @@ class _CourseScreenState extends State<_CourseScreen> {
             children: [
               _DetailIntro(
                   cardColor: AppColors.primaryDark,
-                  eyebrow: '${item.category} · ${item.type}',
+                  eyebrow: item.type,
                   title: item.title,
                   description: item.description,
                   meta: item.meta,
@@ -702,10 +761,10 @@ class _CourseScreenState extends State<_CourseScreen> {
 class _FrameworkScreen extends StatelessWidget {
   const _FrameworkScreen({required this.item, required this.session});
   final _StudyItem item;
-  final StudyMockSession session;
+  final StudySession session;
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Framework')),
+        appBar: AppBar(title: const Text('Phương pháp')),
         body: SafeArea(
             child: Stack(children: [
           ListView(padding: const EdgeInsets.only(bottom: 120), children: [
@@ -713,28 +772,31 @@ class _FrameworkScreen extends StatelessWidget {
                 cardColor: AppColors.textPrimary,
                 eyebrow: item.type,
                 title: item.title,
-                description: item.description,
+                description: frameworkIntro,
                 meta: item.meta,
                 mascot: true),
             const SizedBox(height: AppSpacing.xxl),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-              child: StudySection(title: 'Các bước mẫu', children: [
-                for (var i = 0; i < frameworkSteps.length; i++)
-                  StudyStepLine(number: i + 1, text: frameworkSteps[i])
+              child: StudySection(title: 'Cách thực hiện', children: [
+                for (final (i, (step, question)) in frameworkSteps.indexed)
+                  StudyStepLine(
+                      number: i + 1,
+                      text: 'Bước ${i + 1}: $step',
+                      detail: question)
               ]),
             ),
           ]),
           _Dock(
-              label: 'Viết theo phương pháp này',
+              label: 'Bắt đầu viết',
               onPressed: () => Navigator.of(context).push(_studyRoute(
                   builder: (_) => _Editor(
                       session: session,
                       source: const StudyWritingContext(
                           kind: 'framework', sourceId: 'clear-my-mind'),
-                      title: 'Clear My Mind',
+                      title: frameworkTitle,
                       prompt: frameworkPrompt,
-                      returnLabel: 'Về framework')))),
+                      returnLabel: 'Về phương pháp')))),
         ])),
       );
 }
@@ -746,7 +808,7 @@ class _ReaderScreen extends StatefulWidget {
       required this.onRead,
       this.initiallyRead = false});
   final StudyLesson lesson;
-  final StudyMockSession session;
+  final StudySession session;
   final bool initiallyRead;
   final ValueGetter<bool> onRead;
   @override
@@ -807,13 +869,13 @@ class _ReaderScreenState extends State<_ReaderScreen> {
                         artwork: NudaengArtwork.lesson,
                         animate: false),
                     const SizedBox(height: AppSpacing.sm),
-                    Text('Thử viết từ bài học này',
+                    Text('Thử viết nhé!',
                         style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: AppSpacing.sm),
                     Text(widget.lesson.prompt),
                     const SizedBox(height: AppSpacing.md),
                     _PrimaryButton(
-                        label: 'Thực hành',
+                        label: 'Viết nhật ký',
                         onPressed: () => Navigator.of(context).push(_studyRoute(
                             builder: (_) => _Editor(
                                 session: widget.session,
@@ -871,25 +933,30 @@ class _ChallengeDetailScreenState extends State<_ChallengeDetailScreen> {
               children: [
                 const _Hero(
                     title: '7 ngày viết điều biết ơn',
-                    tag: '7 nhiệm vụ · Linh hoạt theo nhịp của bạn',
+                    tag: '7 nhiệm vụ · Không cần hoàn thành liên tục',
                     mascotArtwork: NudaengArtwork.challengeInvitation,
                     mascotWidth: 112,
                     mascotHeight: 128,
                     description:
-                        'Dành vài phút để nhận ra điều đang làm ngày hôm nay có ý nghĩa.'),
+                        'Dành vài phút để ghi lại những người, sự việc hoặc '
+                        'khoảnh khắc mà bạn cảm thấy trân trọng.'),
                 const SizedBox(height: AppSpacing.xl),
-                const _Info(title: 'Challenge này dành cho bạn khi…', lines: [
-                  'Bạn muốn bắt đầu viết bằng một prompt thật nhỏ.',
-                  'Bạn muốn có nhịp gợi ý nhưng không bị áp lực theo ngày.'
+                const _Info(title: 'Challenge này phù hợp nếu bạn...', lines: [
+                  'Muốn bắt đầu viết nhật ký nhưng chưa biết viết gì.',
+                  'Thích có câu hỏi gợi ý để dễ bắt đầu.',
+                  'Muốn duy trì thói quen viết mà không bị áp lực mỗi ngày.'
                 ]),
                 const SizedBox(height: AppSpacing.xl),
                 Text('Cách tham gia',
                     style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: AppSpacing.sm),
                 const Text(
-                    'Mỗi nhiệm vụ là một prompt. Nhiệm vụ được hoàn thành khi bạn lưu một entry.'),
+                    'Challenge gồm 7 câu hỏi. Bạn chỉ cần chọn một câu hỏi và '
+                    'viết câu trả lời của mình.\n'
+                    'Mỗi lần lưu nhật ký, bạn sẽ hoàn thành một nhiệm vụ.\n'
+                    'Bạn có thể viết bất cứ khi nào có thời gian.'),
                 const SizedBox(height: AppSpacing.xl),
-                Text('Các nhiệm vụ',
+                Text('Danh sách nhiệm vụ',
                     style: Theme.of(context).textTheme.titleLarge),
                 for (var i = 0; i < _prompts.length; i++)
                   ListTile(
@@ -929,15 +996,19 @@ class _ChallengeProgressScreen extends StatefulWidget {
       required this.left,
       required this.onLeave,
       required this.onPause,
-      required this.onComplete});
+      required this.onComplete,
+      required this.onDraftsChanged});
   final Set<int> done;
-  final StudyMockSession session;
+  final StudySession session;
   final Map<int, String> drafts;
   final bool paused;
   final bool left;
   final VoidCallback onLeave;
   final ValueChanged<bool> onPause;
   final ValueChanged<int> onComplete;
+
+  /// [drafts] changed, to keep them.
+  final VoidCallback onDraftsChanged;
 
   @override
   State<_ChallengeProgressScreen> createState() => _ChallengeProgressState();
@@ -957,21 +1028,36 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
     });
   }
 
+  /// Asks in the app's confirm sheet, as the journal editor does.
   Future<void> _leave() async {
-    final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (dialog) => AlertDialog(
-              title: const Text('Rời challenge?'),
-              content: const Text('Nhật ký đã viết vẫn được giữ.'),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(dialog, false),
-                    child: const Text('Ở lại')),
-                TextButton(
-                    onPressed: () => Navigator.pop(dialog, true),
-                    child: const Text('Rời challenge')),
-              ],
-            ));
+    final confirmed = await showAppSheet<bool>(
+      context,
+      builder: (sheet) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text('Rời challenge?', style: AppText.sectionTitle),
+          const SizedBox(height: AppSpacing.sm),
+          const Text(
+              'Tiến độ và những gì bạn đã viết vẫn được giữ. Bạn có thể '
+              'quay lại bất cứ lúc nào.',
+              style: AppText.bodySecondary),
+          const SizedBox(height: AppSpacing.xl),
+          Row(children: [
+            Expanded(
+              child: AppSecondaryButton(
+                  label: 'Ở lại', onPressed: () => Navigator.pop(sheet, false)),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: AppPrimaryButton(
+                  label: 'Rời challenge',
+                  onPressed: () => Navigator.pop(sheet, true)),
+            ),
+          ]),
+        ],
+      ),
+    );
     if (confirmed != true || !mounted) return;
     widget.onLeave();
     Navigator.pop(context);
@@ -996,7 +1082,10 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
               prompt: _prompts[current],
               returnLabel: 'Về challenge',
               initialText: widget.drafts[current] ?? '',
-              onDraftChanged: (text) => widget.drafts[current] = text,
+              onDraftChanged: (text) {
+                widget.drafts[current] = text;
+                widget.onDraftsChanged();
+              },
               onSaved: () {
                 widget.drafts.remove(current);
                 widget.onComplete(current);
@@ -1026,6 +1115,13 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
     if (entry != null) {
       Navigator.of(context)
           .push(_studyRoute(builder: (_) => _EntryReader(entry: entry)));
+    } else if (done.contains(task)) {
+      // Done, but its entry was deleted from the journal since.
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(
+            content: Text('Bài viết của nhiệm vụ này đã được xóa khỏi '
+                'nhật ký. Nhiệm vụ vẫn được tính là đã xong.')));
     } else if (task == current && !paused && !left) {
       _writeTask(task);
     } else {
@@ -1052,7 +1148,7 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
         .firstWhere((i) => !done.contains(i), orElse: () => 6);
     final complete = done.length == 7;
     return Scaffold(
-      appBar: AppBar(title: const Text('Challenge của bạn'), actions: [
+      appBar: AppBar(title: const Text('Thử thách của bạn'), actions: [
         PopupMenuButton<String>(
             onSelected: (value) {
               if (value == 'leave') {
@@ -1088,7 +1184,7 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                    Text('${done.length}/7 nhiệm vụ đã hoàn thành',
+                    Text('Đã hoàn thành ${done.length}/7 nhiệm vụ',
                         style: Theme.of(context).textTheme.titleSmall),
                     const SizedBox(height: AppSpacing.md),
                     _Progress(value: done.length / 7)
@@ -1112,7 +1208,10 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
               label: 'Tiếp tục challenge', onPressed: () => onPause(false))
         ],
         const SizedBox(height: AppSpacing.xl),
-        Text('Nhiệm vụ tiếp theo',
+        Text(
+            done.isEmpty
+                ? 'Bắt đầu với câu hỏi đầu tiên'
+                : 'Nhiệm vụ tiếp theo',
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: AppSpacing.md),
         if (complete)
@@ -1129,7 +1228,8 @@ class _ChallengeProgressState extends State<_ChallengeProgressScreen> {
               hasDraft: widget.drafts[current]?.trim().isNotEmpty ?? false,
               onWrite: () => _writeTask(current)),
         const SizedBox(height: AppSpacing.xl),
-        Text('Các nhiệm vụ', style: Theme.of(context).textTheme.titleLarge),
+        Text('Danh sách nhiệm vụ',
+            style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: AppSpacing.md),
         for (var task = 0; task < 7; task++) ...[
           _TaskRow(
@@ -1167,7 +1267,7 @@ class _CurrentTask extends StatelessWidget {
         Text(_prompts[index], style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: AppSpacing.md),
         _PrimaryButton(
-            label: hasDraft ? 'Tiếp tục bản nháp' : 'Viết nhiệm vụ này',
+            label: hasDraft ? 'Tiếp tục bản nháp' : 'Bắt đầu viết',
             onPressed: disabled ? null : onWrite)
       ]));
 }
@@ -1192,7 +1292,7 @@ class _TaskRow extends StatelessWidget {
     final label = done
         ? 'Đã hoàn thành'
         : current
-            ? 'Tiếp theo'
+            ? 'Chưa hoàn thành'
             : 'Chưa thực hiện';
     return InkWell(
         onTap: onTap,
@@ -1256,7 +1356,7 @@ class _Editor extends StatefulWidget {
       this.onWriteNext});
   final String title;
   final String prompt;
-  final StudyMockSession session;
+  final StudySession session;
   final StudyWritingContext source;
   final String returnLabel;
   final VoidCallback? onSaved;
@@ -1271,63 +1371,121 @@ class _Editor extends StatefulWidget {
 }
 
 class _EditorState extends State<_Editor> {
+  /// As in the journal editor.
+  static const _deeperLabel = 'Nhìn lại cùng bạn';
+
   late final _controller = TextEditingController(text: widget.initialText);
+  final _focus = FocusNode();
+  final _scroll = ScrollController();
+
+  /// The one field, moved below the questions when going deeper: the same
+  /// field keeps its focus, so the keyboard stays up.
+  final _fieldKey = GlobalKey();
   bool _saving = false;
-  String? _question;
+
+  /// "Suy ngẫm sâu hơn": the questions that follow this prompt, asked one
+  /// at a time, and the answers already given (the first to the prompt).
+  /// The field holds the answer being written.
+  late final List<String> _followUps = studyFollowUps(widget.source);
+  final List<String> _answers = [];
+
+  /// The paper and text size chosen for the journal, so writing here feels
+  /// the same.
+  JournalPaper _paper = JournalPaper.plain;
+  double _textSize = 16;
+  WritingPreferences? _preferences;
+
+  @override
+  void initState() {
+    super.initState();
+    // The outline follows the focus.
+    _focus.addListener(() => setState(() {}));
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    try {
+      final prefs = await WritingPreferences.open();
+      if (!mounted) return;
+      setState(() {
+        _preferences = prefs;
+        _paper = prefs.paper;
+        _textSize = prefs.textSize;
+      });
+    } catch (_) {
+      // Plain paper at the default size.
+    }
+  }
+
   @override
   void dispose() {
     _controller.dispose();
+    _focus.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  void _deeper() {
-    if (_controller.text.trim().isEmpty) return;
-    showModalBottomSheet<void>(
-      context: context,
-      sheetAnimationStyle: StudyMotion.sheet(context),
-      backgroundColor: AppColors.surface,
-      barrierColor: Colors.black.withValues(alpha: .35),
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius:
-            BorderRadius.vertical(top: Radius.circular(AppRadius.modal)),
-      ),
-      builder: (sheet) => Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Text('Go Deeper', style: Theme.of(context).textTheme.titleLarge)
-            ]),
-            const SizedBox(height: AppSpacing.lg),
-            const Text(
-                'Điều gì khiến khoảnh khắc này khác với những ngày khác?'),
-            const SizedBox(height: AppSpacing.lg),
-            _PrimaryButton(
-              label: 'Dùng câu hỏi',
-              onPressed: () {
-                setState(() => _question =
-                    'Điều gì khiến khoảnh khắc này khác với những ngày khác?');
-                Navigator.pop(sheet);
-              },
-            ),
-            TextButton(
-                onPressed: () => Navigator.pop(sheet),
-                child: const Text('Bỏ qua')),
-          ],
-        ),
-      ),
-    );
+  /// Every answer, as one entry (as the journal editor joins them).
+  String get _text => [..._answers, _controller.text.trim()]
+      .where((answer) => answer.isNotEmpty)
+      .join('\n\n');
+
+  bool get _canGoDeeper =>
+      _controller.text.trim().isNotEmpty && _answers.length < _followUps.length;
+
+  /// How the journal names this entry, e.g. "Challenge · Nhiệm vụ 2".
+  String get _label {
+    final source = widget.source;
+    if (source.kind == 'challenge') {
+      return 'Challenge · Nhiệm vụ ${source.taskIndex! + 1}';
+    }
+    if (source.kind == 'framework') return 'Phương pháp · $frameworkTitle';
+    for (final lesson in [...studyLessons, studyCase]) {
+      if (lesson.id == source.sourceId) return 'Bài học · ${lesson.title}';
+    }
+    return 'Kỹ năng · ${_StudyScreenState._items.first.title}';
   }
 
+  /// Keeps what was written above and asks the next question, with a fresh
+  /// field for the answer.
+  void _deeper() {
+    if (!_canGoDeeper) return;
+    setState(() {
+      _answers.add(_controller.text.trim());
+      _controller.clear();
+    });
+    _preferences?.feedback();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _focus.requestFocus();
+      if (_scroll.hasClients) {
+        _scroll.animateTo(_scroll.position.maxScrollExtent,
+            duration: StudyMotion.reduced(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 250),
+            curve: StudyMotion.change);
+      }
+    });
+  }
+
+  /// Saves into the journal; writing today counts for the streak (its
+  /// celebration stays with the journal editor). A failure keeps the text.
   Future<void> _finish() async {
-    if (_saving || _controller.text.trim().isEmpty) return;
+    final text = _text;
+    if (_saving || text.isEmpty) return;
     setState(() => _saving = true);
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+    try {
+      await widget.session
+          .save(text, widget.prompt, widget.source, label: _label);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Chưa lưu được bài viết. Nội dung vẫn còn ở đây.')));
+      return;
+    }
     if (!mounted) return;
-    widget.session.save(_controller.text.trim(), widget.prompt, widget.source);
+    if (!StreakState.shared.completedToday) StreakState.shared.completeToday();
     widget.onSaved?.call();
     await Navigator.of(context).push(_studyRoute(
         builder: (_) => _Reflection(
@@ -1335,6 +1493,90 @@ class _EditorState extends State<_Editor> {
             nextTask: widget.nextTask,
             onWriteNext: widget.onWriteNext)));
     if (mounted) Navigator.pop(context);
+  }
+
+  /// One line under the paper, its space kept so the actions never jump.
+  String get _hint {
+    if (_controller.text.trim().isEmpty) {
+      return _answers.isEmpty
+          ? 'Viết vài dòng để dùng các nút bên dưới.'
+          : 'Viết câu trả lời, hoặc lưu nhật ký với những gì đã viết.';
+    }
+    return _answers.length < _followUps.length
+        ? ''
+        : 'Bạn đã đi hết các câu hỏi gợi ý.';
+  }
+
+  Widget _question(String text) => Container(
+      key: const ValueKey('study-follow-up'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: AppColors.primaryLight,
+          borderRadius: BorderRadius.circular(AppRadius.small)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Padding(
+          padding: EdgeInsets.only(top: 2),
+          child: Icon(Icons.subdirectory_arrow_right_rounded,
+              size: 18, color: AppColors.primaryDark),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+            child: Text(text, style: Theme.of(context).textTheme.titleSmall)),
+      ]));
+
+  Widget _field({required bool expands}) => TextField(
+      key: _fieldKey,
+      controller: _controller,
+      focusNode: _focus,
+      autofocus: true,
+      expands: expands,
+      minLines: expands ? null : 5,
+      maxLines: null,
+      textAlignVertical: TextAlignVertical.top,
+      textCapitalization: TextCapitalization.sentences,
+      style: AppText.body.copyWith(fontSize: _textSize),
+      onChanged: (_) {
+        widget.onDraftChanged?.call(_text);
+        setState(() {});
+      },
+      decoration: InputDecoration(
+        hintText: _answers.isEmpty
+            ? 'Bắt đầu ở bất cứ nơi nào bạn đang có mặt…'
+            : 'Viết tiếp tại đây…',
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        contentPadding: const EdgeInsets.all(AppSpacing.md),
+      ));
+
+  /// The answers given so far, each under the question it answered, then
+  /// the current question and its field.
+  Widget _rounds() {
+    final answered = AppText.body
+        .copyWith(fontSize: _textSize, color: AppColors.textSecondary);
+    return ListView(
+        controller: _scroll,
+        padding: const EdgeInsets.only(top: AppSpacing.md),
+        children: [
+          for (final (index, answer) in _answers.indexed) ...[
+            if (index > 0)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md, 0, AppSpacing.md, AppSpacing.sm),
+                child: Text(_followUps[index - 1], style: _meta(context)),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md, 0, AppSpacing.md, AppSpacing.lg),
+              child: Text(answer, style: answered),
+            ),
+          ],
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            child: _question(_followUps[_answers.length - 1]),
+          ),
+          _field(expands: false),
+        ]);
   }
 
   @override
@@ -1357,39 +1599,37 @@ class _EditorState extends State<_Editor> {
                         child: Text(widget.prompt,
                             style: Theme.of(context).textTheme.titleSmall)),
                     const SizedBox(height: AppSpacing.md),
-                    Text('Bản nháp', style: _meta(context)),
+                    Text(
+                        _answers.isEmpty
+                            ? 'Bản nháp'
+                            : 'Bản nháp · Suy ngẫm ${_answers.length}/'
+                                '${_followUps.length}',
+                        style: _meta(context)),
                     const SizedBox(height: AppSpacing.sm),
+                    // On the journal's chosen paper, at its text size.
                     Expanded(
-                        child: TextField(
-                            controller: _controller,
-                            autofocus: true,
-                            expands: true,
-                            maxLines: null,
-                            textAlignVertical: TextAlignVertical.top,
-                            onChanged: (text) {
-                              widget.onDraftChanged?.call(text);
-                              setState(() {});
-                            },
-                            decoration: InputDecoration(
-                                hintText:
-                                    'Bắt đầu ở bất cứ nơi nào bạn đang có mặt…',
-                                filled: true,
-                                fillColor: AppColors.background,
-                                border: OutlineInputBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(AppRadius.input),
-                                    borderSide: const BorderSide(
-                                        color: AppColors.border))))),
-                    if (_question != null) ...[
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(_question!, style: _meta(context))
-                    ],
+                        child: DecoratedBox(
+                      position: DecorationPosition.foreground,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(AppRadius.input),
+                        border: Border.all(
+                            color: _focus.hasFocus
+                                ? AppColors.primaryAction
+                                : AppColors.border,
+                            width: _focus.hasFocus ? 1.5 : 1),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(AppRadius.input),
+                        child: Stack(children: [
+                          Positioned.fill(
+                              child: JournalPaperView(paper: _paper)),
+                          _answers.isEmpty ? _field(expands: true) : _rounds(),
+                        ]),
+                      ),
+                    )),
                     const SizedBox(height: AppSpacing.sm),
                     // Explains the disabled actions; space stays reserved.
-                    Text(
-                        _controller.text.trim().isEmpty
-                            ? 'Viết vài dòng để dùng Go Deeper hoặc Hoàn tất.'
-                            : '',
+                    Text(_hint,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: _meta(context)),
@@ -1397,17 +1637,19 @@ class _EditorState extends State<_Editor> {
                     Row(children: [
                       Expanded(
                           child: OutlinedButton(
-                              onPressed: _controller.text.trim().isEmpty
-                                  ? null
-                                  : _deeper,
-                              child: const Text('Go Deeper'))),
+                              onPressed: _canGoDeeper ? _deeper : null,
+                              style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.sm)),
+                              // One line, as tall as "Hoàn tất" beside it.
+                              child: const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(_deeperLabel, maxLines: 1)))),
                       const SizedBox(width: AppSpacing.md),
                       Expanded(
                           child: _PrimaryButton(
-                              label: _saving ? 'Đang lưu…' : 'Hoàn tất',
-                              onPressed: _controller.text.trim().isEmpty
-                                  ? null
-                                  : _finish))
+                              label: _saving ? 'Đang lưu…' : 'Lưu nhật ký',
+                              onPressed: _text.isEmpty ? null : _finish))
                     ]),
                   ]))));
 }
@@ -1436,7 +1678,7 @@ class _Reflection extends StatelessWidget {
                     const Icon(Icons.check_circle_rounded,
                         color: AppColors.positive),
                     const SizedBox(width: AppSpacing.sm),
-                    Text('Entry đã lưu',
+                    Text('Đã lưu bài viết',
                         style: Theme.of(context).textTheme.titleSmall)
                   ])),
               const SizedBox(height: AppSpacing.md),
@@ -1471,9 +1713,42 @@ class _Reflection extends StatelessWidget {
 
 /// The 7-day challenge paces one task per day. This is a suggestion only:
 /// tasks are positions, not calendar locks, and a missed day keeps progress.
-class _NextTaskNotice extends StatelessWidget {
+/// J03's "Hẹn bạn ngày mai": the next task, and when the daily reminder
+/// will call the user back (or where to set one).
+class _NextTaskNotice extends StatefulWidget {
   const _NextTaskNotice({required this.index});
   final int index;
+
+  @override
+  State<_NextTaskNotice> createState() => _NextTaskNoticeState();
+}
+
+class _NextTaskNoticeState extends State<_NextTaskNotice> {
+  /// The reminder times set in onboarding or Hồ sơ; null until read (or
+  /// when they cannot be).
+  List<String>? _reminders;
+
+  @override
+  void initState() {
+    super.initState();
+    OnboardingScope.storeOf(context).then((store) {
+      final times = store.reminders.values.toList()
+        ..sort((a, b) => (a.hour * 60 + a.minute) - (b.hour * 60 + b.minute));
+      if (mounted) {
+        setState(() => _reminders = [for (final t in times) t.label]);
+      }
+    }, onError: (Object _) {});
+  }
+
+  int get index => widget.index;
+
+  String? get _reminderLine {
+    final reminders = _reminders;
+    if (reminders == null) return null;
+    return reminders.isEmpty
+        ? 'Muốn được nhắc? Bạn có thể đặt lời nhắc mỗi ngày trong Hồ sơ.'
+        : 'Lời nhắc viết mỗi ngày của bạn: ${reminders.join(' và ')}.';
+  }
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1500,13 +1775,25 @@ class _NextTaskNotice extends StatelessWidget {
             'Challenge này gợi ý viết mỗi ngày một nhiệm vụ. '
             'Lỡ một ngày cũng không sao, tiến độ vẫn được giữ.',
             style: _meta(context)),
+        if (_reminderLine case final line?) ...[
+          const SizedBox(height: AppSpacing.sm),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Icon(Icons.notifications_none_rounded,
+                  size: 18, color: AppColors.primaryDark),
+            ),
+            const SizedBox(width: AppSpacing.xs),
+            Expanded(child: Text(line, style: _meta(context))),
+          ]),
+        ],
       ]));
 }
 
 class _ChallengeCompletion extends StatelessWidget {
   const _ChallengeCompletion({required this.animate, required this.session});
   final bool animate;
-  final StudyMockSession session;
+  final StudySession session;
   void _backToStudy(BuildContext context) =>
       Navigator.of(context).popUntil((route) => route.isFirst);
   @override
@@ -1556,7 +1843,7 @@ class _ChallengeCompletion extends StatelessWidget {
 
 class _ChallengeEntries extends StatelessWidget {
   const _ChallengeEntries({required this.session});
-  final StudyMockSession session;
+  final StudySession session;
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Nhật ký của challenge')),
@@ -1579,7 +1866,7 @@ class _ChallengeEntries extends StatelessWidget {
 
 class _EntryReader extends StatelessWidget {
   const _EntryReader({required this.entry});
-  final StudyMockEntry entry;
+  final StudyEntry entry;
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Nhật ký đã viết')),
@@ -1594,7 +1881,7 @@ class _EntryReader extends StatelessWidget {
 
 class _CourseCompletion extends StatelessWidget {
   const _CourseCompletion({required this.session});
-  final StudyMockSession session;
+  final StudySession session;
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('Khóa học hoàn thành')),
@@ -1871,18 +2158,8 @@ class _PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) =>
       StudyPressable(enabled: onPressed != null, child: _buttonFor(context));
 
-  Widget _buttonFor(BuildContext context) => FilledButton(
-      style: FilledButton.styleFrom(
-          backgroundColor: AppColors.primaryAction,
-          foregroundColor: AppColors.surface,
-          minimumSize: Size(0, height),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
-          textStyle: Theme.of(context).textTheme.labelLarge,
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg, vertical: 12)),
-      onPressed: onPressed,
-      child: Text(label, textAlign: TextAlign.center));
+  Widget _buttonFor(BuildContext context) => AppPrimaryButton(
+      label: label, onPressed: onPressed, compact: height < 56);
 }
 
 class _Progress extends StatelessWidget {
@@ -1949,13 +2226,13 @@ class _Message extends StatelessWidget {
 }
 
 class _StudyItem {
-  const _StudyItem(
-      this.category, this.type, this.title, this.description, this.meta,
+  const _StudyItem(this.type, this.title, this.description, this.meta,
       {this.course = false,
       this.framework = false,
       this.practicePrompt,
       required this.order});
-  final String category;
+
+  /// What it is ("Khóa học", "Mẫu viết", "Bài đọc"); also its filter.
   final String type;
   final String title;
   final String description;

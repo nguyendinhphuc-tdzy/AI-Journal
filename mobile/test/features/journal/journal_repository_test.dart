@@ -57,16 +57,18 @@ void main() {
       expect((await journals.entries()).single.body, 'Có lẽ vì b.');
     });
 
-    test('local delete removes the entry but preserves unsent drafts', () async {
+    test('delete removes only that entry', () async {
       final journals = InMemoryJournalRepository();
-      final entry = await journals.create(_content({'cause': 'a'}));
-      await journals.saveDraft('edit', JournalDraft(
-        fields: const {'cause': 'unsaved'},
-        updatedAt: DateTime(2026, 10, 26),
-      ));
-      await journals.delete(entry.id);
-      expect(await journals.entries(), isEmpty);
-      expect((await journals.draft('edit'))!.fields['cause'], 'unsaved');
+      final first = await journals.create(_content({'cause': 'a'}));
+      final second = await journals.create(_content({'cause': 'b'}));
+      var notified = 0;
+      journals.addListener(() => notified++);
+      await journals.delete(first.id);
+      expect([for (final entry in await journals.entries()) entry.id],
+          [second.id]);
+      expect(await journals.entry(first.id), isNull);
+      expect(notified, 1);
+      expect(() => journals.delete(first.id), throwsStateError);
     });
 
     test('drafts are never entries', () async {

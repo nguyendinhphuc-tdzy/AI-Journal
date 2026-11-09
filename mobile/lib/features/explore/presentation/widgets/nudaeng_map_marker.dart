@@ -3,9 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// A single static GIF frame above a heart pin. Native markers are bitmaps.
+/// [clearWhite] keys out a GIF's white backdrop; transparent PNGs keep
+/// their own alpha.
 Future<Uint8List> createNudaengMarker([
   String assetPath = 'assets/images/docsach.gif',
   Color pinColor = const Color(0xFFE994AC),
+  bool clearWhite = true,
 ]) async {
   final data = await rootBundle.load(assetPath);
   final codec = await ui.instantiateImageCodec(
@@ -32,29 +35,31 @@ Future<Uint8List> createNudaengMarker([
           Rect.fromLTWH(0, 0, frame.image.width.toDouble(),
               frame.image.height.toDouble()),
           destination,
-          Paint()
-            ..colorFilter = const ColorFilter.matrix([
-              1,
-              0,
-              0,
-              0,
-              0,
-              0,
-              1,
-              0,
-              0,
-              0,
-              0,
-              0,
-              1,
-              0,
-              0,
-              -4.252,
-              -14.304,
-              -1.444,
-              20,
-              0,
-            ]));
+          clearWhite
+              ? (Paint()
+                ..colorFilter = const ColorFilter.matrix([
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  1,
+                  0,
+                  0,
+                  -4.252,
+                  -14.304,
+                  -1.444,
+                  20,
+                  0,
+                ]))
+              : (Paint()..filterQuality = FilterQuality.medium));
       final drop = Path()
         ..moveTo(42, 116)
         ..cubicTo(34, 105, 23, 94, 23, 85)

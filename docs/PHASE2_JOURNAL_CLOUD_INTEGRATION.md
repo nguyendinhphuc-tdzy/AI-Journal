@@ -6,9 +6,10 @@
   stacked on Phase 1 PR #25 and Album backend PR #19.
 - Mobile: Draft PR #27 (`feat/flutter-journal-cloud-persistence-20261026`)
   stacked on Auth/Facebook PR #24.
-- **Supabase shared database is currently at Alembic `20261025_07`.**
-  Phase 2 additionally requires `20261026_08`, which has NOT been applied
-  to the shared database in this PR. No automatic database changes.
+- **Supabase AI-Journal-Dev is now at Alembic `20261026_08`.**
+  The team explicitly authorized and applied the additive migration on
+  2026-10-26. Its columns, check constraint and RLS were verified.
+  **Do not apply the migration a second time.**
 - Default `JOURNAL_CLOUD_ENABLED=false`: existing app remains local-only.
 - All guest sessions, fake-auth test sessions and accounts with existing
   local Journal entries remain local-only even if the cloud flag is enabled.
@@ -41,11 +42,13 @@ request. Remote repository errors never silently return a local/mock diary.
 
 ## Backend migration 08 — release guard
 
-Run the new backend branch in an isolated checkout. Verify the real
-Supabase project is still at `20261025_07`; test using real PostgreSQL 17
-CI and test data first, and ensure project credentials are only stored in
-locally ignored `.env`. `alembic current` and `alembic heads` must be
-reviewed **before** running `alembic upgrade head`.
+The shared project was already upgraded from `20261025_07` to
+`20261026_08` via an authorized transaction; do not rerun Alembic upgrade
+on it. The **combined** runtime integration branch is
+`integration/journal-cloud-runtime-20261027`. Use
+`docs/B14_JOURNAL_CLOUD_RUNTIME_20261027.md` to set up the Windows
+FastAPI and Android Emulator launchers. Private credentials stay only in
+ignored local `.env`; startup revision checks are read-only.
 
 The migration adds `guided JSON NULL`, `body_version INTEGER NOT NULL
 DEFAULT 1` and a CHECK enforcing version >= 1. It does not drop or rewrite
@@ -76,7 +79,7 @@ flags:
 - `FACEBOOK_OAUTH_ENABLED=true` only if the Facebook Meta/Supabase
   provider setup is ready for test users.
 
-**Mandatory test sequence:**
+**Future release acceptance sequence (deferred by user request to skip further tests now):**
 
 1. Login to account A; new account, no local entries; write one
    Guided Journal; verify server `guided` and version 1.
@@ -100,5 +103,7 @@ flags:
 - Drafts are device-only and are not cross-device synced.
 - A full end-to-end Android + running FastAPI + real Meta/Supabase Auth
   session is still required before enabling Cloud in a release.
-- Both PRs must pass CI and be reviewed/merged in dependency order. No
-  direct merge to the default branch was performed.
+- Backend PR #26 and Flutter PR #27 already passed their original CI jobs.
+  PR #28 contains both codebases and runtime launchers on a single
+  integration branch, still unmerged. No direct merge to the default branch
+  was performed.

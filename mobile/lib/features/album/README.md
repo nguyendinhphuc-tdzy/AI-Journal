@@ -32,17 +32,78 @@ Personal scrapbook: albums, memories (photo, note or both), lock, and a
   and an in-memory one for tests. There is no album API yet
   (`docs/API_CONTRACT.md`); an API version implements the same interface.
   Names are trimmed, blank names refused; newest first, id breaks ties.
-- `album_scope.dart`: provides repository, device authentication and sharing
-  adapter; `main.dart` provides the local repository.
+- `album_scope.dart`: provides repository, the albums' PIN lock
+  (`AlbumAuth`, the app's `PinAlbumAuth` by default) and sharing adapter;
+  `main.dart` provides the local repository.
 - `data/album_unlocks.dart`: albums opened after authentication, in memory
   only. An album locks again when its last route closes (`AlbumRoutes`,
   after the exit animation; nested routes such as A03 → A11 keep it open)
   and everything locks when the app goes to the background. The OS PIN
   prompt pauses the app on Android; `duringSystemPrompt` keeps that from
   counting as leaving. The library always shows a locked album as locked.
-- A02 with "Khóa album" on asks for the device PIN (or fingerprint, face)
-  before creating; canceled or failed creates nothing. A03 returns to where
-  it was opened from after a successful save, with "Đã lưu thay đổi.".
+- A02 with "Khóa album" on asks for the album's new PIN as it is turned on;
+  giving up leaves it off. A03 returns to where it was opened from after a
+  successful save, with "Đã lưu thay đổi.".
+
+## Sharing with friends (30/10/2026: friends on the app, no Facebook)
+
+Product decision (30/10/2026): Facebook is gone from the app (sign-in,
+"bạn bè Facebook", the sample Space). Friends on the app are accepted
+friendships between accounts, found by @username (`GET /friends`,
+`GET /friends/discover`; Khám phá → Bạn bè). A 24-hour post is seen only by
+the friends the user ticks in A10.
+
+What the app does now:
+- Signed in, A10 lists the account's accepted friends
+  (`RemoteFriendsSharing`, `social/data/friends_sharing.dart`); all start
+  ticked, as before. Pending requests are not friends and are not listed.
+- With everything chosen the CTA stays off and says the server cannot
+  send posts yet (`ShareMemorySheet.notDelivered`); nothing is posted and
+  the choices stay. No friends: where to find them. Guests: none.
+- `MockFriendsSharing` (in memory, this device only) keeps the picker and
+  posting flow testable.
+
+Not built on the server; a proposal for the backend owner, to be agreed and
+written into `docs/API_CONTRACT.md` first. Today's `POST /memory-shares`
+takes only cloud memories, returns the memory's private `note` to the
+recipient, and recipients have no way to list what was shared with them.
+- `POST /memory-shares`: the post's snapshot from A10, not the memory:
+  `recipient_ids` (accepted, unblocked friends, 1–20), `title`, `text`
+  (≤ 300), `place` (`label`, `latitude`, `longitude`), `category`, optional
+  `replacing` (revoked in the same transaction); `memory_id` optional, so a
+  memory kept only on the device can be shared. Expiry set by the server
+  (+24 h). Photos later, with private photo storage.
+- `GET /memory-shares/received` (optional bounding box): active posts shared
+  with me by friends, with the author's display name and @username.
+- `GET /memory-shares/mine?memory_id=…`: my active post for a memory (A10
+  "replace", A12).
+- `GET /memory-shares/{id}` must stop returning the memory's private `note`.
+- A locked album is refused on the device (`withPublicationBlocked`); the
+  server does not know album PINs.
+- Then `RemoteFriendsSharing` sends instead of saying it cannot; nothing in
+  A10's picker changes.
+
+## Album PIN lock (27/10/2026, replaces the device lock)
+
+- A locked album opens with a 4-digit PIN of its own, not the device's
+  screen lock. `data/album_pins.dart` keeps only a salted hash (SHA-256,
+  4,000 rounds, `crypto`) per album (`album.pin.<id>`); the PIN is never
+  stored. `presentation/album_pin_sheet.dart`: `PinAlbumAuth` and the pad
+  (`AlbumPinPad`) in the app's sheet: four dots, a round number pad,
+  messages in the delete colour, reserved space so nothing jumps.
+- Turning the lock on (A02, A03) asks for a PIN twice (a mismatch starts
+  over); A03 applies it on "Lưu thay đổi", keeping the PIN before the album
+  locks. Turning a saved lock off asks for its PIN first; the PIN is
+  forgotten once the album is saved unlocked or deleted.
+- A04 "Mở khóa" asks for the PIN; five wrong in a row wait 30 s (for the
+  app session). "Quên mật khẩu?" says recovery by email will come with
+  account sign-in: there is none yet (no login in the app, and no endpoint
+  in `docs/API_CONTRACT.md`), so a forgotten PIN cannot be recovered today.
+- Albums locked before PINs have none: the device's screen lock confirms
+  the owner once (`local_auth`), a PIN is chosen, and it opens with that
+  from then on.
+- The lock still only gates opening the album in the app; it encrypts
+  nothing, and a 4-digit hash on the device is not a vault.
 - `memoryCount` is stored on the album until memories exist (A06).
 
 ## A02 create album
@@ -57,17 +118,16 @@ Personal scrapbook: albums, memories (photo, note or both), lock, and a
   themes (`data/album_theme.dart`): Cổ điển (plain folder) and five supplied
   Nudaeng poses (Hoài nghi, Buồn, Ngại ngùng, Quàng khăn, Đọc sách) on a
   taped photo card. A theme only changes the pose and tape colour.
-- "Khóa album": on only when the device can authenticate
-  (`data/album_auth.dart`, `local_auth`). Otherwise off and disabled with
-  "Tính năng khóa chưa được hỗ trợ". The help text says the lock only gates
-  opening the album in the app and encrypts nothing.
+- "Khóa album": asks for the album's PIN as it is turned on (see "Album PIN
+  lock"). The help text says the lock only gates opening the album in the
+  app and encrypts nothing.
 - "Tạo album": spinner in place while saving (same size, repeated taps
   ignored); a failure keeps the form and says so right above the button.
 - Closing keeps the draft (name, theme, lock) for the app session
   (`CreateAlbumDraft.session`); nothing is created before the CTA. Success
   clears it, closes the sheet, and A01 takes over (new album at the top,
-  "Đã tạo album" with "Thêm kỷ niệm", Nudaeng's peek). No celebration in the
-  sheet itself.
+  "Đã tạo album" with "Thêm kỷ niệm", the new tile's glow). No celebration
+  in the sheet itself.
 
 ## Device authentication setup (shared files, approved)
 
@@ -109,7 +169,7 @@ reached by scrolling and by screen readers.
   only name, theme and lock in raw JSON, preserving IDs, dates, memory fields
   and ordering. Serialized writes prevent competing local updates being lost;
   reads expose only acknowledged writes, not SharedPreferences' optimistic cache.
-- Lock on/off requires fresh device auth. Active shares require explicit
+- Lock on asks for a new PIN, lock off for the current one. Active shares require explicit
   “Thu hồi bài chia sẻ và khóa album” consent. The writer checks shares, revokes,
   verifies no active shares remain, then saves the lock. Errors retain the draft
   and provide Retry; if revocation succeeds but saving fails, it says so.
@@ -123,7 +183,7 @@ reached by scrolling and by screen readers.
   Nudaeng is 96 logical pixels, static while waiting. Success plays ND13 once
   for 1 second (immediate final pose for reduced motion). Text/icon communicate
   status independently. Failure/cancel leaves the mascot neutral; Cancel
-  returns to the source. Uses device fallback, never a separate app PIN.
+  returns to the source. Asks for the album's own PIN (since 27/10/2026).
 - `AlbumAccessGuard` covers every destination, including direct A03/A08 opens.
   It retains the pending route, memory ID and mounted editor while private UI
   is offstage (also excluded from semantics). Paused/hidden/detached invalidate
@@ -197,14 +257,16 @@ background/overlay transitions, ND13 timing, draft retention and large text.
 
 ## A11 confirm delete
 
-- `ConfirmDeleteDialog`: Surface dialog, title "Xóa kỷ niệm" / "Xóa album",
+- `ConfirmDeleteDialog`: the app's shared delete dialog
+  (`core/widgets/app_delete_dialog.dart`, also used for journal entries):
+  Nudaeng crumbling away, centered title "Xóa kỷ niệm?" / "Xóa album?",
   what goes (memory title and album name; an album's memory count; a
   locked album that hides its name is called "Album đã khóa"), that posts
-  are taken off the map, "Không thể hoàn tác." (no undo is offered). "Hủy"
-  and the action in the theme's error colour (`colorScheme.error`, as A03's
-  "Xóa album"), never the primary teal.
+  are taken off the map, "Không thể hoàn tác." (no undo is offered).
+  "Giữ lại" on light grey and the action ("Xóa kỷ niệm" / "Xóa album") in
+  brick red (`AppDeleteDialog.destructive`), never the primary teal.
 - The deletion runs in the dialog: spinner in the button, repeated taps,
-  "Hủy", Back and the barrier off. Failure: the dialog stays, says what
+  "Giữ lại", Back and the barrier off. Failure: the dialog stays, says what
   happened and "Thử lại"; nothing is removed from screen.
 - `AlbumDeletion` (data): a memory's active post is revoked and confirmed
   gone, then the memory (with its place) is removed in one write; an album
@@ -275,22 +337,43 @@ background/overlay transitions, ND13 timing, draft retention and large text.
   plugin or location permission yet (needs `pubspec.yaml` and the Android
   manifest, shared files).
 
-## A09 scrapbook browse and timeline
+## A09 scrapbook pile and grid
 
-- Back, the album name (kept current) and "Cài đặt album" (A03); "Thêm kỷ
-  niệm" (A06) docked at the bottom; "N kỷ niệm" with a small still Nudaeng
-  when there is room (never a large one behind the cards).
-- Stack: the front card (photo cropped as a thumbnail, title, date, two lines
-  of note; note-only: tape and the note on faint ruled lines) and at most two
-  behind, of which only a strip shows (thumbnail, title, date; never their
-  notes). Tap → A08.
-- Browse: a vertical drag that starts on the stack (follows the finger,
-  limited to 80 px, eases back when let go) moves after 48 px; the change
-  slides and fades (320 ms; reduced motion: at once). "Trước" / "Sau" with
-  "1 / N" do the same; at either end the button is disabled and the line
-  under them says "Đây là kỷ niệm mới nhất / cũ nhất".
-- "Xem tất cả": a static timeline by month (virtualized), 20 at a time with
-  "Xem thêm kỷ niệm". "Xếp chồng" goes back.
+- Back, the album name (kept current) and "Cài đặt album" (A03); "+ Thêm kỷ
+  niệm" (A06) docked at the bottom, the pile ending above it; "N kỷ niệm"
+  with a small still Nudaeng when there is room.
+- Each memory on ivory paper, no border. The date small on top ("28 tháng
+  10, 2026"), the photo at its own proportions (never cropped beyond
+  0.6–2:1) with its height giving way so the title (2 lines) and note (3
+  lines) always show, left aligned. Note-only memories are a text card only
+  as tall as its words. One strip of tape over the top edge (cream, mint or
+  striped, the same for a memory each time) and a small Nudaeng sticker off
+  the bottom corner, never over the words. Tap the top one → A08.
+- A pile of photos on a table: the memory shown on top, the next two under
+  it, each a little lower, off to one side and turned (±3°, the same for a
+  memory each time; the top one only a quarter of that). No gap between
+  them; what shows of the ones under says there are more.
+- Pick up the top photo and drag it anywhere: it follows the finger, turns
+  with where it was gripped (above or below the middle) and lifts (scale
+  1.03, a larger and softer shadow). Let go past 30 % of its width, or throw
+  it (900 px/s the way it was moving): it flies off, turning over to show
+  the back of the paper, and the ones under it move up. Otherwise it settles
+  back (a small overshoot). Pull down instead: the previous photo comes down
+  from above face down and turns over as it lands (past 30 % of the room or
+  700 px/s), else goes back up. The last photo, and a pull down on the
+  first, only give a little.
+- Each turn plays the interface's page-turn sound (`SoundCue.pageTurn`, so it
+  follows the sound settings) with a light haptic tap, once, when the finger
+  lifts. A drag that settles back, or the app moving the pile itself (a
+  memory added before it), is silent.
+- Reduced motion: no flying or turning over; the change is at once. Screen
+  readers get "Kỷ niệm tiếp theo" / "Kỷ niệm trước" custom actions. Only a
+  small "02 / 03" under the pile (read out as "Kỷ niệm 2 trên 3").
+- "Xem tất cả": a grid by month (two columns: photo or note, title, date),
+  20 at a time with "Xem thêm kỷ niệm". "Xấp ảnh" goes back to the photo
+  that was on top.
+- Artwork: `assets/images/scrapbook/` (tapes, Nudaeng hugging a photo),
+  decoded at a small size (`cacheWidth`).
 - Order from the repository: memory date, then creation, then id, newest
   first. Back from A08 keeps the card (by id), the mode and the list scroll.
 - A05 and A09 share one route: an empty album shows A05, one with memories
@@ -328,7 +411,7 @@ background/overlay transitions, ND13 timing, draft retention and large text.
   note still saves. There is no "Mở cài đặt" button: opening the app's
   settings needs a plugin or native code not in the project yet.
 - After "Dùng ảnh" the copy is kept (loading state), then the photo fades in
-  (180 ms, nothing else moves) and ND08 plays; never after a cancel. The
+  (180 ms, nothing else moves); never after a cancel. The
   picker and camera run inside `AlbumUnlocks.duringSystemPrompt`, so the
   album being edited does not lock behind them.
 
@@ -353,10 +436,12 @@ background/overlay transitions, ND13 timing, draft retention and large text.
   editor's place; edit keeps the id and creation time. Draft 800 ms after
   the last change; Back keeps it, and when it cannot be kept asks "Tiếp tục
   viết / Thử lưu / Bỏ thay đổi". A05 shows A09 once the album has a memory.
-- Nudaeng, never both at once: ND08 (`album-peek-frame-01…06`, 6 × 200 ms)
-  below the photo's bottom-right edge when a photo is ready, then gone; ND09
-  (`album-write-frame-01…06`, about 1 s) in the header corner on the first
-  note focus, then gone. ND11 belongs to A08 (not built).
+- Nudaeng: ND09 (`album-write-frame-01…06`, about 1 s) in the header
+  corner on the first note focus, then gone. ND08 (the head turn below a new
+  photo) was dropped on 27/10/2026. ND11 belongs to A08 (not built).
+- The photo's "…" opens the app's sheet ("Ảnh của kỷ niệm": "Thay ảnh",
+  "Xóa ảnh" in the delete colour), as Home's actions, instead of a popup
+  menu.
 - The date picker's month names follow the app locale (English until
   `flutter_localizations` is set up).
 
@@ -380,7 +465,7 @@ background/overlay transitions, ND13 timing, draft retention and large text.
 
 ## A01 library
 
-- Title "Album", subtitle "Giữ lại những điều bạn muốn nhớ.", two-column
+- Title "Kỷ niệm" (the tab name; shared `AppPageHeader`), subtitle "Giữ lại những điều bạn muốn nhớ.", two-column
   grid (gap 16, padding 20; tiles grow with two-line names, three at large
   text), "Tạo album" docked above the bottom navigation; the last row always
   scrolls clear of the dock.
@@ -392,15 +477,23 @@ background/overlay transitions, ND13 timing, draft retention and large text.
   A04 first when locked.
 - States: skeleton on first load; a failed first load says so with "Thử
   lại" (never shown as an empty library); a failed refresh keeps the albums
-  shown with a notice. No album: Nudaeng holding a book over a paper card,
-  "Chưa có album nào", and the dock's "Tạo album".
+  shown with a notice. No album: one group a little above the middle (it
+  scrolls when space is short): the first page of a scrapbook (ivory paper,
+  two small white frames with a drawn sky and a drawn flower, never anything
+  like a user's photo; a mint and a striped strip of tape; Nudaeng hugging a
+  photo in the corner), "Những điều nhỏ, đáng nhớ", one line of invitation
+  and "+ Tạo album đầu tiên" right under it. The dock is hidden then, so the
+  button stays with its words. An album with no memory yet has its own page
+  (A05).
 - Background: teal-mint sky in theme colours (falls back to Background
   Mint). The floating Nudaeng of "Background 2" shows faintly only while
-  there are one or two albums, never next to the peeking one.
+  there are one or two albums.
 - After creating: the new tile fades in (200 ms) at the top, a snack bar
-  floating above the dock offers "Thêm kỷ niệm" (→ A05), and Nudaeng peeks from behind the new
-  cover once (8 × 200 ms), then stays still until the user leaves the
-  library. Reduced motion: still.
+  floating above the dock offers "Thêm kỷ niệm" (→ A05), and the tile
+  carries a teal outline and soft glow that fade away (1.8 s in all), once,
+  until the user leaves the library. No Nudaeng over the grid (the peek
+  behind the cover was dropped: it was cut by the tile's edge). Reduced
+  motion: there at once, no glow.
 - `AlbumScreen.onShare` receives the post made in A10 (via
   `AlbumRoutes.published`) and the app shell opens Explore with it; the demo
   Share card and the shell's mock Share dialog are gone
@@ -413,7 +506,8 @@ background/overlay transitions, ND13 timing, draft retention and large text.
 - `album-bg-nudaeng.png`: Nudaeng from "Background 2.png" without the slate
   frame and cyan square; the app paints the sky.
 - `album-empty-nudaeng.png`: first frame of "Chú chó ôm sách đầy yêu
-  thương-transparent.gif".
+  thương-transparent.gif" (no longer shown on A01; A01's empty page uses
+  `images/scrapbook/nudaeng-hugging-photo.png`).
 - `album-theme-<id>.png`: theme poses from
   `tool/artwork_sources/album-themes/` (copied from the supplied Nudaeng
   images), backdrop and copyright line removed, at most 360 px.

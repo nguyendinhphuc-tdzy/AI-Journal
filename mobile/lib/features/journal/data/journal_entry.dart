@@ -48,24 +48,69 @@ class GuidedValues {
       a.length == b.length && a.entries.every((e) => b[e.key] == e.value);
 }
 
-/// What the user wrote: the readable body, the mood they picked, and the
-/// structured values when the body was guided.
+/// Where an entry was written when not in the journal editor, e.g. a Study
+/// challenge task: what it belongs to and how the journal names it
+/// ("Challenge · Nhiệm vụ 2"). Local for now; the API needs the field
+/// before the journal is synced (see `JournalRepository`).
+class JournalSource {
+  const JournalSource(
+      {required this.kind, required this.id, required this.label, this.task});
+
+  /// "challenge", "course", "lesson" or "framework".
+  final String kind;
+
+  /// The challenge, course, lesson or template it was written for.
+  final String id;
+
+  /// A challenge task, from 0.
+  final int? task;
+
+  final String label;
+
+  Map<String, Object?> toJson() =>
+      {'kind': kind, 'id': id, 'task': task, 'label': label};
+
+  static JournalSource fromJson(Map<String, Object?> json) => JournalSource(
+        kind: json['kind']! as String,
+        id: json['id']! as String,
+        task: json['task'] as int?,
+        label: json['label']! as String,
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is JournalSource &&
+      other.kind == kind &&
+      other.id == id &&
+      other.task == task &&
+      other.label == label;
+
+  @override
+  int get hashCode => Object.hash(kind, id, task, label);
+}
+
+/// What the user wrote: the readable body, the mood they picked, the
+/// structured values when the body was guided, and where it was written
+/// when that was not the journal editor.
 class JournalContent {
-  const JournalContent({required this.body, this.mood, this.guided});
+  const JournalContent(
+      {required this.body, this.mood, this.guided, this.source});
 
   final String body;
   final JournalMood? mood;
   final GuidedValues? guided;
+  final JournalSource? source;
 
   @override
   bool operator ==(Object other) =>
       other is JournalContent &&
       other.body == body &&
       other.mood == mood &&
-      other.guided == guided;
+      other.guided == guided &&
+      other.source == source;
 
   @override
-  int get hashCode => Object.hash(body, mood, guided);
+  int get hashCode => Object.hash(body, mood, guided, source);
 }
 
 /// A saved journal entry. [bodyVersion] starts at 1 and goes up on every
@@ -95,6 +140,7 @@ class JournalEntry {
         'body': content.body,
         'mood': content.mood?.name,
         'guided': content.guided?.toJson(),
+        'source': content.source?.toJson(),
       };
 
   static JournalEntry fromJson(Map<String, Object?> json) => JournalEntry(
@@ -109,6 +155,11 @@ class JournalEntry {
               ? null
               : GuidedValues.fromJson(
                   Map<String, Object?>.from(json['guided']! as Map)),
+          // Absent in entries saved before sources existed.
+          source: json['source'] == null
+              ? null
+              : JournalSource.fromJson(
+                  Map<String, Object?>.from(json['source']! as Map)),
         ),
       );
 }

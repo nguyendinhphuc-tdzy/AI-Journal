@@ -9,10 +9,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    // Each test is a fresh day: yesterday done, today not yet.
+    StreakState.shared.reset();
+  });
   for (final size in [const Size(320, 640), const Size(640, 320)]) {
-    for (final action in ['Hoàn tất', '✨ Suy ngẫm sâu hơn']) {
-      testWidgets('$action follows full reflection flow at $size',
+    for (final action in ['Lưu nhật ký', 'Nhìn lại cùng bạn']) {
+      testWidgets('$action saves, then the streak, at $size',
           (tester) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = size;
@@ -21,64 +25,77 @@ void main() {
         await tester.pumpWidget(const AiDiaryApp());
         await tester.pumpAndSettle();
         final originalHome = tester.element(find.byType(HomeScreen));
-        final expectedStreak = StreakState.shared.nextCount;
-        await tester.tap(find.text('Cùng suy ngẫm ➔'));
+        await tester.ensureVisible(find.text('Viết nhật ký'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Viết nhật ký'));
         await tester.pumpAndSettle();
         expect(find.byType(WriteJournalScreen), findsOneWidget);
         await tester.enterText(find.byType(TextField), 'A quiet moment today.');
-        if (action != 'Hoàn tất') {
+        // Going deeper turns on once there is something written.
+        await tester.pump();
+        if (action != 'Lưu nhật ký') {
+          // No account here: no AI question, never a made-up one.
           await tester.tap(find.text(action));
           await tester.pumpAndSettle();
           expect(find.byType(AiReflectionScreen), findsNothing);
-          expect(find.text('A quiet moment today.'), findsOneWidget);
+          expect(find.text(WriteJournalScreen.deeperNeedsAccount),
+              findsOneWidget);
           expect(find.byType(TextField), findsOneWidget);
+          expect(
+              tester.widget<TextField>(find.byType(TextField)).decoration!
+                  .hintText,
+              'Bắt đầu viết...');
+          ScaffoldMessenger.of(tester.element(find.byType(TextField)))
+              .removeCurrentSnackBar();
+          await tester.pumpAndSettle();
           await tester.enterText(
               find.byType(TextField), 'School feels overwhelming.');
         }
-        await tester.tap(find.text('Hoàn tất'));
+        await tester.tap(find.text('Lưu nhật ký'));
         await tester.pumpAndSettle();
         expect(find.text('Bạn đã hoàn tất chưa?'), findsOneWidget);
         expect(find.byType(AiReflectionScreen), findsNothing);
         await tester.tap(find.text('Quay lại'));
         await tester.pumpAndSettle();
         expect(find.text('Bạn đã hoàn tất chưa?'), findsNothing);
-        await tester.tap(find.text('Hoàn tất'));
+        await tester.tap(find.text('Lưu nhật ký'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Xác nhận'));
         await tester.pumpAndSettle();
-        expect(
-            tester
-                .widget<AiReflectionScreen>(find.byType(AiReflectionScreen))
-                .journalContent,
-            action == 'Hoàn tất'
-                ? 'A quiet moment today.'
-                : 'A quiet moment today.\n\nSchool feels overwhelming.');
+        // AI is off here (no consent, no service): no reflection, never a
+        // mock one; the day's first entry still goes to the streak.
+        expect(find.byType(AiReflectionScreen), findsNothing);
+        expect(find.byType(StreakScreen), findsOneWidget);
 
-        // Pushing reflection preserves the editor and its draft on Quay lại.
+        // Pushing the streak preserves the editor and its draft on Quay lại.
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
         expect(
             tester.widget<TextField>(find.byType(TextField)).controller!.text,
-            action == 'Hoàn tất'
+            action == 'Lưu nhật ký'
                 ? 'A quiet moment today.'
                 : 'School feels overwhelming.');
-        await tester.tap(find.text('Hoàn tất'));
+        await tester.tap(find.text('Lưu nhật ký'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Xác nhận'));
-        await tester.pumpAndSettle();
-        await tester.pump(const Duration(seconds: 7));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Tiếp tục'));
         await tester.pumpAndSettle();
         expect(find.byType(StreakScreen), findsOneWidget);
         expect(ModalRoute.of(tester.element(find.byType(StreakScreen))),
             isA<PageRouteBuilder<void>>());
-        expect(
-            find.text('Chuỗi $expectedStreak ngày liên tiếp'), findsOneWidget);
-        await tester.tap(find.text('Tiếp tục'));
+        // No account, no server count: the day is celebrated, never a
+        // made-up number of days.
+        expect(find.text('Bạn đã lưu nhật ký hôm nay!'), findsOneWidget);
+        expect(find.textContaining('ngày liên tục'), findsNothing);
+        await tester.tap(find.text('Khám phá tiếp'));
         await tester.pumpAndSettle();
         expect(tester.element(find.byType(HomeScreen)), same(originalHome));
-        expect(find.text('$expectedStreak ngày liên tiếp'), findsOneWidget);
+        // Back at the top of Home: no streak pill without an account, as
+        // on the streak screen.
+        await tester.drag(find.byKey(const PageStorageKey('home-scroll')),
+            const Offset(0, 2000));
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.local_fire_department_outlined), findsNothing);
+        expect(find.textContaining(' ngày'), findsNothing);
         expect(
             find.byType(WriteJournalScreen, skipOffstage: false), findsNothing);
         expect(
@@ -90,4 +107,39 @@ void main() {
       });
     }
   }
+
+  testWidgets('A second entry the same day goes Home without the streak',
+      (tester) async {
+    Future<void> writeEntry(String text) async {
+      await tester.ensureVisible(find.text('Viết nhật ký'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Viết nhật ký'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), text);
+      await tester.tap(find.text('Lưu nhật ký'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Xác nhận'));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.pumpWidget(const AiDiaryApp());
+    await tester.pumpAndSettle();
+    final home = tester.element(find.byType(HomeScreen));
+    final count = StreakState.shared.nextCount;
+
+    await writeEntry('Buổi sáng yên.');
+    expect(find.byType(StreakScreen), findsOneWidget);
+    await tester.tap(find.text('Khám phá tiếp'));
+    await tester.pumpAndSettle();
+    expect(StreakState.shared.completedToday, isTrue);
+
+    await writeEntry('Buổi tối cũng ổn.');
+    expect(find.byType(StreakScreen, skipOffstage: false), findsNothing);
+    expect(tester.element(find.byType(HomeScreen)), same(home));
+    expect(find.byType(AiReflectionScreen, skipOffstage: false), findsNothing);
+    expect(Navigator.of(home).canPop(), isFalse);
+    // Still counted once.
+    expect(StreakState.shared.value, count);
+    expect(tester.takeException(), isNull);
+  });
 }
