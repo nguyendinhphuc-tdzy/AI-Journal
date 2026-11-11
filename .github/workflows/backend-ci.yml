@@ -1,0 +1,56 @@
+name: Backend CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - setup/initial-import
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: FastAPI tests / Alembic
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+
+    # Never use a real Supabase URL in CI. Unit tests also create their own
+    # temporary SQLite database and cannot mutate the team's shared database.
+    env:
+      APP_ENV: test
+      AI_PROVIDER: mock
+      DATABASE_URL: sqlite:///./ci_migration.sqlite3
+      MIGRATION_DATABASE_URL: sqlite:///./ci_migration.sqlite3
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run backend tests
+        run: python -m pytest -q
+
+      - name: Apply migrations to temporary CI SQLite database
+        run: alembic upgrade head
+
+      - name: Verify schema matches SQLAlchemy models
+        run: alembic check
