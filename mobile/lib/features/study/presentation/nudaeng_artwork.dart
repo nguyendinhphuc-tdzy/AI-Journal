@@ -33,11 +33,20 @@ enum NudaengArtwork {
     animationAsset: 'assets/NudaenggifDe/ND05-check-notebook-transparent.gif',
     maxDuration: Duration(milliseconds: 1200),
   ),
-  challengeCompletion(
-    'assets/Deimage/Bạn đã hoàn thành challengs-transparent.png',
+
+  /// S06 on the first completion: only the tail wag, resting on its own first
+  /// frame (its loop seam) and wagging again now and then. It never dissolves
+  /// into the completion drawing.
+  challengeCelebration(
+    'assets/NudaenggifDe/Vẫy đuôi-transparent.gif',
     animationAsset: 'assets/NudaenggifDe/Vẫy đuôi-transparent.gif',
     maxDuration: Duration(milliseconds: 1800),
+    idleFidget: true,
   ),
+
+  /// S06 revisited after leaving it ("Xem kết quả"): the static drawing only.
+  challengeCompletion(
+      'assets/Deimage/Bạn đã hoàn thành challengs-transparent.png'),
   courseCompletion(
     'assets/NudaenggifDe/Chú chó ôm sách đầy yêu thương-transparent.gif',
     idleFrame: 4,

@@ -88,6 +88,18 @@ void main() {
     expect(duration, const Duration(milliseconds: 1200));
   });
 
+  test('S06 first time rests on the tail wag; reopened shows the static image',
+      () {
+    const celebration = NudaengArtwork.challengeCelebration;
+    expect(celebration.animationAsset, endsWith('-transparent.gif'));
+    // Resting on the GIF itself means it never dissolves into another drawing.
+    expect(celebration.idleAsset, celebration.animationAsset);
+    expect(celebration.idleFidget, isTrue);
+    const completion = NudaengArtwork.challengeCompletion;
+    expect(completion.idleAsset, endsWith('challengs-transparent.png'));
+    expect(completion.animationAsset, isNull);
+  });
+
   testWidgets('Study banner shows static Study-transparent.png, never a GIF',
       (tester) async {
     expect(NudaengArtwork.study.idleAsset,

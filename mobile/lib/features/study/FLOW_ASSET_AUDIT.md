@@ -16,7 +16,7 @@ backend, core, navigation hoặc pubspec trong lượt đối chiếu này.
 | S03 | `Chó Bài học đọc hoặc video.jpg` | Không | Pose 64 px tại đầu panel thực hành; người dùng chốt dùng file laptop dù prose mô tả khác |
 | S04 | `Mời.jpg` | `Nudaeng_gio_bang_ra_truoc_1_5s.gif`, ≤1,5 giây | Giữ đúng file, không replay khi scroll |
 | S05 | `Pose chờ challenges.jpg` | GIF ND05 mới, 1,2 giây | Người dùng chốt giữ pose ngủ; yêu cầu tạo riêng check notebook + gật đầu |
-| S06 | `Bạn đã hoàn thành challengs.jpg` | `Vẫy đuôi.gif`, ≤1,8 giây | Giữ đúng file chó nằm vẫy đuôi; tên JPG thực tế thiếu chữ “e” so với note |
+| S06 | Lần đầu: frame đầu (index 0) của `Vẫy đuôi.gif`. Mở lại qua “Xem kết quả”: `Bạn đã hoàn thành challengs.jpg` | Lần đầu: `Vẫy đuôi.gif`, ≤1,8 giây, sau đó idle tự vẫy lại (nghỉ 3-6 giây). Mở lại: không | Đổi 15/10/2026: lần đầu chỉ hiện Nudaeng vẫy đuôi, không chuyển sang ảnh hoàn thành; ảnh hoàn thành chỉ hiện khi user back ra rồi mở lại kết quả. Tên JPG thực tế thiếu chữ “e” so với note |
 | S07 | Frame ôm sách (index 4) | `Chú chó ôm sách đầy yêu thương.gif`, ≤1,8 giây | Dùng tên file thật; note viết nhầm “đây yêu thuơng” |
 
 Runtime dùng các bản `*-transparent` của đúng nguồn trên. Chỉ ND05 là asset mới
